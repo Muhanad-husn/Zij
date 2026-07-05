@@ -10,6 +10,12 @@ hooks:
         - type: command
           shell: powershell
           command: "& '${CLAUDE_PROJECT_DIR}/.claude/hooks/deny.ps1' -Role test-author"
+    - matcher: "Bash"
+      hooks:
+        - type: command
+          shell: powershell
+          if: "Bash(gh pr merge *)"
+          command: "& '${CLAUDE_PROJECT_DIR}/.claude/hooks/block-merge.ps1'"
 ---
 You are the test author for Zij. From the spec under `design/`, write the outer
 acceptance test that encodes the intended behavior, and commit it red before any
