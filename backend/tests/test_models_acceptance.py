@@ -11,10 +11,10 @@ And   a LayerSnapshot wrapping that Feature round-trips through model_validate()
 
 This is the behavioral contract (DEC-1), transcribed from
 plans/models/01-feature-schema.md and design/contracts/feature-schema.md (the
-air wire example at contract lines 173-195). It is authored and committed red
-by the test-author before any implementation exists, guarded by a strict
-xfail (DEC-33). Do not weaken these assertions and do not remove the xfail
-marker until the implementer has made this genuinely pass.
+air wire example at contract lines 173-195). It was authored and committed red
+by the test-author before any implementation existed, guarded by a strict
+xfail (DEC-33). The implementer has since made it genuinely pass; the xfail
+marker has been removed to finalize the contract.
 """
 
 import json
@@ -73,7 +73,6 @@ RAW_PAYLOAD_EXAMPLE = {
 }
 
 
-@pytest.mark.xfail(reason="backend.models not yet implemented", strict=True)
 def test_feature_and_layer_snapshot_schema_from_air_wire_example():
     from pydantic import ValidationError
 
