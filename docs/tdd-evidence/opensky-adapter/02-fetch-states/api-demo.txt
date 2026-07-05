@@ -1,0 +1,31 @@
+=== OpenSkyAdapter.fetch(hormuz) against recorded fixture ===
+fixture states in file : 20
+meta.layer             : Domain.AIR
+meta.status            : LayerStatus.LIVE  (adapter leaves LIVE for scheduler)
+meta.region_id         : hormuz
+meta.feature_count     : 20
+meta.timestamp_source  : 2026-07-05 17:28:04+00:00  (newest non-null, UTC)
+meta.timestamp_fetched : 2026-07-05 18:45:11.445003+00:00  (UTC)
+meta.cadence_s         : 600   stale_after_s: 1200
+
+--- sample feature[0] ---
+source_id (icao24)     : 80160a
+label (callsign)       : 'IGO63H'
+lat, lon               : 25.2317, 55.4025
+geometry_type          : GeometryType.POINT
+status                 : FeatureStatus.STALE
+position_source        : 'ADS-B'  (int->label)
+velocity_ms            : 74.55
+true_track_deg         : 301.17
+altitude_m             : 10050.78
+timestamp_source       : 2026-07-05 17:26:20+00:00
+position_age_s         : 4731.445003
+
+--- credit accounting (FR1 / D5) ---
+estimate_credits(hormuz): 1  (area 6.25 sq deg -> tier 1)
+ledger remaining before : 4000
+ledger remaining after  : 3999  (decremented by 1 on success)
+
+--- NFR5 / wire hygiene ---
+raw_payload present in model_dump(): False  (must be False; in-memory only)
+raw_payload retained in-memory     : True
