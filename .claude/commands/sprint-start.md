@@ -22,17 +22,28 @@ a red suite, the implementer cannot touch the outer test or `design/`.
    subagent to write it. If a spec already exists, do not touch it — it is frozen
    during implementation (drift → a `spec-drift` issue, never an in-place edit).
 
-4. **Outer test red (test-author — DEC-1).** Dispatch the **test-author** subagent to
-   write the slice's **outer acceptance test** encoding the plan's Given/When/Then,
-   and **commit it red** before any implementation. This is the locked behavioral
-   contract. **No implementation commit may precede this red commit** — verify the
-   red commit exists before step 5.
+4. **Outer test red (test-author — DEC-1, DEC-33).** Dispatch the **test-author**
+   subagent to write the slice's **outer acceptance test** encoding the plan's
+   Given/When/Then, and **commit it red** before any implementation. Under the
+   tests-green gate the red commit is achieved with
+   `@pytest.mark.xfail(reason="… not yet implemented", strict=True)` (DEC-33): the
+   absent behavior makes it `xfailed` → pytest exits 0 → the red commit lands. This is
+   the locked behavioral contract. **No implementation commit may precede this red
+   commit** — verify the red commit exists (and that it carries the strict-xfail
+   marker) before step 5.
 
 5. **Green the inner cycles (implementer).** Dispatch the **implementer** subagent to
    drive inner unit red→green→refactor cycles (the `red-green-refactor` skill) until
    the outer test passes. The implementer writes only under `backend/`/`frontend/`;
    the hooks block it from editing the outer test or `design/`. Escalate the
-   implementer to Opus only if the slice genuinely warrants it.
+   implementer to Opus only if the slice genuinely warrants it. **Marker-removal
+   handoff (DEC-33):** when the behavior is complete the strict-xfail outer test
+   XPASSes → the suite goes red → the implementer's final commit is blocked and it
+   cannot clear the marker (path guard). The implementer greens the behavior, leaves
+   the final state in the working tree, and hands back. Then dispatch the
+   **test-author** once more to **remove the `xfail` marker** and land the final
+   fully-green commit (finalizing the locked contract). Only after that is the slice
+   green end-to-end.
 
 6. **Two-stage review (reviewer).** Dispatch the **reviewer** subagent: spec-
    compliance first (does the outer test truly encode intent?), then code-quality. On

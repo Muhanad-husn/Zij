@@ -1,0 +1,12 @@
+============================= test session starts =============================
+platform win32 -- Python 3.13.14, pytest-9.1.1, pluggy-1.6.0 -- D:\Zij\.venv\Scripts\python.exe
+cachedir: .pytest_cache
+rootdir: D:\Zij
+configfile: pyproject.toml
+testpaths: backend/tests
+collecting ... collected 2 items
+
+backend/tests/test_baseline.py::test_baseline PASSED                     [ 50%]
+backend/tests/test_health_status_acceptance.py::test_health_status_returns_exact_contract_dict PASSED [100%]
+
+============================== 2 passed in 0.02s ==============================
