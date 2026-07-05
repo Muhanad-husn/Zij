@@ -109,6 +109,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import parse_qs
 
+import httpx
 import pytest
 import respx
 from httpx import Response
@@ -607,6 +608,107 @@ async def test_malformed_json_raises_parse_error_without_retrying():
         adapter = OverpassAdapter(cfg)
         await adapter.start()
         with pytest.raises(ParseError):
+            await adapter._fetch_class("node[barrier=border_control](0,0,1,1);out;")
+        await adapter.stop()
+
+    assert route.call_count == 1
+
+
+async def test_timeout_rotates_mirrors_then_exhausts_to_upstream_error():
+    """Inner unit (plan item 6 addendum -- reviewer-flagged coverage gap,
+    issue #15): every attempt across BOTH mirrors raising
+    `httpx.TimeoutException` rotates round-robin (mirroring
+    `test_429_504_rotates_mirrors_then_exhausts_to_upstream_error` above) and,
+    once `cfg.max_attempts` is exhausted across mirrors, raises
+    `UpstreamError` -- not an infinite retry, and not a raw
+    `httpx.TimeoutException` escaping to the caller.
+
+    NOTE (spec discrepancy, issue #30): `design/specs/overpass.md` is internally
+    inconsistent about timeout handling -- one passage groups timeout with
+    429/504 as a retryable, rotate-and-backoff condition, another lists
+    timeout under "immediate UpstreamError" alongside transport errors. This
+    test pins the adapter's AS-BUILT behavior: timeout is retryable (rotate +
+    backoff), same as 429/504. It is the interim resolution while #30 is open.
+    If the maintainer adjudicates #30 toward immediate-UpstreamError-on-timeout,
+    this test must be updated alongside the adapter in that same
+    drift-resolution pass.
+    """
+    from backend.sources.base import UpstreamError
+    from backend.sources.overpass import OverpassAdapter
+
+    mirror_a = "https://mirror-a.test/api/interpreter"
+    mirror_b = "https://mirror-b.test/api/interpreter"
+    cfg = _make_overpass_cfg(
+        mirrors=[mirror_a, mirror_b],
+        backoff_base_s=0.001,
+        backoff_max_s=0.001,
+        max_attempts=3,
+    )
+
+    async with respx.mock() as respx_mock:
+        route_a = respx_mock.post(mirror_a).mock(
+            side_effect=httpx.TimeoutException("timed out")
+        )
+        route_b = respx_mock.post(mirror_b).mock(
+            side_effect=httpx.TimeoutException("timed out")
+        )
+        adapter = OverpassAdapter(cfg)
+        await adapter.start()
+
+        with pytest.raises(UpstreamError):
+            await adapter._fetch_class("way[highway=primary](0,0,1,1);out geom;")
+
+        await adapter.stop()
+
+    # max_attempts=3, round-robin over 2 mirrors: mirror-a, mirror-b, mirror-a.
+    assert route_a.call_count == 2
+    assert route_b.call_count == 1
+    assert route_a.call_count + route_b.call_count == cfg.max_attempts
+
+
+async def test_transport_error_raises_immediate_upstream_error_without_retry():
+    """Inner unit (plan item 6 addendum -- reviewer-flagged coverage gap,
+    issue #15): a connection-level failure (`httpx.ConnectError`, a
+    `TransportError` subclass) is NOT treated as retryable the way
+    timeout/429/504 are -- it raises `UpstreamError` immediately, with
+    exactly one request made (no backoff, no mirror rotation), pinning the
+    `except httpx.TransportError` branch in `_fetch_class`."""
+    from backend.sources.base import UpstreamError
+    from backend.sources.overpass import OverpassAdapter
+
+    mirror = "https://overpass.test/api/interpreter"
+    cfg = _make_overpass_cfg(mirrors=[mirror])
+
+    async with respx.mock() as respx_mock:
+        route = respx_mock.post(mirror).mock(
+            side_effect=httpx.ConnectError("connection refused")
+        )
+        adapter = OverpassAdapter(cfg)
+        await adapter.start()
+        with pytest.raises(UpstreamError):
+            await adapter._fetch_class("node[barrier=border_control](0,0,1,1);out;")
+        await adapter.stop()
+
+    assert route.call_count == 1
+
+
+async def test_other_5xx_raises_immediate_upstream_error_without_retry():
+    """Inner unit (plan item 6 addendum -- reviewer-flagged coverage gap,
+    issue #15): a 5xx status that is NOT 429/504 (e.g. 503) is not one of the
+    retryable statuses -- it raises `UpstreamError` immediately, with exactly
+    one request made (no backoff, no mirror rotation), pinning the
+    `status >= 500` (non-429/504) branch in `_fetch_class`."""
+    from backend.sources.base import UpstreamError
+    from backend.sources.overpass import OverpassAdapter
+
+    mirror = "https://overpass.test/api/interpreter"
+    cfg = _make_overpass_cfg(mirrors=[mirror])
+
+    async with respx.mock() as respx_mock:
+        route = respx_mock.post(mirror).mock(return_value=Response(503))
+        adapter = OverpassAdapter(cfg)
+        await adapter.start()
+        with pytest.raises(UpstreamError):
             await adapter._fetch_class("node[barrier=border_control](0,0,1,1);out;")
         await adapter.stop()
 
