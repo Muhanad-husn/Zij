@@ -16,7 +16,7 @@ from datetime import datetime, timedelta, timezone
 import httpx
 from pydantic import BaseModel
 
-from backend.config import Secrets
+from backend.config import Secrets, estimate_credits
 from backend.models import Domain, LayerSnapshot
 from backend.sources.base import AuthError, PollAdapter, Region
 
@@ -129,13 +129,23 @@ class OpenSkyAdapter(PollAdapter):
         """Open the shared AsyncClient (idempotent) and prefetch a token.
         Concurrent `start()` calls race on the same `_TokenManager._lock`, so
         at most one token request is ever in flight."""
+        opened_client = self._client is None
+        opened_token_manager = self._token_manager is None
         if self._client is None:
             self._client = httpx.AsyncClient()
         if self._token_manager is None:
             self._token_manager = _TokenManager(
                 self._cfg, self._secrets, self._client
             )
-        await self._token_manager.get_token()
+        try:
+            await self._token_manager.get_token()
+        except Exception:
+            if opened_client:
+                await self._client.aclose()
+                self._client = None
+            if opened_token_manager:
+                self._token_manager = None
+            raise
 
     async def stop(self) -> None:
         if self._client is not None:
@@ -148,6 +158,4 @@ class OpenSkyAdapter(PollAdapter):
         )
 
     def estimate_credits(self, bbox: tuple[float, float, float, float]) -> int:
-        from backend.config import estimate_credits
-
         return estimate_credits(bbox)
