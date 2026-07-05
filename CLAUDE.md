@@ -59,8 +59,12 @@ Test authorship is split, on purpose:
 
 1. The **outer acceptance test is the locked behavioral contract.** The
    spec/test-author writes it and commits it **red**, before any implementation.
-2. The **implementer drives inner unit red→green→refactor cycles only.** The
-   implementer may not edit the outer test or the specs.
+2. The **implementer drives inner unit red→green→refactor cycles only** — writing
+   product code to green the tests, never authoring tests itself. All test
+   authorship, outer *and* inner, belongs to the test-author (DEC-34; the path guard
+   denies the implementer every `**/tests/` write); a slice's inner unit tests are
+   written by the test-author from the plan's unit list. The implementer may not edit
+   any test or the specs.
 
 No implementation commit ever precedes its slice's red outer test.
 
