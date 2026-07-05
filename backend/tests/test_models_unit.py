@@ -11,6 +11,8 @@ Written by the author (); the developer is separated out of
 backend/tests/ and may not edit this file.
 """
 
+from datetime import datetime, timedelta, timezone
+
 import pytest
 from pydantic import ValidationError
 
@@ -165,6 +167,40 @@ def test_raw_payload_excluded_from_dump_but_kept_in_memory():
     assert feature.raw_payload == raw
     assert "raw_payload" not in feature.model_dump()
     assert "raw_payload" not in feature.model_dump_json()
+
+
+def test_feature_normalizes_aware_non_utc_timestamp_to_utc():
+    # Reviewer-identified gap (fixed in fa38395): an aware but non-UTC
+    # datetime must be *normalized* to UTC, not merely accepted with its
+    # original offset. +05:00 09:12:03 == +00:00 04:12:03 (same instant).
+    plus_five = timezone(timedelta(hours=5))
+    aware_non_utc = datetime(2026, 7, 5, 9, 12, 3, tzinfo=plus_five)
+    expected_utc = datetime(2026, 7, 5, 4, 12, 3, tzinfo=timezone.utc)
+
+    feature = Feature.model_validate(
+        {
+            **BASE_AIR_FEATURE,
+            "timestamp_source": aware_non_utc,
+            "timestamp_fetched": aware_non_utc,
+        }
+    )
+
+    for value in (feature.timestamp_source, feature.timestamp_fetched):
+        # Old tzinfo-only validator would leave utcoffset() == timedelta(hours=5);
+        # a stub that merely checks "is aware" would pass without this.
+        assert value.utcoffset() == timedelta(0)
+        # The instant is preserved -- this is normalization, not truncation.
+        assert value == expected_utc
+        # Wall-clock actually shifted (guards against a no-op that swaps
+        # tzinfo without recomputing the clock fields).
+        assert value.hour == 4 and value.minute == 12 and value.second == 3
+
+    dumped = feature.model_dump_json()
+    # The wire format must carry the UTC-shifted wall-clock, with a UTC
+    # offset marker (Z or +00:00) and never the original +05:00 offset.
+    assert "04:12:03" in dumped
+    assert "+05:00" not in dumped
+    assert ("Z" in dumped) or ("+00:00" in dumped)
 
 
 def test_layer_snapshot_round_trip_carries_stale_after_s():
