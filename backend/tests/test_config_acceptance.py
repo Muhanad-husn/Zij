@@ -26,13 +26,11 @@ path are explicitly out of scope for this slice (plans/config/01-config-loader.m
 AISHUB_USERNAME to be set even though those layers appear (disabled or absent)
 in the full config.md contract.
 
-It is authored and committed red by the test-author before any implementation
-exists, guarded by a strict xfail (DEC-33). The implementer will make it
-genuinely pass; the xfail marker is removed only then, to finalize the
+It was authored and committed red by the test-author before any
+implementation existed (strict xfail, DEC-33). The implementer has since made
+it genuinely pass; the xfail marker has been removed to finalize the
 contract.
 """
-
-import pytest
 
 HORMUZ_BBOX = (55.0, 25.0, 57.5, 27.5)
 
@@ -47,9 +45,6 @@ ALL_PREDEFINED_REGION_IDS = (
 )
 
 
-@pytest.mark.xfail(
-    reason="backend.config.load_config not yet implemented", strict=True
-)
 def test_load_config_returns_regions_credit_tier_and_isolated_secrets(monkeypatch):
     # --- Given: env vars carrying the OpenSky secret pair are set (NFR5: env
     # only) ---
