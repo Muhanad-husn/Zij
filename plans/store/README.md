@@ -15,7 +15,7 @@ public mirrors. Never parses source payloads (STRUCTURE §3). `fallback_snapshot
 
 | # | Slice | Goal (one line) | Status | PR |
 |---|-------|-----------------|--------|----|
-| 01 | [land-cache](01-land-cache.md) | `land_cache` round-trips a region's GeoJSON + `osm_base` + `fetched_at` | ☐ todo | — |
+| 01 | [land-cache](01-land-cache.md) | `land_cache` round-trips a region's GeoJSON + `osm_base` + `fetched_at` | ☑ built (PR #27) | [#27](https://github.com/Muhanad-husn/Zij/pull/27) |
 
 ## Out of scope (whole feature)
 
