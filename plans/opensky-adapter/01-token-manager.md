@@ -5,7 +5,7 @@
 - **Issue:** #13
 - **Branch:** feat/opensky-adapter/01-token-manager
 - **Project directory:** `.`
-- **Status:** ☐ todo
+- **Status:** ☑ built — PR [#26](https://github.com/Muhanad-husn/Zij/pull/26) open into `main` (awaiting founder approval)
 - **Walking skeleton?** no
 
 > **Zij roles (DEC-1):** **test-author** commits the outer test **red** (strict-xfail, DEC-33) before implementation; **implementer** drives inner cycles, may not edit the outer test or `design/`; **test-author** removes the marker on green. Spec wrong mid-build ⇒ `spec-drift` issue.
@@ -56,10 +56,11 @@ And   a non-2xx token response raises AuthError (no auto-retry)
 
 ## Definition of done
 
-- [ ] Outer test authored **RED before implementation** (DEC-1; strict-xfail DEC-33), seen red, now GREEN.
-- [ ] Inner behaviours covered; `uv run pytest` green; `uv run ruff check` clean; refactor on green.
-- [ ] CI (`tdd-ci`); evidence; PR into `main` (`safe-pr`).
+- [x] Outer test authored **RED before implementation** (DEC-1; strict-xfail DEC-33), seen red, now GREEN.
+- [x] Inner behaviours covered; `uv run pytest` green (41 passed); `uv run ruff check` clean; refactor on green.
+- [x] CI (`ci.yml` present); evidence committed; PR [#26](https://github.com/Muhanad-husn/Zij/pull/26) into `main` (`safe-pr`).
 
 ## Status / progress log
 
 - 2026-07-05 planned (sprint v0). Adds runtime deps `httpx`, `websockets`(defer if unused) and dev deps `respx`, `freezegun`, `pytest-asyncio` if not already present.
+- 2026-07-05 built via `/sprint-start`. Outer test committed red (`128165e`, strict-xfail); implemented `backend/sources/base.py` + `opensky.py`; marker removed + inner tests (`08680d8`); reviewer DONE_WITH_CONCERNS → resource-leak fix on `start()` error path (`9ef6732`); evidence (`3529aa3`). `httpx` added runtime; `respx`/`freezegun`/`pytest-asyncio` added dev; `asyncio_mode = "auto"`. `websockets` deferred (unused this slice). Suite 41 passed, ruff clean. PR #26 prepared into `main` — awaiting founder approval.

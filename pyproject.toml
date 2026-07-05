@@ -7,13 +7,20 @@ requires-python = ">=3.13"
 # per design/docs/STRUCTURE.md §5 (fastapi, uvicorn, httpx, websockets,
 # sse-starlette, pydantic, pydantic-settings, shapely, platformdirs).
 dependencies = [
+    "httpx>=0.28.1",
     "platformdirs>=4.10.0",
     "pydantic>=2.13.4",
     "pydantic-settings>=2.14.2",
 ]
 
 [dependency-groups]
-dev = ["pytest>=8", "ruff>=0.6"]
+dev = [
+    "freezegun>=1.5.5",
+    "pytest>=8",
+    "pytest-asyncio>=1.4.0",
+    "respx>=0.23.1",
+    "ruff>=0.6",
+]
 
 [build-system]
 requires = ["hatchling"]
@@ -26,6 +33,7 @@ packages = ["backend"]
 [tool.pytest.ini_options]
 testpaths = ["backend/tests"]
 pythonpath = ["."]
+asyncio_mode = "auto"
 
 [tool.ruff]
 target-version = "py313"

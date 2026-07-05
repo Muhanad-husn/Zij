@@ -17,7 +17,7 @@ Develop top to bottom.
 
 | # | Slice | Goal (one line) | Status | PR |
 |---|-------|-----------------|--------|----|
-| 01 | [token-manager](01-token-manager.md) | Single-flight, proactively-refreshed OAuth2 token | ☐ todo | — |
+| 01 | [token-manager](01-token-manager.md) | Single-flight, proactively-refreshed OAuth2 token | ☑ PR open | [#26](https://github.com/Muhanad-husn/Zij/pull/26) |
 | 02 | [fetch-states](02-fetch-states.md) ⭐ | Parse the real Hormuz `/states/all` fixture → `LayerSnapshot(AIR)` + credit accounting | ☐ todo | — |
 
 ⭐ = walking skeleton (first real upstream data; validates credit math).
