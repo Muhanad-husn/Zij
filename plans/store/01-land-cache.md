@@ -5,7 +5,7 @@
 - **Issue:** #11
 - **Branch:** feat/store/01-land-cache
 - **Project directory:** `.`
-- **Status:** ☐ todo
+- **Status:** ☑ built — PR [#27](https://github.com/Muhanad-husn/Zij/pull/27) (awaiting founder approval)
 - **Walking skeleton?** no
 
 > **Zij roles (DEC-1):** **test-author** commits the outer test **red** (strict-xfail, DEC-33) before implementation; **implementer** drives inner cycles, may not edit the outer test or `design/`; **test-author** removes the marker on green. Spec wrong mid-build ⇒ `spec-drift` issue.
@@ -61,3 +61,4 @@ And   get_land_cache("gulf-of-oman") returns None (no row)
 ## Status / progress log
 
 - 2026-07-05 planned (sprint v0).
+- 2026-07-05 built via `/sprint-start`: outer test red `ddf424f` (strict-xfail, DEC-33) → implementer greened → marker removed + inner test `bbd1a83` → two-stage review PASS (no findings) → evidence `513361b` → PR #27 into `main`. `uv run pytest` 43 passed; ruff clean. Awaiting founder merge approval.
