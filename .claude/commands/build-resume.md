@@ -37,7 +37,8 @@ Follow these steps in order:
      can never merge; the tests-green hook blocks commits on a red suite.
    - Dispatch build work (spec / test / implementation / review) to the tool-locked
      role subagents in `.claude/agents/`.
-   - Hooks and scripts on this Windows host are **PowerShell** (`shell: powershell`).
+   - Hooks and scripts on this Windows host are **PowerShell**, invoked explicitly as
+     `pwsh -NoProfile -File <script>.ps1` (not the `shell` hook field — see DEC-24).
 
 6. **Keep the tracker live.** Update `docs/agentic-build.md` (Progress Tracker rows +
    new DEC rows) as you complete work, exactly as prior phases did.

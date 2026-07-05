@@ -8,8 +8,7 @@ hooks:
     - matcher: "Edit|Write"
       hooks:
         - type: command
-          shell: powershell
-          command: "& '${CLAUDE_PROJECT_DIR}/.claude/hooks/deny.ps1' -Role spec-author"
+          command: "pwsh -NoProfile -File ${CLAUDE_PROJECT_DIR}/.claude/hooks/deny.ps1 -Role spec-author"
 ---
 You are the spec author for Zij. Write clear behavioral specifications and
 contracts under `design/` only (`design/specs/`, `design/contracts/`,

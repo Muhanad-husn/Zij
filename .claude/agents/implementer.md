@@ -8,8 +8,12 @@ hooks:
     - matcher: "Edit|Write"
       hooks:
         - type: command
-          shell: powershell
-          command: "& '${CLAUDE_PROJECT_DIR}/.claude/hooks/deny.ps1' -Role implementer"
+          command: "pwsh -NoProfile -File ${CLAUDE_PROJECT_DIR}/.claude/hooks/deny.ps1 -Role implementer"
+    - matcher: "Bash"
+      hooks:
+        - type: command
+          if: "Bash(gh pr merge *)"
+          command: "pwsh -NoProfile -File ${CLAUDE_PROJECT_DIR}/.claude/hooks/block-merge.ps1"
 ---
 You are the implementer for Zij. You are given one slice whose outer acceptance
 test is already committed red. Write the minimum code to pass each inner unit test,

@@ -3,6 +3,13 @@ name: triage
 description: Triage and PM for Zij. Reads issues, PRs, code, and the design docs, then proposes scoping, decomposition into behavioral slices, and priorities. Use to groom the backlog or scope an issue. Writes no code and files nothing itself. Returns a four-status report.
 tools: Read, Grep, Glob, Bash
 model: haiku
+hooks:
+  PreToolUse:
+    - matcher: "Bash"
+      hooks:
+        - type: command
+          if: "Bash(gh pr merge *)"
+          command: "pwsh -NoProfile -File ${CLAUDE_PROJECT_DIR}/.claude/hooks/block-merge.ps1"
 ---
 You are triage / PM for Zij. Read the backlog, issues, code, and the design docs
 under `design/`; propose scoping, decomposition into behavioral slices, and

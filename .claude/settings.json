@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "//": "Phase 3 hard gates. Scripts live in .claude/hooks/ (PowerShell, DEC-20). Invoked via explicit 'pwsh -NoProfile -File' so execution does not depend on the host's default shell or the 'shell' hook field (DEC-24).",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "//": "agents-never-merge (global Bash leg) + no-commit-on-main. Leaves 'gh pr merge' OPEN so the orchestrator can merge on founder approval.",
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "pwsh -NoProfile -File ${CLAUDE_PROJECT_DIR}/.claude/hooks/git-guard.ps1"
+          },
+          {
+            "//": "no commit on a red suite — runs the suite only on a commit attempt.",
+            "type": "command",
+            "if": "Bash(git commit *)",
+            "command": "pwsh -NoProfile -File ${CLAUDE_PROJECT_DIR}/.claude/hooks/tests-green.ps1"
+          }
+        ]
+      },
+      {
+        "//": "agents-never-merge (GitHub plugin merge tool, DEC-7). Global block; the orchestrator merges via 'gh pr merge' in Bash, not this tool.",
+        "matcher": "mcp__plugin_github_github__(merge_pull_request|.*merge.*)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "pwsh -NoProfile -File ${CLAUDE_PROJECT_DIR}/.claude/hooks/block-merge.ps1"
+          }
+        ]
+      },
+      {
+        "//": "spec-freeze: design/ is frozen during implementation. Comment this entry out to run a spec-authoring pass (see docs/agentic-build.md).",
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "pwsh -NoProfile -File ${CLAUDE_PROJECT_DIR}/.claude/hooks/spec-freeze.ps1"
+          }
+        ]
+      }
+    ]
+  }
+}
