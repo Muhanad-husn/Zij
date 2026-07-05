@@ -16,7 +16,7 @@ Develop top to bottom. One slice = one red-green-refactor pass = one PR.
 
 | # | Slice | Goal (one line) | Status | PR |
 |---|-------|-----------------|--------|----|
-| 01 | [health-status](01-health-status.md) | `health_status()` returns the fixed contract dict `{"status":"ok","service":"zij"}` | ◐ in-progress | — |
+| 01 | [health-status](01-health-status.md) | `health_status()` returns the fixed contract dict `{"status":"ok","service":"zij"}` | ✅ done | [#7](https://github.com/Muhanad-husn/Zij/pull/7) |
 
 <!-- Status values: ☐ todo · ◐ in-progress · ✅ done. Update the row when a slice's PR opens. -->
 

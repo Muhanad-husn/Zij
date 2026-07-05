@@ -60,3 +60,8 @@ And   status == "ok" and service == "zij"
 ## Status / progress log
 
 - 2026-07-05 planned. Issue #6 filed; branch to be cut off `main`.
+- 2026-07-05 red: test-author committed the outer acceptance test strict-xfail (`59496da`), `1 xfailed` → exit 0.
+- 2026-07-05 green: implementer wrote `backend/health.py` (left uncommitted at XPASS); test-author removed the marker and landed the green commit (`8adc767`), `2 passed`, ruff clean.
+- 2026-07-05 reviewed: reviewer two-stage DONE, no blocking findings.
+- 2026-07-05 CI: `.github/workflows/ci.yml` added (`tdd-ci`). Evidence collected under `docs/tdd-evidence/`.
+- 2026-07-05 PR: `safe-pr` opened PR #7 into `main`. Awaiting founder merge (Checkpoint 6).
