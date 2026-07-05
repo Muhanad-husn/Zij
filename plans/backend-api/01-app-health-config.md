@@ -5,7 +5,7 @@
 - **Issue:** #17
 - **Branch:** feat/backend-api/01-app-health-config
 - **Project directory:** `.`
-- **Status:** ☐ todo
+- **Status:** ⏳ PR #33 open (awaiting founder approval)
 - **Walking skeleton?** no (backend liveness; the frontend walking skeleton is frontend-map/01)
 
 > **Zij roles (DEC-1):** **test-author** commits the outer test **red** (strict-xfail, DEC-33) before implementation; **implementer** drives inner cycles, may not edit the outer test or `design/`; **test-author** removes the marker on green. Spec wrong mid-build ⇒ `spec-drift` issue.
@@ -60,3 +60,8 @@ And   a request to an unknown /api/ path returns the api.md error envelope ({"er
 ## Status / progress log
 
 - 2026-07-05 planned (sprint v0). Adds runtime deps `fastapi`, `uvicorn`. Blocked-by: config/01.
+- 2026-07-06 built via harness. Outer test red→green (DEC-1/33), two-stage review, PR #33 into `main`.
+  Review fixed one finding (module-level `app` now fails fast on missing secrets per config.md).
+  A hermetic-secrets `conftest.py` was added (founder-approved) that also unbreaks CI on `main`
+  (red since #31 from `test_overpass` calling `load_config()` without secrets). Suite: 98 passed,
+  verified green under a simulated secretless CI env. Awaiting founder merge approval.
