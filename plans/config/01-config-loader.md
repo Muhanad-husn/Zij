@@ -5,7 +5,7 @@
 - **Issue:** #10
 - **Branch:** feat/config/01-config-loader
 - **Project directory:** `.`
-- **Status:** ☐ todo
+- **Status:** ✅ built — PR [#24](https://github.com/Muhanad-husn/Zij/pull/24), awaiting founder approval to merge
 - **Walking skeleton?** no
 
 > **Zij roles (DEC-1):** the **test-author** commits the outer acceptance test **red** (strict-xfail, DEC-33) before any implementation; the **implementer** drives inner cycles and may not edit the outer test or `design/` specs; the **test-author** removes the marker on green. Spec looks wrong mid-build ⇒ raise a `spec-drift` issue, never edit in place.
@@ -67,3 +67,4 @@ And   dumping AppConfig to JSON contains neither the client id nor the secret (N
 ## Status / progress log
 
 - 2026-07-05 planned (sprint v0). Adds runtime deps `pydantic`, `pydantic-settings`, `platformdirs` if not already added by an earlier-landed slice.
+- 2026-07-05 built via /sprint-start. Behavior-first flow: outer test red `36b8f4a` (strict-xfail, DEC-33) → product green + marker removed `444ddc2` → tightened coverage `ae88d87` → evidence `03c0cc3`. Added deps `pydantic-settings`, `platformdirs`. Suite 37 passed, ruff clean. Two-stage review: stage-1 spec-compliance PASS; stage-2 non-blocking test-quality findings all addressed. PR #24 into `main`, awaiting founder approval to merge.
