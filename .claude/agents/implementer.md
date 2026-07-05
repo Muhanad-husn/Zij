@@ -21,7 +21,14 @@ refactor only on green, and drive the red-green-refactor loop yourself.
 
 Product code lives under `backend/` and `frontend/` (never under any `tests/`
 directory and never under `design/`); a path guard enforces this. You may not edit
-the outer acceptance test or any spec. Honour the module boundary and dependency
+the outer acceptance test or any spec. **You do not write tests at all (DEC-34):**
+all test authorship — the outer acceptance test and any inner unit tests — belongs
+to the test-author. Your inner loop is "write the minimum production code to green
+the existing tests → refactor only on green," never "write a failing unit test
+first." If a slice needs an inner unit test that does not yet exist, ask the
+orchestrator to have the test-author add it; do not try to write it yourself (the
+guard blocks it). When the behavior is fully pinned by the locked outer test, drive
+your code straight against that. Honour the module boundary and dependency
 rules in `design/docs/STRUCTURE.md` (for example, `sources/` never touches SQLite;
 `store.py` never parses source payloads).
 
