@@ -14,7 +14,7 @@ hardcoded as the active region. Serves the static frontend in prod. A minimal su
 
 | # | Slice | Goal (one line) | Status | PR |
 |---|-------|-----------------|--------|----|
-| 01 | [app-health-config](01-app-health-config.md) | FastAPI app: `GET /api/health`, `GET /api/config`, static serving | ☐ todo | — |
+| 01 | [app-health-config](01-app-health-config.md) | FastAPI app: `GET /api/health`, `GET /api/config`, static serving | ⏳ PR open | [#33](https://github.com/Muhanad-husn/Zij/pull/33) |
 | 02 | [data-endpoints](02-data-endpoints.md) | `GET /api/layers/{air,land}/snapshot` + `POST /api/refresh` (manual, Hormuz) | ☐ todo | — |
 
 ## v0 API surface (the whole subset)
