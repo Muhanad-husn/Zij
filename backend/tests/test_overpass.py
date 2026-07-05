@@ -1275,3 +1275,203 @@ def test_deterministic_two_runs_on_equivalent_input_yield_identical_output():
     dump_1 = {f.source_id: f.model_dump() for f in output_1}
     dump_2 = {f.source_id: f.model_dump() for f in output_2}
     assert dump_1 == dump_2
+
+
+# ---------------------------------------------------------------------------
+# overpass-adapter/02 (issue #16) reviewer-flagged coverage gaps.
+# ---------------------------------------------------------------------------
+#
+# Two cheap gaps left unexercised by the outer test and the inner units
+# above: (1) every existing test that builds a POLYGON feature
+# (`test_geometry_closed_way_yields_polygon_with_centroid`) exercises only
+# the parsing path (step), never `simplify_and_cap` -- a POLYGON with a
+# `highway`/`railway` tag that would make it drop-tier-eligible is also
+# unrepresented in practice, but here the polygon is untagged (hence
+# undroppable via `_drop_tier`'s default), which isolates the *simplify*
+# branch for Polygon geometry (Douglas-Peucker on a closed ring) from any
+# drop/cap interaction; and (2) the `len(simplified) <= max_features`
+# boundary condition itself (count == cap exactly) has no dedicated test --
+# every existing over-cap test uses a count strictly greater than the cap.
+
+
+def _synthetic_polygon_feature(source_id: str, attrs: dict, ring: list[list[float]]):
+    """A closed-ring POLYGON way (`ring[0] == ring[-1]`, `[lon, lat]` pairs,
+    Overpass `out geom` -> parsed-Polygon shape, mirroring
+    `test_geometry_closed_way_yields_polygon_with_centroid` above) --
+    author's plumbing choice for exercising `_simplify_geometry`'s
+    Polygon branch directly (no existing helper in this file builds a
+    Polygon feature for the `simplify_and_cap` path)."""
+    from backend.models import Domain, Feature, FeatureStatus, GeometryType
+
+    now, osm_base = _simplify_now_and_osm_base()
+    lons = [p[0] for p in ring[:-1]]
+    lats = [p[1] for p in ring[:-1]]
+    return Feature(
+        domain=Domain.LAND,
+        source="overpass",
+        source_id=source_id,
+        label=None,
+        lat=sum(lats) / len(lats),
+        lon=sum(lons) / len(lons),
+        geometry_type=GeometryType.POLYGON,
+        geometry={"type": "Polygon", "coordinates": [ring]},
+        timestamp_source=osm_base,
+        timestamp_fetched=now,
+        position_age_s=(now - osm_base).total_seconds(),
+        status=FeatureStatus.LIVE,
+        attrs=dict(attrs),
+    )
+
+
+def test_polygon_geometry_simplified_intact_and_still_closed():
+    """Reviewer-flagged gap 1 (issue #16): a POLYGON feature's geometry runs
+    through the SAME Douglas-Peucker `_simplify_geometry` path as LineString
+    geometry (`simplify_and_cap`'s `geometry_type in (LINESTRING, POLYGON)`
+    branch) -- no existing test drives a Polygon through `simplify_and_cap`
+    at all. The ring here has a genuinely removable near-collinear vertex
+    (0.0001 deg perpendicular deviation, strictly inside the 0.0005 deg
+    tolerance -- the same margin `_synthetic_line_feature` uses above) so the
+    vertex-count assertion is real, not vacuous; a companion polygon (chosen
+    below) plus the point/motorway/etc. helpers keep total input count under
+    `max_features`, isolating the simplify path from any drop-cap logic."""
+    from backend.sources.overpass import simplify_and_cap
+
+    # A rectangle with one edge-midpoint nudged 0.0001 deg off the straight
+    # line between its neighbors -- collinear enough to be simplified away
+    # at tolerance 0.0005, but the ring is otherwise an ordinary closed
+    # quadrilateral (first == last coordinate).
+    ring = [
+        [0.0, 0.0],
+        [1.0, 0.0001],  # near-collinear between [0,0] and [2,0] -- removable
+        [2.0, 0.0],
+        [2.0, 2.0],
+        [0.0, 2.0],
+        [0.0, 0.0],  # closes the ring
+    ]
+    polygon = _synthetic_polygon_feature(
+        "way/polygon-1", {"landuse": "port"}, ring
+    )
+    # A couple of unrelated features alongside it, well under any realistic
+    # cap, so nothing here is at risk of being drop-cap-eligible.
+    companion_point = _synthetic_point_feature(
+        "node/anchor-1", {"harbour": "yes"}, 26.0, 56.0
+    )
+    companion_line = _synthetic_line_feature(
+        "way/motorway-1", {"highway": "motorway"}, 0.002, 10.0
+    )
+
+    output = simplify_and_cap(
+        [polygon, companion_point, companion_line],
+        _SIMPLIFY_TOLERANCE_DEG,
+        max_features=10,
+    )
+    output_by_id = {f.source_id: f for f in output}
+    assert set(output_by_id) == {
+        "way/polygon-1",
+        "node/anchor-1",
+        "way/motorway-1",
+    }
+
+    simplified_geometry = output_by_id["way/polygon-1"].geometry
+
+    # --- Still a Polygon with the same nesting depth: a list of rings, each
+    # a list of [lon, lat] pairs (not flattened, not a bare LineString) ---
+    assert simplified_geometry["type"] == "Polygon"
+    coordinates = simplified_geometry["coordinates"]
+    assert isinstance(coordinates, list)
+    assert len(coordinates) == 1  # one ring, no holes
+    simplified_ring = coordinates[0]
+    assert isinstance(simplified_ring, list)
+
+    # --- The ring is still closed after Douglas-Peucker ---
+    assert simplified_ring[0] == simplified_ring[-1]
+
+    # --- Coordinates are plain [lon, lat] numeric pairs -- plain lists (not
+    # shapely tuples), so `==` against list literals holds ---
+    for point in simplified_ring:
+        assert type(point) is list
+        assert len(point) == 2
+        lon, lat = point
+        assert isinstance(lon, (int, float))
+        assert isinstance(lat, (int, float))
+
+    # --- Vertex count did not increase, and the removable near-collinear
+    # point is genuinely gone (simplification actually did something, not a
+    # vacuous no-op) ---
+    original_vertex_count = len(ring)
+    simplified_vertex_count = len(simplified_ring)
+    assert simplified_vertex_count <= original_vertex_count
+    assert simplified_vertex_count < original_vertex_count
+    assert [1.0, 0.0001] not in simplified_ring
+
+
+def test_exact_at_cap_boundary_nothing_dropped():
+    """Reviewer-flagged gap 2 (issue #16): `simplify_and_cap`'s cap check is
+    `len(simplified) <= max_features: return simplified` -- every existing
+    over-cap test uses an input count strictly GREATER than the cap, leaving
+    the `==` boundary itself (count exactly equal to the cap) unexercised.
+    Five features -- one of each kind (point anchor, motorway, and all three
+    droppable tiers) -- called with `max_features` exactly equal to the
+    input count: the `<=` boundary must keep everything, including the
+    normally-droppable primary/rail/trunk features, proving the boundary
+    check itself (not merely "some cap logic exists") is `<=` and not `<`."""
+    from backend.sources.overpass import simplify_and_cap
+
+    features = [
+        _synthetic_point_feature(
+            "node/anchor-1", {"barrier": "border_control"}, 24.0, 54.0
+        ),
+        _synthetic_line_feature("way/motorway-1", {"highway": "motorway"}, 0.001, 10.0),
+        _synthetic_line_feature("way/primary-1", {"highway": "primary"}, 0.001, 20.0),
+        _synthetic_line_feature("way/rail-1", {"railway": "rail"}, 0.001, 30.0),
+        _synthetic_line_feature("way/trunk-1", {"highway": "trunk"}, 0.001, 40.0),
+    ]
+    max_features = len(features)
+    assert max_features == 5
+
+    output = simplify_and_cap(features, _SIMPLIFY_TOLERANCE_DEG, max_features)
+
+    assert len(output) == max_features
+    assert {f.source_id for f in output} == {f.source_id for f in features}
+
+
+def test_one_over_cap_boundary_drops_exactly_one_shortest_primary():
+    """Companion to the exact-at-cap test above: the SAME five-feature set
+    plus one extra droppable primary (six features total, `max_features`
+    still 5 -- one past the boundary) drops exactly one feature -- the
+    shortest primary -- while every other feature (including the other
+    primary, and every protected feature) survives. This shows the `<=`
+    boundary above isn't accidentally permissive past the cap: crossing it
+    by exactly one triggers exactly one drop, no more."""
+    from backend.sources.overpass import simplify_and_cap
+
+    point = _synthetic_point_feature(
+        "node/anchor-1", {"barrier": "border_control"}, 24.0, 54.0
+    )
+    motorway = _synthetic_line_feature(
+        "way/motorway-1", {"highway": "motorway"}, 0.001, 10.0
+    )
+    primary_shorter = _synthetic_line_feature(
+        "way/primary-shorter", {"highway": "primary"}, 0.001, 20.0
+    )
+    primary_longer = _synthetic_line_feature(
+        "way/primary-longer", {"highway": "primary"}, 0.002, 20.0
+    )
+    rail = _synthetic_line_feature("way/rail-1", {"railway": "rail"}, 0.001, 30.0)
+    trunk = _synthetic_line_feature("way/trunk-1", {"highway": "trunk"}, 0.001, 40.0)
+
+    features = [point, motorway, primary_shorter, primary_longer, rail, trunk]
+    max_features = 5
+    assert len(features) == max_features + 1
+
+    output = simplify_and_cap(features, _SIMPLIFY_TOLERANCE_DEG, max_features)
+
+    assert len(output) == max_features
+    output_ids = {f.source_id for f in output}
+    assert output_ids == {
+        "node/anchor-1",
+        "way/motorway-1",
+        "way/primary-longer",
+        "way/rail-1",
+        "way/trunk-1",
+    }
