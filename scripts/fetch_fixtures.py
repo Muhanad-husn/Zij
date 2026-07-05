@@ -223,7 +223,15 @@ async def fetch_overpass_all(
     version: float = 0.6
 
     class_total = len(OVERPASS_QUERIES)
-    async with httpx.AsyncClient() as client:
+    # overpass-api.de returns HTTP 406 for requests carrying httpx's default
+    # User-Agent (measured live); Overpass's usage policy asks clients to
+    # identify themselves, so send an explicit User-Agent + Accept header on
+    # every mirror POST.
+    headers = {
+        "User-Agent": "Zij-fixture-capture/0.1 (+https://github.com/Muhanad-husn/Zij)",
+        "Accept": "application/json",
+    }
+    async with httpx.AsyncClient(headers=headers) as client:
         for index, (name, body_template) in enumerate(OVERPASS_QUERIES):
             query = _build_overpass_query(body_template, bbox_str, timeout_s, maxsize_bytes)
             data = await _fetch_overpass_class(
