@@ -18,7 +18,10 @@ And   a second put_land_cache() for the same region_id REPLACES the row
 This is the behavioral contract (DEC-1), transcribed from
 plans/store/01-land-cache.md ("Acceptance criterion" + inner unit list:
 schema idempotency, round-trip, UTC-aware re-hydration, upsert-replace,
-unknown-region -> None).
+unknown-region -> None). It was authored and committed red by the
+test-author before any implementation existed, guarded by a strict xfail
+(DEC-33). The implementer has since made it genuinely pass; the xfail
+marker has been removed to finalize the contract.
 
 **Reconciliation note (API surface locked here).** The slice plan illustrates
 free functions (`init_schema`/`put_land_cache(region_id, geojson, ...)`/
@@ -40,17 +43,11 @@ slice.
 touches the real platformdirs location. `geojson` is carried as a plain dict
 (a valid GeoJSON FeatureCollection) on `LandCacheRow`; the TEXT column
 round-trip (dict -> JSON text -> dict) is `Store`'s internal concern.
-
-It is committed red by the test-author before any implementation exists,
-guarded by a strict xfail (DEC-33), because `backend.store` does not exist
-yet.
 """
 
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
-
-import pytest
 
 HORMUZ_BBOX = (55.0, 25.0, 57.5, 27.5)
 
@@ -112,7 +109,6 @@ FETCHED_AT_V2 = datetime(2026, 7, 5, 10, 0, 0, tzinfo=timezone.utc)
 FEATURE_COUNT_V2 = 5678
 
 
-@pytest.mark.xfail(reason="backend.store not yet implemented", strict=True)
 async def test_land_cache_round_trips_and_upserts(tmp_path, monkeypatch):
     # --- Given: a fresh SQLite database (hermetic path, never the real
     # platformdirs location) initialised from backend/schema.sql ---
