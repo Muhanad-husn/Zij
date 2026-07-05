@@ -38,23 +38,18 @@ entrypoint referenced by api.md) but this test drives its assertions through
 the factory instance, not the module-level singleton, so it stays hermetic
 even though a real frontend build does not exist yet.
 
-It is authored and committed red by the author before any
-implementation exists, guarded by a strict xfail (): `backend.main` has
-no `create_app`/`app` yet, so the import below raises `ImportError` and the
-test xfails rather than errors. Once the developer builds `backend/main.py`
-to satisfy this exact seam, the test genuinely passes (xpass) and the
-author removes the marker to finalize the contract -- this assertion
-itself is never to be weakened.
+It was authored and committed red by the author before any
+implementation existed, guarded by a strict xfail (): `backend.main`
+had no `create_app`/`app`, so the import raised `ImportError` and the test
+xfailed rather than errored. the developer has since built `backend/main.py`
+to satisfy this exact seam -- the test now genuinely passes and the marker is
+removed below to finalize the contract. This assertion itself is never
+weakened.
 """
 
-import pytest
 from fastapi.testclient import TestClient
 
 
-@pytest.mark.xfail(
-    reason="backend.main create_app/app not yet implemented  (#17)",
-    strict=True,
-)
 def test_health_and_config(tmp_path, monkeypatch):
     # --- Given: a real, known pair of OpenSky secret values wired through
     # env (config.py's Secrets is env/.env-only, NFR5) so the "never leaks"
@@ -167,3 +162,108 @@ def test_health_and_config(tmp_path, monkeypatch):
     assert root_resp.status_code == 200
     assert "text/html" in root_resp.headers["content-type"]
     assert "Zij" in root_resp.text
+
+
+# --- Inner unit tests () --------------------------------------------
+#
+# These target internal collaborators of backend/main.py that the outer test
+# above does not isolate: the full status->code envelope mapping (api.md
+# defines eight codes; the outer test only exercises 404), the routing
+# scope of the /api/* catch-all against the static mount's own 404 handling,
+# and the defensive module-level `app` construction used by the real uvicorn
+# entrypoint.
+
+
+def test_status_to_code_mapping_matches_error_envelope_contract():
+    """api.md ("Error envelope") pins eight codes to eight HTTP statuses.
+    The outer test only ever exercises the 404/not_found pair (via the
+    /api/* catch-all); this locks in the full reverse-lookup table the
+    exception handler uses for any HTTPException raised elsewhere in the
+    app without an explicit envelope body, so a future route that raises
+    e.g. `HTTPException(422)` or `HTTPException(429)` gets the *correct*
+    `code`, not just a plausible one.
+    """
+    from backend.main import _STATUS_TO_CODE
+
+    assert _STATUS_TO_CODE == {
+        400: "bad_request",
+        401: "auth_error",
+        404: "not_found",
+        409: "conflict",
+        422: "validation_error",
+        429: "rate_limited",
+        500: "internal",
+        502: "upstream_error",
+    }
+
+
+def test_error_envelope_helper_builds_api_md_shape():
+    """`_error_envelope` is the single place the `{"error": {...}}` body is
+    assembled; pin its shape directly (code/message plus arbitrary extras
+    such as `retry_after_s`) rather than relying only on the one HTTPException
+    path the outer test drives.
+    """
+    from backend.main import _error_envelope
+
+    body = _error_envelope("rate_limited", "too many requests", retry_after_s=42)
+    assert body == {
+        "error": {
+            "code": "rate_limited",
+            "message": "too many requests",
+            "retry_after_s": 42,
+        }
+    }
+
+
+def test_unmatched_non_api_path_does_not_get_the_api_error_envelope(tmp_path):
+    """Precedence pin, the other direction from the outer test's `/` check:
+    an unmatched path *outside* `/api/*` must fall through to the static
+    mount's own 404 handling, not be swallowed by the `/api/{rest:path}`
+    catch-all or by the global HTTPException handler producing the api.md
+    envelope. If routing were ever misconfigured so the catch-all (or the
+    exception handler) applied globally, this would start returning the
+    `{"error": {"code": "not_found", ...}}` envelope for a plain static 404
+    too, and this test would catch that regression.
+    """
+    from backend.config import load_config
+    from backend.main import create_app
+
+    cfg, secrets = load_config()
+
+    static_dir = tmp_path / "dist"
+    static_dir.mkdir()
+    (static_dir / "index.html").write_text(
+        "<!doctype html><html><body>Zij</body></html>", encoding="utf-8"
+    )
+
+    app = create_app(static_dir=static_dir, config=cfg, secrets=secrets)
+    client = TestClient(app)
+
+    api_missing = client.get("/api/does-not-exist")
+    assert api_missing.status_code == 404
+    assert api_missing.json()["error"]["code"] == "not_found"
+
+    static_missing = client.get("/this-page-does-not-exist")
+    assert static_missing.status_code == 404
+    # Distinctly NOT our envelope: no "error" key at all.
+    assert "error" not in static_missing.json()
+
+
+def test_module_level_app_imports_and_builds_without_a_frontend_build():
+    """The module-level `backend.main:app` (the real uvicorn entrypoint) is
+    built at import time via `_build_default_app()`, which must never raise
+    even when the real `frontend/dist` directory does not exist yet and
+    secrets/env are whatever the ambient environment happens to have. This
+    is exactly the "bare `import backend.main`" scenario the module
+    docstring calls out, and the outer test above never imports the module
+    this way -- it only calls the `create_app` factory directly.
+    """
+    import importlib
+
+    import backend.main as main_module
+
+    importlib.reload(main_module)
+
+    from fastapi import FastAPI
+
+    assert isinstance(main_module.app, FastAPI)
