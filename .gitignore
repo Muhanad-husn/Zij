@@ -20,3 +20,11 @@ data/
 
 # Local agent-org override (Phase 3: spec-authoring mode toggle, if file-based)
 .claude/settings.local.json
+
+# TDD harness (Phase 4): regenerable PR body + raw local test artifacts.
+# NOTE: keep committed evidence under docs/tdd-evidence/** — do NOT ignore that.
+PR_BODY.md
+PR_BODY.generated.md
+/playwright-report/
+/test-results/
+.tdd-branch-cleanup.log
