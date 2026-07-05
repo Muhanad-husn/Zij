@@ -68,10 +68,10 @@ Bundled resources:
 
    Confirm it actually committed (`git show --stat HEAD`) — if the folder is empty, your `.gitignore` swallowed it (step 3).
 
-5. **Generate the PR body (`--body-only`), now pinned to the evidence commit.** Re-run the collector in body-only mode — it does not re-copy; it builds `PR_BODY.md` from the committed evidence, pinning every link to the current `HEAD` (the commit you just made), so the links resolve:
+5. **Generate the PR body (`--body-only`), now pinned to the evidence commit.** Re-run the collector in body-only mode — it does not re-copy; it builds `PR_BODY.md` from the committed evidence, pinning every link to the current `HEAD` (the commit you just made), so the links resolve. **Pass `--force`:** `PR_BODY.md` is git-ignored and fully regenerable, but a leftover one from a *previous* slice will still be sitting at the repo root, and without `--force` the collector refuses to clobber it — it diverts output to `PR_BODY.generated.md` with only a `WARN`, so you'd silently edit the stale prior body instead. `--force` overwrites it cleanly (see the collector's `--out` clobber guard):
 
    ```
-   node "${CLAUDE_SKILL_DIR}/scripts/collect-evidence.mjs" --feature <feature-slug> --slice <NN-slice-slug> [--type cli] --body-only --template "${CLAUDE_SKILL_DIR}/assets/pr-body-template.md" --out PR_BODY.md
+   node "${CLAUDE_SKILL_DIR}/scripts/collect-evidence.mjs" --feature <feature-slug> --slice <NN-slice-slug> [--type cli] --body-only --force --template "${CLAUDE_SKILL_DIR}/assets/pr-body-template.md" --out PR_BODY.md
    ```
 
    For a **web** slice it embeds screenshots and links the recording/report; for a **non-web** slice it embeds each transcript as a fenced code block (capped via `--max-transcript-lines`, default 200) and links the full file. **Private repos:** the collector auto-detects visibility (`gh repo view`) and, on a private repo, renders screenshots as clickable **blob links** instead of inline `![]()` embeds — because `raw.githubusercontent.com` doesn't render for private repos. Override with `--public`/`--private` if detection is wrong. Then open `PR_BODY.md` and fill the remaining `<placeholders>` from the slice plan (description, what changed, how to review, the unit-test summary, risk notes, plan path); tick the checklist items that hold; be honest about anything partial. The PR body itself is git-ignored (regenerable), so it isn't committed.

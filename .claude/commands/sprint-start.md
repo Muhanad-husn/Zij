@@ -36,16 +36,28 @@ the outer test or `design/`.
 
 5. **Green the inner cycles (implementer).** Dispatch the **implementer** subagent to
    drive inner unit red→green→refactor cycles (the `red-green-refactor` skill) until
-   the outer test passes. The implementer writes only under `backend/`/`frontend/`;
-   the hooks block it from editing the outer test or `design/`. Escalate the
-   implementer to Opus only if the slice genuinely warrants it. **Marker-removal
-   handoff (DEC-33):** when the behavior is complete the strict-xfail outer test
-   XPASSes → the suite goes red → the implementer's final commit is blocked and it
-   cannot clear the marker (path guard). The implementer greens the behavior, leaves
-   the final state in the working tree, and hands back. Then dispatch the
-   **test-author** once more to **remove the `xfail` marker** and land the final
-   fully-green commit (finalizing the locked contract). Only after that is the slice
-   green end-to-end.
+   the outer test passes. The implementer writes only product code under
+   `backend/`/`frontend/`; the path guard blocks it from editing **any test** (all of
+   `**/tests/`, not just the outer one) or `design/`. Escalate the implementer to Opus
+   only if the slice genuinely warrants it.
+   **Inner-test authorship is the test-author's, never the implementer's (DEC-34).**
+   Do **not** brief the implementer to write inner unit tests — it physically cannot
+   (the guard denies every `**/tests/` write), and being asked to is the wrong
+   routing. Two sanctioned cases: **(a)** if the outer acceptance test fully pins the
+   slice's behavior, no separate inner unit tests are needed — the implementer drives
+   production code straight against the locked outer test as its red/green signal;
+   **(b)** if the slice genuinely needs inner unit tests for internal collaborators,
+   the **test-author** authors them from the plan's unit list — most simply folded
+   into the marker-removal pass below (the tests-green gate + strict-xfail make
+   authoring them then, against the now-built behavior, the lowest-ceremony fit).
+   **Marker-removal handoff (DEC-33/DEC-34):** when the behavior is complete the
+   strict-xfail outer test XPASSes → the suite goes red → the implementer's final
+   commit is blocked and it cannot clear the marker (path guard). The implementer
+   greens the behavior, leaves the final state in the working tree, and hands back.
+   Then dispatch the **test-author** once more to **author any inner unit tests the
+   slice needs (case b) and remove the `xfail` marker**, landing the final fully-green
+   commit (which finalizes the locked contract and sweeps in the implementer's
+   uncommitted production delta). Only after that is the slice green end-to-end.
 
 6. **Two-stage review (reviewer).** Dispatch the **reviewer** subagent: spec-
    compliance first (does the outer test truly encode intent?), then code-quality. On
