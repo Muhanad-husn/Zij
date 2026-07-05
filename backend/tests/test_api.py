@@ -47,6 +47,7 @@ removed below to finalize the contract. This assertion itself is never
 weakened.
 """
 
+import pytest
 from fastapi.testclient import TestClient
 
 
@@ -249,16 +250,25 @@ def test_unmatched_non_api_path_does_not_get_the_api_error_envelope(tmp_path):
     assert "error" not in static_missing.json()
 
 
-def test_module_level_app_imports_and_builds_without_a_frontend_build():
+def test_module_level_app_imports_and_builds_without_a_frontend_build(monkeypatch):
     """The module-level `backend.main:app` (the real uvicorn entrypoint) is
-    built at import time via `_build_default_app()`, which must never raise
-    even when the real `frontend/dist` directory does not exist yet and
-    secrets/env are whatever the ambient environment happens to have. This
-    is exactly the "bare `import backend.main`" scenario the module
-    docstring calls out, and the outer test above never imports the module
-    this way -- it only calls the `create_app` factory directly.
+    built at import time via `_build_default_app()`, which must succeed when
+    the real `frontend/dist` directory does not exist yet (falling back to a
+    directory that does exist) as long as the enabled air layer's required
+    secrets are present. This is exactly the "bare `import backend.main`"
+    scenario the module docstring calls out, and the outer test above never
+    imports the module this way -- it only calls the `create_app` factory
+    directly.
+
+    Secrets are wired via known, non-empty env values (monkeypatched) rather
+    than relying on whatever the ambient `.env`/environment happens to
+    contain, so this test proves "builds without a frontend/dist" on its own
+    terms, independent of a checked-in `.env`.
     """
     import importlib
+
+    monkeypatch.setenv("OPENSKY_CLIENT_ID", "reload-test-opensky-client-id")
+    monkeypatch.setenv("OPENSKY_CLIENT_SECRET", "reload-test-opensky-client-secret")
 
     import backend.main as main_module
 
@@ -267,3 +277,37 @@ def test_module_level_app_imports_and_builds_without_a_frontend_build():
     from fastapi import FastAPI
 
     assert isinstance(main_module.app, FastAPI)
+    # `frontend/dist` genuinely does not exist in this checkout, so
+    # `_build_default_app` must have taken the fallback static-dir branch
+    # (asserted directly rather than merely relying on the app having built).
+    assert not main_module._FRONTEND_DIST.is_dir()
+
+
+def test_module_level_app_fails_fast_when_required_secret_missing(monkeypatch):
+    """config.md: "Startup fails fast with a named error if a secret
+    required by an enabled layer is missing." The air layer is enabled by
+    default (backend/config.py `_DEFAULTS["layers"]["air"]["enabled"]`), so
+    neutralizing its required OpenSky secrets via real (falsy) env values --
+    which override any `.env` entry in pydantic-settings -- must make the
+    real uvicorn entrypoint's build raise `MissingSecretError`, not swallow
+    it and fall back to a default/blank config.
+    """
+    import importlib
+
+    import backend.main as main_module
+    from backend.config import MissingSecretError
+
+    monkeypatch.setenv("OPENSKY_CLIENT_ID", "")
+    monkeypatch.setenv("OPENSKY_CLIENT_SECRET", "")
+
+    try:
+        with pytest.raises(MissingSecretError):
+            importlib.reload(main_module)
+    finally:
+        # `importlib.reload` raising mid-module-body leaves `backend.main`
+        # partially executed (no module-level `app`); restore it with good
+        # secrets so later tests importing/using `backend.main` are
+        # unaffected by this test's env manipulation or module state.
+        monkeypatch.setenv("OPENSKY_CLIENT_ID", "restore-opensky-client-id")
+        monkeypatch.setenv("OPENSKY_CLIENT_SECRET", "restore-opensky-client-secret")
+        importlib.reload(main_module)

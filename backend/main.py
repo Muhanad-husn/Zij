@@ -42,7 +42,6 @@ _ERROR_STATUS: dict[str, int] = {
 _STATUS_TO_CODE: dict[int, str] = {
     status: code for code, status in _ERROR_STATUS.items()
 }
-_STATUS_TO_CODE.setdefault(400, "bad_request")
 
 
 def _error_envelope(code: str, message: str, **extra: object) -> dict:
@@ -106,17 +105,15 @@ _FRONTEND_DIST = Path(__file__).resolve().parent.parent / "frontend" / "dist"
 
 
 def _build_default_app() -> FastAPI:
-    """Build the real uvicorn-entrypoint app defensively: importing this
-    module must never crash even when secrets are unset or the frontend
-    build does not exist yet (e.g. bare `import backend.main`)."""
-    try:
-        config, secrets = load_config()
-    except Exception:  # pragma: no cover - defensive import-time guard
-        config = AppConfig(
-            regions=[], layers={}, overpass={}, opensky={}, aisstream={},
-            integrity={}, server={},
-        )
-        secrets = Secrets()
+    """Build the real uvicorn-entrypoint app.
+
+    `load_config()` errors (e.g. `MissingSecretError`) are allowed to
+    propagate: an enabled layer's missing required secret must fail startup
+    fast per design/contracts/config.md, not be silently swallowed. The
+    frontend build directory, however, is genuinely optional at import time
+    (e.g. before `frontend/dist` exists), so that fallback stays defensive.
+    """
+    config, secrets = load_config()
     static_dir = _FRONTEND_DIST if _FRONTEND_DIST.is_dir() else Path(__file__).resolve().parent
     return create_app(static_dir=static_dir, config=config, secrets=secrets)
 
