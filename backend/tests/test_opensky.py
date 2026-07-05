@@ -54,11 +54,16 @@ noted "author's plumbing choice"):
     slice (deferred to step per the plan's "Out of scope").
 
 It was authored and committed red by the author before any
-implementation existed (strict xfail, ): `backend/sources/base.py` and
-`backend/sources/opensky.py` do not exist yet, so the `backend.sources.*`
-imports below (placed inside the test body per test_config_acceptance.py
-convention) raise `ImportError`, which strict-xfail records as `xfailed`
-rather than a collection error.
+implementation existed (strict xfail, ). the developer has since made
+it genuinely pass; the xfail marker has been removed to finalize the
+contract.
+
+Below the outer test are inner unit tests () covering gaps the outer
+test deliberately does not exercise: warm-cache *sequential* reuse (the outer
+test only proves the cold-cache *concurrent* race is single-flight), a
+connection-level failure on the token endpoint (the outer test only proves a
+non-2xx HTTP response raises `AuthError`), and `backend/sources/base.py`'s
+structural exposure of the adapter interface contract.
 """
 
 from __future__ import annotations
@@ -66,6 +71,7 @@ from __future__ import annotations
 import asyncio
 from datetime import timedelta
 
+import httpx
 import pytest
 import respx
 from freezegun import freeze_time
@@ -88,7 +94,6 @@ TOKEN_RESPONSE_2 = {
 }
 
 
-@pytest.mark.xfail(reason="opensky token manager not yet implemented", strict=True)
 async def test_token_manager_single_flight(monkeypatch):
     # --- Given: client credentials in env (NFR5: env only) ---
     monkeypatch.setenv("OPENSKY_CLIENT_ID", "test-opensky-client-id")
@@ -162,3 +167,123 @@ async def test_token_manager_single_flight(monkeypatch):
         with pytest.raises(AuthError):
             await failing_adapter.start()
         assert failing_route.call_count == 1
+
+
+def _make_opensky_cfg(**overrides):
+    """Minimal `OpenSkyCfg` for inner unit tests that only exercise the token
+    manager, not the layer-rendering fields (author's plumbing choice --
+    `OpenSkyCfg`'s required field set is spec-fixed, but the values here are
+    arbitrary placeholders)."""
+    from backend.sources.opensky import OpenSkyCfg
+
+    defaults = dict(
+        token_url=TOKEN_URL,
+        states_url="https://opensky-network.org/api/states/all",
+        token_refresh_margin_s=60,
+        daily_credit_budget=4000,
+        credit_warn_ratio=0.8,
+        cadence_s=15,
+        cadence_floor_s=5,
+        custom_bbox_cap_sq_deg=100.0,
+    )
+    defaults.update(overrides)
+    return OpenSkyCfg(**defaults)
+
+
+async def test_token_manager_warm_cache_sequential_reuse():
+    """Inner unit (plan item 1): a first acquisition fetches + caches a
+    token; a second acquisition *sequentially after* (not racing) within the
+    token's lifetime reuses the cached value with zero new token requests.
+    Distinct from the outer test's cold-cache *concurrent* race: this pins
+    that a warm cache short-circuits before ever touching the lock's fetch
+    path, not merely that concurrent fetches collapse into one."""
+    from backend.config import Secrets
+    from backend.sources.opensky import _TokenManager
+
+    secrets = Secrets(
+        opensky_client_id="seq-client-id", opensky_client_secret="seq-secret"
+    )
+    cfg = _make_opensky_cfg()
+
+    with freeze_time("2026-07-05T00:00:00+00:00"):
+        async with respx.mock() as respx_mock:
+            token_route = respx_mock.post(TOKEN_URL).mock(
+                return_value=Response(200, json=TOKEN_RESPONSE_1)
+            )
+            async with httpx.AsyncClient() as client:
+                manager = _TokenManager(cfg, secrets, client)
+
+                first = await manager.get_token()
+                assert token_route.call_count == 1
+                assert first == TOKEN_RESPONSE_1["access_token"]
+
+                # Sequential reuse, well within the ~1800 s lifetime: no new
+                # request should be made.
+                second = await manager.get_token()
+                assert token_route.call_count == 1
+                assert second == first
+
+
+async def test_token_manager_connection_error_raises_autherror():
+    """Inner unit (plan item 4, connection-error half): a transport-level
+    failure talking to the token endpoint (not merely a non-2xx HTTP
+    response, which the outer test already covers) raises AuthError with no
+    auto-retry (adapter-interface.md: AuthError "surfaces, no auto-retry")."""
+    from backend.config import Secrets
+    from backend.sources.base import AuthError
+    from backend.sources.opensky import _TokenManager
+
+    secrets = Secrets(
+        opensky_client_id="conn-client-id", opensky_client_secret="conn-secret"
+    )
+    cfg = _make_opensky_cfg()
+
+    async with respx.mock() as respx_mock:
+        failing_route = respx_mock.post(TOKEN_URL).mock(
+            side_effect=httpx.ConnectError("connection refused")
+        )
+        async with httpx.AsyncClient() as client:
+            manager = _TokenManager(cfg, secrets, client)
+            with pytest.raises(AuthError):
+                await manager.get_token()
+            assert failing_route.call_count == 1
+
+
+def test_base_module_exposes_adapter_interface_contract():
+    """Inner unit (plan item 5): backend.sources.base exposes SourceAdapter,
+    PollAdapter, Region, and the full AdapterError taxonomy with the shapes
+    the contract fixes (design/contracts/adapter-interface.md), e.g.
+    RateLimitedError(retry_after=...) carries a `.retry_after` attribute."""
+    from backend.sources.base import (
+        AdapterError,
+        AuthError,
+        ParseError,
+        PollAdapter,
+        RateLimitedError,
+        Region,
+        SourceAdapter,
+        UpstreamError,
+    )
+
+    # --- Region: a plain data shape with the contract-fixed fields ---
+    region = Region(
+        id="hormuz", label="Strait of Hormuz", bbox=(55.0, 25.0, 57.5, 27.5)
+    )
+    assert region.id == "hormuz"
+    assert region.bbox == (55.0, 25.0, 57.5, 27.5)
+
+    # --- Error taxonomy: all four subclass AdapterError ---
+    for error_cls in (RateLimitedError, AuthError, UpstreamError, ParseError):
+        assert issubclass(error_cls, AdapterError)
+
+    # --- RateLimitedError carries retry_after (contract-fixed shape) ---
+    rate_limited = RateLimitedError(retry_after=30.5, message="too many requests")
+    assert rate_limited.retry_after == 30.5
+    assert str(rate_limited) == "too many requests"
+    assert RateLimitedError().retry_after is None
+
+    # --- PollAdapter is abstract (fetch is @abstractmethod): cannot be
+    # instantiated directly, unlike the base SourceAdapter it extends ---
+    assert issubclass(PollAdapter, SourceAdapter)
+    with pytest.raises(TypeError):
+        PollAdapter()  # type: ignore[abstract]
