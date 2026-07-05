@@ -350,9 +350,6 @@ _NULL_TIME_POSITION_STATE = [
 ]
 
 
-@pytest.mark.xfail(
-    reason="fetch() not yet implemented (opensky-adapter/02)", strict=True
-)
 async def test_fetch_hormuz_states(monkeypatch):
     """Locked outer acceptance test for opensky-adapter step (issue #14).
 
@@ -377,13 +374,15 @@ async def test_fetch_hormuz_states(monkeypatch):
     "position_source int->label": 0->ADS-B, 1->ASTERIX, 2->MLAT, 3->FLARM --
     the spec table is authoritative over the plan's prose ordering).
 
-    Authored and committed red by the author before fetch() existed
-    (strict xfail, ): today fetch() unconditionally raises
-    NotImplementedError, so this test fails for that reason and xfails
-    cleanly under the tests-green gate. Not satisfiable by a stub that merely
-    returns an empty LayerSnapshot: the feature_count, the known-vector field
-    mapping, the drop/null-timestamp handling, and the credit decrement are
-    all asserted against concrete values pinned to this fixture.
+    It was authored and committed red by the author before `fetch()`
+    existed (strict xfail, ): at that point `fetch()` unconditionally
+    raised `NotImplementedError`, so this test failed for that reason and
+    xfailed cleanly under the tests-green gate. Not satisfiable by a stub
+    that merely returns an empty LayerSnapshot: the feature_count, the
+    known-vector field mapping, the drop/null-timestamp handling, and the
+    credit decrement are all asserted against concrete values pinned to this
+    fixture. the developer has since made it genuinely pass; the xfail
+    marker has been removed to finalize the contract.
     """
     # --- Given: client credentials in env (NFR5: env only) ---
     monkeypatch.setenv("OPENSKY_CLIENT_ID", "test-opensky-client-id")
@@ -488,3 +487,488 @@ async def test_fetch_hormuz_states(monkeypatch):
     dumped = snapshot.model_dump()
     for feature_dump in dumped["features"]:
         assert "raw_payload" not in feature_dump
+
+
+# ---------------------------------------------------------------------------
+# opensky-adapter/02 (issue #14) inner units (), authored against the
+# now-built `fetch()`/`_parse_states()`/`CreditLedger` from the plan's
+# ("Inner loop — initial unit test list", plans/opensky-adapter/02-fetch-
+# states.md): each covers a gap the outer test above deliberately leaves
+# unexercised (full field coverage, the unknown position_source code, the
+# STALE/LIVE threshold, credit warn/rollover/server-truth override, and the
+# full error taxonomy) rather than duplicating the outer test's happy path.
+# ---------------------------------------------------------------------------
+
+
+def _make_full_opensky_cfg(**overrides):
+    """`OpenSkyCfg` with `deemphasize_after_s` set (unlike the token-manager
+    tests' `_make_opensky_cfg`, which leaves layer-rendering fields at their
+    token-only defaults) -- these parsing/fetch inner units need it to
+    exercise the STALE/LIVE threshold."""
+    return _make_opensky_cfg(deemphasize_after_s=60, **overrides)
+
+
+def _make_state_vector(
+    *,
+    icao24="abc999",
+    callsign="  TEST1 ",
+    origin_country="France",
+    time_position=None,
+    last_contact=None,
+    lon=10.5,
+    lat=20.5,
+    baro_altitude=1500.0,
+    on_ground=True,
+    velocity=50.0,
+    true_track=180.0,
+    vertical_rate=-1.5,
+    sensors=None,
+    geo_altitude=1600.0,
+    squawk="7500",
+    spi=True,
+    position_source=3,
+):
+    """A fully-populated 17-element state vector (opensky.md index table),
+    with every field distinct and non-default so a field-mapping bug
+    (transposed indices, wrong attrs key, etc.) cannot hide behind a
+    coincidental match."""
+    return [
+        icao24,
+        callsign,
+        origin_country,
+        time_position,
+        last_contact,
+        lon,
+        lat,
+        baro_altitude,
+        on_ground,
+        velocity,
+        true_track,
+        vertical_rate,
+        sensors,
+        geo_altitude,
+        squawk,
+        spi,
+        position_source,
+    ]
+
+
+def _make_bare_adapter(cfg):
+    """An `OpenSkyAdapter` for inner units that only exercise the pure
+    `_parse_states` parsing path (no I/O, no token) -- credentials are
+    placeholders never actually used against a live endpoint."""
+    from backend.config import Secrets
+    from backend.sources.opensky import CreditLedger, OpenSkyAdapter
+
+    secrets = Secrets(
+        opensky_client_id="parse-only-id", opensky_client_secret="parse-only-secret"
+    )
+    credits = CreditLedger(budget=cfg.daily_credit_budget)
+    return OpenSkyAdapter(cfg, secrets, credits)
+
+
+def test_parse_states_full_index_map_and_raw_payload_wrapping():
+    """Inner unit (plan item 1): every one of the 17 indices maps to the
+    documented field (opensky.md "Response parsing" table), including fields
+    the outer test's known-vector assertion doesn't touch (origin_country,
+    on_ground, vertical_rate_ms, geo_altitude_m, squawk), plus
+    geometry_type/geometry and the raw_payload wrapping (idx 12 `sensors`
+    and idx 15 `spi` are documented "ignored" and must NOT leak into attrs)."""
+    from backend.models import Domain, FeatureStatus, GeometryType
+
+    now = datetime(2026, 7, 5, 12, 0, 0, tzinfo=timezone.utc)
+    time_position_epoch = int((now - timedelta(seconds=10)).timestamp())
+    vector = _make_state_vector(time_position=time_position_epoch, last_contact=999)
+
+    cfg = _make_full_opensky_cfg()
+    adapter = _make_bare_adapter(cfg)
+
+    features, newest_ts = adapter._parse_states({"states": [vector]}, now)
+
+    assert len(features) == 1
+    feature = features[0]
+    assert feature.domain == Domain.AIR
+    assert feature.source == "opensky"
+    assert feature.source_id == "abc999"
+    assert feature.label == "TEST1"  # callsign "  TEST1 " stripped
+    assert feature.lon == 10.5
+    assert feature.lat == 20.5
+    assert feature.geometry_type == GeometryType.POINT
+    assert feature.geometry is None
+    assert feature.timestamp_source == now - timedelta(seconds=10)
+    assert feature.position_age_s == pytest.approx(10.0)
+    assert feature.status == FeatureStatus.LIVE  # 10s < deemphasize_after_s (60s)
+    assert feature.attrs["origin_country"] == "France"
+    assert feature.attrs["altitude_m"] == 1500.0
+    assert feature.attrs["on_ground"] is True
+    assert feature.attrs["velocity_ms"] == 50.0
+    assert feature.attrs["true_track_deg"] == 180.0
+    assert feature.attrs["vertical_rate_ms"] == -1.5
+    assert feature.attrs["geo_altitude_m"] == 1600.0
+    assert feature.attrs["squawk"] == "7500"
+    assert feature.attrs["position_source"] == "FLARM"  # spec map: 3
+    # idx 12 (sensors) and idx 15 (spi) are documented "ignored": neither
+    # value (None / True) leaks into attrs under any key.
+    assert "sensors" not in feature.attrs
+    assert "spi" not in feature.attrs
+    assert feature.raw_payload == {"state_vector": vector}
+    assert newest_ts == now - timedelta(seconds=10)
+
+
+def test_parse_states_blank_and_none_callsign_yield_none_label():
+    """Inner unit: a blank (whitespace-only) or wholly absent callsign both
+    yield `label=None` (opensky.md: "strip; None if blank"), not an empty
+    string."""
+    now = datetime(2026, 7, 5, 12, 0, 0, tzinfo=timezone.utc)
+    cfg = _make_full_opensky_cfg()
+    adapter = _make_bare_adapter(cfg)
+
+    blank_vector = _make_state_vector(icao24="blank01", callsign="        ")
+    none_vector = _make_state_vector(icao24="none01", callsign=None)
+
+    features, _ = adapter._parse_states(
+        {"states": [blank_vector, none_vector]}, now
+    )
+
+    by_id = {f.source_id: f for f in features}
+    assert by_id["blank01"].label is None
+    assert by_id["none01"].label is None
+
+
+def test_parse_states_unknown_position_source_code_stringified():
+    """Inner unit (plan item 2): an undocumented `position_source` code
+    (opensky.md only documents 0-3) falls back to `str(int(code))`, not a
+    KeyError or a swallowed None."""
+    now = datetime(2026, 7, 5, 12, 0, 0, tzinfo=timezone.utc)
+    cfg = _make_full_opensky_cfg()
+    adapter = _make_bare_adapter(cfg)
+
+    vector = _make_state_vector(position_source=7)
+    features, _ = adapter._parse_states({"states": [vector]}, now)
+
+    assert features[0].attrs["position_source"] == "7"
+
+
+@pytest.mark.parametrize(
+    ("age_s", "expected_status"),
+    [
+        (59.0, "live"),
+        (61.0, "stale"),
+    ],
+)
+def test_parse_states_stale_status_threshold(age_s, expected_status):
+    """Inner unit (plan item 4): `FeatureStatus.STALE` is stamped only when
+    `position_age_s > deemphasize_after_s` (60s, config); at or below the
+    threshold the feature stays LIVE. Pinning both sides of the boundary
+    catches an off-by-one (>= vs >)."""
+    from backend.models import FeatureStatus
+
+    now = datetime(2026, 7, 5, 12, 0, 0, tzinfo=timezone.utc)
+    cfg = _make_full_opensky_cfg()  # deemphasize_after_s=60
+    adapter = _make_bare_adapter(cfg)
+
+    time_position_epoch = int((now - timedelta(seconds=age_s)).timestamp())
+    vector = _make_state_vector(time_position=time_position_epoch)
+    features, _ = adapter._parse_states({"states": [vector]}, now)
+
+    assert features[0].status == FeatureStatus(expected_status)
+
+
+def test_credit_ledger_spend_decrements_and_warn_ratio():
+    """Inner unit (plan item 5): a successful spend decrements `remaining`;
+    `warn` flips true once `spent/budget` exceeds `warn_ratio` (0.5 default,
+    opensky.md "Credit accounting"), and stays false at/just-under it."""
+    from backend.sources.opensky import CreditLedger
+
+    now = datetime(2026, 7, 5, 12, 0, 0, tzinfo=timezone.utc)
+    ledger = CreditLedger(budget=100)  # warn_ratio default 0.5
+
+    ledger.spend(10, now=now)
+    assert ledger.remaining == 90
+    assert ledger.spent == 10
+    assert ledger.warn is False
+
+    ledger.spend(40, now=now)  # spent=50, 50/100 == 0.5, not > 0.5
+    assert ledger.spent == 50
+    assert ledger.warn is False
+
+    ledger.spend(1, now=now)  # spent=51, 51/100 > 0.5
+    assert ledger.spent == 51
+    assert ledger.warn is True
+
+
+def test_credit_ledger_rolls_over_at_utc_midnight():
+    """Inner unit (plan item 5, rollover half): spend on day 1 persists
+    until a `spend`/`override_remaining` call observes UTC midnight has
+    passed, at which point `remaining` resets to the full `budget` before
+    the new amount is applied (opensky.md: "roll over at UTC midnight")."""
+    from backend.sources.opensky import CreditLedger
+
+    day_one = datetime(2026, 7, 5, 23, 0, 0, tzinfo=timezone.utc)
+    day_two = datetime(2026, 7, 6, 1, 0, 0, tzinfo=timezone.utc)
+    ledger = CreditLedger(budget=100)
+
+    ledger.spend(30, now=day_one)
+    assert ledger.remaining == 70
+
+    ledger.spend(10, now=day_two)
+    assert ledger.remaining == 90  # rolled over to 100, then -10
+
+
+def test_credit_ledger_override_remaining_is_server_truth():
+    """Inner unit (plan item 5, server-truth half): `override_remaining`
+    (an upstream `X-Rate-Limit-Remaining` header) supersedes the local
+    estimate outright, regardless of prior spend."""
+    from backend.sources.opensky import CreditLedger
+
+    now = datetime(2026, 7, 5, 12, 0, 0, tzinfo=timezone.utc)
+    ledger = CreditLedger(budget=100)
+    ledger.spend(10, now=now)
+    assert ledger.remaining == 90
+
+    ledger.override_remaining(3987, now=now)
+    assert ledger.remaining == 3987
+
+
+async def test_fetch_429_with_retry_after_header():
+    """Inner unit (plan item 6): a 429 with a `Retry-After` header raises
+    `RateLimitedError` carrying it as a float (opensky.md failure table)."""
+    from backend.config import Secrets
+    from backend.sources.base import RateLimitedError, Region
+    from backend.sources.opensky import CreditLedger, OpenSkyAdapter
+
+    cfg = _make_full_opensky_cfg()
+    secrets = Secrets(opensky_client_id="x", opensky_client_secret="y")
+    credits = CreditLedger(budget=cfg.daily_credit_budget)
+    region = Region(id="hormuz", label="Strait of Hormuz", bbox=(55.0, 25.0, 57.5, 27.5))
+
+    async with respx.mock() as respx_mock:
+        respx_mock.post(TOKEN_URL).mock(return_value=Response(200, json=TOKEN_RESPONSE_1))
+        respx_mock.get(STATES_URL).mock(
+            return_value=Response(429, headers={"Retry-After": "12.5"})
+        )
+        adapter = OpenSkyAdapter(cfg, secrets, credits)
+        with pytest.raises(RateLimitedError) as exc_info:
+            await adapter.fetch(region)
+        assert exc_info.value.retry_after == 12.5
+
+
+async def test_fetch_429_without_retry_after_header_leaves_retry_after_none():
+    """Inner unit (plan item 6): absent `Retry-After`, `retry_after=None`
+    (scheduler falls back to config backoff, opensky.md failure table)."""
+    from backend.config import Secrets
+    from backend.sources.base import RateLimitedError, Region
+    from backend.sources.opensky import CreditLedger, OpenSkyAdapter
+
+    cfg = _make_full_opensky_cfg()
+    secrets = Secrets(opensky_client_id="x", opensky_client_secret="y")
+    credits = CreditLedger(budget=cfg.daily_credit_budget)
+    region = Region(id="hormuz", label="Strait of Hormuz", bbox=(55.0, 25.0, 57.5, 27.5))
+
+    async with respx.mock() as respx_mock:
+        respx_mock.post(TOKEN_URL).mock(return_value=Response(200, json=TOKEN_RESPONSE_1))
+        respx_mock.get(STATES_URL).mock(return_value=Response(429))
+        adapter = OpenSkyAdapter(cfg, secrets, credits)
+        with pytest.raises(RateLimitedError) as exc_info:
+            await adapter.fetch(region)
+        assert exc_info.value.retry_after is None
+
+
+@pytest.mark.parametrize("status", [500, 503])
+async def test_fetch_5xx_raises_upstream_error(status):
+    """Inner unit (plan item 6): any 5xx raises `UpstreamError`."""
+    from backend.config import Secrets
+    from backend.sources.base import Region, UpstreamError
+    from backend.sources.opensky import CreditLedger, OpenSkyAdapter
+
+    cfg = _make_full_opensky_cfg()
+    secrets = Secrets(opensky_client_id="x", opensky_client_secret="y")
+    credits = CreditLedger(budget=cfg.daily_credit_budget)
+    region = Region(id="hormuz", label="Strait of Hormuz", bbox=(55.0, 25.0, 57.5, 27.5))
+
+    async with respx.mock() as respx_mock:
+        respx_mock.post(TOKEN_URL).mock(return_value=Response(200, json=TOKEN_RESPONSE_1))
+        respx_mock.get(STATES_URL).mock(return_value=Response(status))
+        adapter = OpenSkyAdapter(cfg, secrets, credits)
+        with pytest.raises(UpstreamError):
+            await adapter.fetch(region)
+
+
+async def test_fetch_timeout_raises_upstream_error():
+    """Inner unit (plan item 6): a request timeout raises `UpstreamError`,
+    not left as a raw `httpx.TimeoutException`."""
+    from backend.config import Secrets
+    from backend.sources.base import Region, UpstreamError
+    from backend.sources.opensky import CreditLedger, OpenSkyAdapter
+
+    cfg = _make_full_opensky_cfg()
+    secrets = Secrets(opensky_client_id="x", opensky_client_secret="y")
+    credits = CreditLedger(budget=cfg.daily_credit_budget)
+    region = Region(id="hormuz", label="Strait of Hormuz", bbox=(55.0, 25.0, 57.5, 27.5))
+
+    async with respx.mock() as respx_mock:
+        respx_mock.post(TOKEN_URL).mock(return_value=Response(200, json=TOKEN_RESPONSE_1))
+        respx_mock.get(STATES_URL).mock(side_effect=httpx.TimeoutException("timed out"))
+        adapter = OpenSkyAdapter(cfg, secrets, credits)
+        with pytest.raises(UpstreamError):
+            await adapter.fetch(region)
+
+
+async def test_fetch_transport_error_raises_upstream_error():
+    """Inner unit (plan item 6): a connection-level transport failure (not
+    merely a timeout) also raises `UpstreamError`."""
+    from backend.config import Secrets
+    from backend.sources.base import Region, UpstreamError
+    from backend.sources.opensky import CreditLedger, OpenSkyAdapter
+
+    cfg = _make_full_opensky_cfg()
+    secrets = Secrets(opensky_client_id="x", opensky_client_secret="y")
+    credits = CreditLedger(budget=cfg.daily_credit_budget)
+    region = Region(id="hormuz", label="Strait of Hormuz", bbox=(55.0, 25.0, 57.5, 27.5))
+
+    async with respx.mock() as respx_mock:
+        respx_mock.post(TOKEN_URL).mock(return_value=Response(200, json=TOKEN_RESPONSE_1))
+        respx_mock.get(STATES_URL).mock(side_effect=httpx.ConnectError("refused"))
+        adapter = OpenSkyAdapter(cfg, secrets, credits)
+        with pytest.raises(UpstreamError):
+            await adapter.fetch(region)
+
+
+async def test_fetch_malformed_json_raises_parse_error():
+    """Inner unit (plan item 6): a 2xx response whose body isn't valid JSON
+    raises `ParseError` (opensky.md failure table: "2xx but JSON/schema
+    invalid")."""
+    from backend.config import Secrets
+    from backend.sources.base import ParseError, Region
+    from backend.sources.opensky import CreditLedger, OpenSkyAdapter
+
+    cfg = _make_full_opensky_cfg()
+    secrets = Secrets(opensky_client_id="x", opensky_client_secret="y")
+    credits = CreditLedger(budget=cfg.daily_credit_budget)
+    region = Region(id="hormuz", label="Strait of Hormuz", bbox=(55.0, 25.0, 57.5, 27.5))
+
+    async with respx.mock() as respx_mock:
+        respx_mock.post(TOKEN_URL).mock(return_value=Response(200, json=TOKEN_RESPONSE_1))
+        respx_mock.get(STATES_URL).mock(
+            return_value=Response(200, text="not valid json{")
+        )
+        adapter = OpenSkyAdapter(cfg, secrets, credits)
+        with pytest.raises(ParseError):
+            await adapter.fetch(region)
+
+
+async def test_fetch_missing_states_key_raises_parse_error():
+    """Inner unit (plan item 6): valid JSON that lacks the documented
+    `states` array is a schema-invalid 2xx body -> `ParseError`, not a
+    silent empty snapshot or a raw KeyError."""
+    from backend.config import Secrets
+    from backend.sources.base import ParseError, Region
+    from backend.sources.opensky import CreditLedger, OpenSkyAdapter
+
+    cfg = _make_full_opensky_cfg()
+    secrets = Secrets(opensky_client_id="x", opensky_client_secret="y")
+    credits = CreditLedger(budget=cfg.daily_credit_budget)
+    region = Region(id="hormuz", label="Strait of Hormuz", bbox=(55.0, 25.0, 57.5, 27.5))
+
+    async with respx.mock() as respx_mock:
+        respx_mock.post(TOKEN_URL).mock(return_value=Response(200, json=TOKEN_RESPONSE_1))
+        respx_mock.get(STATES_URL).mock(return_value=Response(200, json={"nope": True}))
+        adapter = OpenSkyAdapter(cfg, secrets, credits)
+        with pytest.raises(ParseError):
+            await adapter.fetch(region)
+
+
+@pytest.mark.parametrize("status", [401, 403])
+async def test_fetch_401_403_raises_autherror_and_invalidates_token(status):
+    """Inner unit (plan item 6, auth half): a 401/403 on `/states/all`
+    (token rejected) raises `AuthError` and invalidates the cached token so
+    the next attempt re-fetches (opensky.md failure table)."""
+    from backend.config import Secrets
+    from backend.sources.base import AuthError, Region
+    from backend.sources.opensky import CreditLedger, OpenSkyAdapter
+
+    cfg = _make_full_opensky_cfg()
+    secrets = Secrets(opensky_client_id="x", opensky_client_secret="y")
+    credits = CreditLedger(budget=cfg.daily_credit_budget)
+    region = Region(id="hormuz", label="Strait of Hormuz", bbox=(55.0, 25.0, 57.5, 27.5))
+
+    async with respx.mock() as respx_mock:
+        respx_mock.post(TOKEN_URL).mock(return_value=Response(200, json=TOKEN_RESPONSE_1))
+        respx_mock.get(STATES_URL).mock(return_value=Response(status))
+        adapter = OpenSkyAdapter(cfg, secrets, credits)
+        with pytest.raises(AuthError):
+            await adapter.fetch(region)
+        assert adapter._token_manager._access_token is None
+
+
+async def test_fetch_rate_limit_remaining_header_overrides_ledger_estimate():
+    """Inner unit (plan item 5, out-of-scope note lifted in): when the
+    states response carries `X-Rate-Limit-Remaining`, it is authoritative
+    over the local decrement (opensky.md: "server truth > estimate"),
+    overwriting whatever the estimate-based `spend()` computed."""
+    from backend.config import Secrets
+    from backend.sources.base import Region
+    from backend.sources.opensky import CreditLedger, OpenSkyAdapter
+
+    cfg = _make_full_opensky_cfg()
+    secrets = Secrets(opensky_client_id="x", opensky_client_secret="y")
+    credits = CreditLedger(budget=cfg.daily_credit_budget)
+    region = Region(id="hormuz", label="Strait of Hormuz", bbox=(55.0, 25.0, 57.5, 27.5))
+
+    now = datetime(2026, 7, 5, 12, 0, 0, tzinfo=timezone.utc)
+    with freeze_time(now):
+        async with respx.mock() as respx_mock:
+            respx_mock.post(TOKEN_URL).mock(
+                return_value=Response(200, json=TOKEN_RESPONSE_1)
+            )
+            respx_mock.get(STATES_URL).mock(
+                return_value=Response(
+                    200,
+                    json={"time": int(now.timestamp()), "states": []},
+                    headers={"X-Rate-Limit-Remaining": "3123"},
+                )
+            )
+            adapter = OpenSkyAdapter(cfg, secrets, credits)
+            await adapter.fetch(region)
+
+    # Not `budget - estimate` (would be 3999): server truth wins outright.
+    assert credits.remaining == 3123
+
+
+async def test_fetch_credentials_never_appear_in_raw_payload_or_model_dump():
+    """Inner unit (plan item 7, NFR5): the client secret used to obtain the
+    bearer token never surfaces anywhere in a fetched snapshot's
+    `raw_payload` or its `model_dump()` wire body."""
+    import json as json_module
+
+    from backend.config import Secrets
+    from backend.sources.base import Region
+    from backend.sources.opensky import CreditLedger, OpenSkyAdapter
+
+    secret_marker = "unmistakable-super-secret-marker-4f8c"
+    cfg = _make_full_opensky_cfg()
+    secrets = Secrets(
+        opensky_client_id="nfr5-client-id", opensky_client_secret=secret_marker
+    )
+    credits = CreditLedger(budget=cfg.daily_credit_budget)
+    region = Region(id="hormuz", label="Strait of Hormuz", bbox=(55.0, 25.0, 57.5, 27.5))
+
+    now = datetime(2026, 7, 5, 12, 0, 0, tzinfo=timezone.utc)
+    vector = _make_state_vector(time_position=int(now.timestamp()))
+    with freeze_time(now):
+        async with respx.mock() as respx_mock:
+            respx_mock.post(TOKEN_URL).mock(
+                return_value=Response(200, json=TOKEN_RESPONSE_1)
+            )
+            respx_mock.get(STATES_URL).mock(
+                return_value=Response(
+                    200, json={"time": int(now.timestamp()), "states": [vector]}
+                )
+            )
+            adapter = OpenSkyAdapter(cfg, secrets, credits)
+            snapshot = await adapter.fetch(region)
+
+    dumped_json = json_module.dumps(snapshot.model_dump(mode="json"))
+    assert secret_marker not in dumped_json
+    for feature in snapshot.features:
+        assert secret_marker not in json_module.dumps(feature.raw_payload)
