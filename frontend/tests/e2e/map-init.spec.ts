@@ -7,13 +7,6 @@
  * `design/specs/frontend.md` §2/§8 and `plans/frontend-map/01-map-init.md`, this
  * file starts running for real.
  *
- * `test.fail()` below is this web slice's analog to a strict pytest xfail
- * (): it marks the scenario "expected to fail." An unexpected *pass* fails
- * the run, so once the developer greens the behavior, this file must flip to
- * failing-the-run until the author removes the `test.fail()` marker in the
- * final pass — mirroring "xfail(strict=True) turned XPASS, blocking commits until
- * the marker is removed."
- *
  * Locked contract clauses (each must be independently satisfied, not just the
  * union): canvas mounts; map is centered on the Hormuz region; attribution shows
  * both "OpenStreetMap" and "OpenFreeMap"; the map background is the night-ink
@@ -33,13 +26,12 @@
  * `map.on('load', () => { (window as any).__zijMap = map; })`.
  *
  * This test is not the author's to loosen and not the developer's to
- * touch. Removing `test.fail()` happens only once every assertion below passes
- * for real, in the author's final follow-up pass.
+ * touch.
  */
 
 import { test, expect } from '@playwright/test';
 
-test.fail(
+test(
   'Hormuz map boots in night-ink with OSM + OpenFreeMap attribution and no console errors',
   async ({ page }) => {
     const consoleErrors: string[] = [];
