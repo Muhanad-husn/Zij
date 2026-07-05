@@ -31,13 +31,16 @@ the founder's three decision moments (plan approval). Follow this order:
    founder and **stop for approval.** Do not call any plugin issue-write tool before
    the founder approves.
 
-5. **On approval, file through the GitHub plugin.** For each approved issue, in
-   dependency order, call `mcp__plugin_github_github__issue_write` (create) with the
-   drafted title/body and labels. Use `sub_issue_write` for parent/child structure
-   if the decomposition warrants it. Ensure labels exist first — the four workflow
-   labels (`spec-drift`, `blocked`, `needs-context`, `done-with-concerns`) and
-   `sub:<subproject>`; create a missing `sub:<name>` via `gh label create` (the
-   plugin has no label-create tool — raw `gh` is the sanctioned fallback here).
+5. **On approval, file the issues.** For each approved issue, in dependency order,
+   prefer the GitHub plugin: `mcp__plugin_github_github__issue_write` (create) with
+   the drafted title/body and labels, and `sub_issue_write` for parent/child
+   structure if the decomposition warrants it. **If the plugin returns 403
+   "Resource not accessible by personal access token" (its token lacks write scope —
+   observed for PR creation, DEC-32), fall back to `gh issue create` for that write.**
+   Ensure labels exist first — the four workflow labels (`spec-drift`, `blocked`,
+   `needs-context`, `done-with-concerns`) and `sub:<subproject>`; create a missing
+   `sub:<name>` via `gh label create` (the plugin has no label-create tool, so raw
+   `gh` is the sanctioned fallback for labels regardless).
 
 6. **Back-link.** After each issue is filed, edit its slice plans' `Issue:` field
    from `TBD` to the real `#<n>`, and record the issue numbers in
