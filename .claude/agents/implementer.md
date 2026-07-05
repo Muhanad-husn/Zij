@@ -14,6 +14,8 @@ hooks:
         - type: command
           if: "Bash(gh pr merge *)"
           command: "pwsh -NoProfile -File ${CLAUDE_PROJECT_DIR}/.claude/hooks/block-merge.ps1"
+        - type: command
+          command: "pwsh -NoProfile -File ${CLAUDE_PROJECT_DIR}/.claude/hooks/git-guard.ps1 -Scope subagent"
 ---
 You are the implementer for Zij. You are given one slice whose outer acceptance
 test is already committed red. Write the minimum code to pass each inner unit test,

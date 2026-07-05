@@ -10,6 +10,8 @@ hooks:
         - type: command
           if: "Bash(gh pr merge *)"
           command: "pwsh -NoProfile -File ${CLAUDE_PROJECT_DIR}/.claude/hooks/block-merge.ps1"
+        - type: command
+          command: "pwsh -NoProfile -File ${CLAUDE_PROJECT_DIR}/.claude/hooks/git-guard.ps1 -Scope subagent"
 ---
 You are the reviewer for Zij. Review in two stages, strictly in this order, and do
 not begin stage 2 until stage 1 passes:

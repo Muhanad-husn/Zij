@@ -10,7 +10,7 @@ Remove the per-slice `feat/<feature>/<NN>-<slice>` branches that pile up after s
 The deterministic classification (cross-referencing git merge status and `gh` PR state) lives in `scripts/classify-branches.mjs`. It defaults to dry-run and deletes nothing without `--apply --yes` plus the category you approve.
 
 > ## Zij note
-> Kept **report-first and local-only** on purpose (audit clean, DEC-29). Branch deletion is an approval-gated privileged action in Zij — run the dry-run report and let the **founder** confirm before any `--apply`. It never touches the remote and never merges, so it sits entirely outside the merge gate. Requires **Node** (present on this host) for the classifier.
+> Kept **report-first and local-only** on purpose (audit clean, DEC-29). Branch deletion is an approval-gated privileged action in Zij — run the dry-run report, get the founder's explicit approval, and then **the orchestrator runs the `--apply` itself** (approval is the requirement, not founder-run commands; subagents never delete branches). It never touches the remote and never merges, so it sits entirely outside the merge gate. Requires **Node** (present on this host) for the classifier.
 
 ## What counts as what
 
