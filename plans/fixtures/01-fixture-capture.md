@@ -54,11 +54,18 @@ And   the Overpass fixture has "osm3s.timestamp_osm_base" and a non-empty "eleme
 
 ## Definition of done
 
-- [ ] `scripts/fetch_fixtures.py` written; founder has run it; both fixtures committed.
-- [ ] Shape test authored **red** first, now GREEN against the committed fixtures.
-- [ ] `uv run pytest` green; `uv run ruff check` clean.
-- [ ] CI (`tdd-ci`) runs the shape test; PR into `main` (`safe-pr`).
+- [x] `scripts/fetch_fixtures.py` written; capture run; both fixtures committed.
+- [x] Shape test authored **red** first (strict-xfail, `7f1aed7`), now GREEN against the committed fixtures (`903090c`).
+- [x] `uv run pytest` green (`44 passed`); `uv run ruff check` clean.
+- [x] CI (`ci.yml`) runs `ruff` + `pytest` on the PR; PR #28 into `main` opened via `safe-pr`.
 
 ## Status / progress log
 
 - 2026-07-05 planned (sprint v0). Founder-run capture step (needs OpenSky creds in `.env`).
+- 2026-07-05 built green. Outer shape test red→green (`7f1aed7`→`903090c`). Capture script
+  reuses the #13 token manager; identifying User-Agent added to fix Overpass HTTP 406
+  (`0c64933`). Fixtures committed: OpenSky 20 vectors, Overpass 8,323 elements (~15 MB),
+  osm_base `2026-07-05T17:59:00Z`. Two-stage review: Stage 1 PASS, Stage 2 done-with-concerns
+  (private-attr reach-through, 15 MB fixture git footprint, broader-than-spec retry — all
+  advisory). PR [#28](https://github.com/Muhanad-husn/Zij/pull/28) (label `done-with-concerns`),
+  awaiting founder merge approval.
