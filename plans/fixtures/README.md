@@ -14,7 +14,7 @@ their locked outer tests. This feature is the dev-time capture tooling that prod
 
 | # | Slice | Goal (one line) | Status | PR |
 |---|-------|-----------------|--------|----|
-| 01 | [fixture-capture](01-fixture-capture.md) | A script captures + commits the two real Hormuz payloads | ☐ todo | — |
+| 01 | [fixture-capture](01-fixture-capture.md) | A script captures + commits the two real Hormuz payloads | ✅ built (green) — PR #28 (done-with-concerns) | [#28](https://github.com/Muhanad-husn/Zij/pull/28) |
 
 ## Out of scope (whole feature)
 

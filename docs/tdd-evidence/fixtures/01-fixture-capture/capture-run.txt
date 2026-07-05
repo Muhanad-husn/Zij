@@ -1,0 +1,37 @@
+OpenSky fixture already present - skipping (delete it to re-capture)
+Fetching Overpass land-class queries for Hormuz...
+[overpass 1/6] border_control - overpass-api.de attempt 1/4
+[overpass 1/6] border_control - overpass-api.de failed: HTTP 504; retrying overpass-api.de in 5s
+[overpass 1/6] border_control - overpass-api.de attempt 2/4
+[overpass 1/6] border_control - overpass-api.de failed: HTTP 504; retrying overpass-api.de in 10s
+[overpass 1/6] border_control - overpass-api.de attempt 3/4
+[overpass 1/6] border_control - OK (16 elements) from overpass-api.de
+[overpass 2/6] aerodromes - overpass-api.de attempt 1/4
+[overpass 2/6] aerodromes - overpass-api.de failed: HTTP 504; retrying overpass-api.de in 5s
+[overpass 2/6] aerodromes - overpass-api.de attempt 2/4
+[overpass 2/6] aerodromes - overpass-api.de failed: HTTP 504; retrying overpass-api.de in 10s
+[overpass 2/6] aerodromes - overpass-api.de attempt 3/4
+[overpass 2/6] aerodromes - OK (22 elements) from overpass-api.de
+[overpass 3/6] ports_harbours - overpass-api.de attempt 1/4
+[overpass 3/6] ports_harbours - overpass-api.de failed: HTTP 504; retrying overpass-api.de in 5s
+[overpass 3/6] ports_harbours - overpass-api.de attempt 2/4
+[overpass 3/6] ports_harbours - OK (14 elements) from overpass-api.de
+[overpass 4/6] rail_stations_yards - overpass-api.de attempt 1/4
+[overpass 4/6] rail_stations_yards - overpass-api.de failed: HTTP 429; retrying overpass-api.de in 5s
+[overpass 4/6] rail_stations_yards - overpass-api.de attempt 2/4
+[overpass 4/6] rail_stations_yards - overpass-api.de failed: HTTP 429; retrying overpass-api.de in 10s
+[overpass 4/6] rail_stations_yards - overpass-api.de attempt 3/4
+[overpass 4/6] rail_stations_yards - overpass-api.de failed: HTTP 429; retrying overpass-api.de in 20s
+[overpass 4/6] rail_stations_yards - overpass-api.de attempt 4/4
+[overpass 4/6] rail_stations_yards - OK (86 elements) from overpass-api.de
+[overpass 5/6] major_roads - overpass-api.de attempt 1/4
+[overpass 5/6] major_roads - OK (7727 elements) from overpass-api.de
+[overpass 6/6] mainline_rail - overpass-api.de attempt 1/4
+[overpass 6/6] mainline_rail - overpass-api.de failed: HTTP 429; retrying overpass-api.de in 5s
+[overpass 6/6] mainline_rail - overpass-api.de attempt 2/4
+[overpass 6/6] mainline_rail - overpass-api.de failed: HTTP 429; retrying overpass-api.de in 10s
+[overpass 6/6] mainline_rail - overpass-api.de attempt 3/4
+[overpass 6/6] mainline_rail - overpass-api.de failed: HTTP 429; retrying overpass-api.de in 20s
+[overpass 6/6] mainline_rail - overpass-api.de attempt 4/4
+[overpass 6/6] mainline_rail - OK (458 elements) from overpass-api.de
+Wrote 8323 Overpass elements (osm_base=2026-07-05T17:59:00Z) -> D:\Zij\backend\tests\fixtures\overpass_hormuz.json
