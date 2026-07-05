@@ -1,12 +1,14 @@
 ---
-description: Start the next sprint issue — select it by dependency from the GitHub backlog, then drive the role subagents through the harness (outer test red → implementer greens → two-stage review → safe-pr prepares the PR). Never merges; stops at a prepared PR for the founder.
+description: Start the next sprint issue — select it by dependency from the GitHub backlog, then drive the role subagents through the harness (outer test red → implementer greens → two-stage review → safe-pr prepares the PR). Pauses at the prepared PR; on founder approval the orchestrator merges and cleans up.
 ---
 Start work on the next sprint issue: `$ARGUMENTS`
 
 You are the **orchestrator**. Drive one issue from selection to a **prepared PR into
-`main`** — and no further. The founder merges (their third decision moment). Every
-step below runs under the Phase-3 gates: subagents cannot merge, no commit lands on
-a red suite, the implementer cannot touch the outer test or `design/`.
+`main`**, then pause for founder approval (their third decision moment). Approval is
+the only requirement: on an explicit "approved" you run the merge yourself, then
+`safe-cleanup` on the merged branch. Every step below runs under the Phase-3 gates:
+subagents cannot merge, no commit lands on a red suite, the implementer cannot touch
+the outer test or `design/`.
 
 1. **Select the issue.** If `$ARGUMENTS` names an issue (`#<n>`), use it. Otherwise
    read the open backlog through the plugin (`mcp__plugin_github_github__list_issues`
@@ -49,13 +51,20 @@ a red suite, the implementer cannot touch the outer test or `design/`.
    compliance first (does the outer test truly encode intent?), then code-quality. On
    a stage-1 failure, loop back — do not proceed to a PR on an unaddressed finding.
 
-7. **Prepare the PR (`safe-pr`) — do not merge.** Use the `safe-pr` skill (non-web
-   transcript evidence path) to push the branch and open a PR into `main` with the
+7. **Prepare the PR (`safe-pr`).** Use the `safe-pr` skill (non-web transcript
+   evidence path) to push the branch and open a PR into `main` with the
    feature/slice description, test evidence, and a reviewer checklist. Link the PR to
-   its issue (`Closes #<n>`). **safe-pr prepares only; it must not merge** — if it or
-   anything else attempts a merge, the block-merge gate stops it.
+   its issue (`Closes #<n>`). `safe-pr` prepares only — the merge is a separate,
+   approval-gated step (step 9). If a **subagent** attempts a merge, the block-merge
+   gate stops it.
 
-8. **Hand off.** Report the prepared PR URL and the review outcome to the founder,
-   with one status (DONE / DONE_WITH_CONCERNS / BLOCKED / NEEDS_CONTEXT). If the
-   slice shipped with caveats, apply `done-with-concerns` to the issue/PR. **Stop
-   here. Do not merge.**
+8. **Hand off for approval.** Report the prepared PR URL and the review outcome to
+   the founder, with one status (DONE / DONE_WITH_CONCERNS / BLOCKED /
+   NEEDS_CONTEXT). If the slice shipped with caveats, apply `done-with-concerns` to
+   the issue/PR. **Pause here and ask for merge approval — do not infer it.**
+
+9. **Merge and clean up (on approval only).** On the founder's explicit "approved",
+   run the merge yourself from the main session (`gh pr merge`), then run
+   `safe-cleanup` on the now-merged local branch (report first; delete under the same
+   approval, recording the recovery SHA). Approval is all that is needed — never make
+   the founder run the commands.

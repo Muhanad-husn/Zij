@@ -16,7 +16,7 @@ For the anatomy of a workflow, caching, Playwright-in-CI specifics, and branch-p
 > - **Non-web is the default.** Zij slices go through an HTTP route (FastAPI) or a CLI/pipeline call — the acceptance test is just another `uv run pytest` selection, **no browser job**. Add the Playwright job only when a slice actually renders the MapLibre UI.
 > - **Never commit secrets (config contract: env-only via `.env`).** CI reads secrets from GitHub Actions secrets; the workflow references them by name, never inlines a value, and `.env` stays git-ignored.
 > - **Gates:** `tdd-ci` **commits** the workflow and hands off — it never merges or pushes to `main` (the block-merge + branch-protection gates enforce this). The tests-green hook still guards the commit locally.
-> - **Required checks backstop the founder's merge seat.** Making these checks *required* on `main` is a founder action (DEC-15 deferred it until this workflow exists — it now does); offer the `gh api` command but do not run repo-settings changes yourself.
+> - **Required checks backstop the merge gate.** Making these checks *required* on `main` is an approval-gated action (DEC-15 deferred it until this workflow exists — it now does): branch protection changes need the founder's explicit approval, and on approval the orchestrator runs the `gh api` command itself.
 
 > Confirm exact, current `actions/*` versions and runner images with `find-docs`/`ctx7` — action major versions move.
 

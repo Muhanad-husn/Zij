@@ -45,9 +45,13 @@ and a pinned model. Path limits are enforced by hooks, not by the tool list.
 | Implementer | Writes product code, drives inner unit cycles | Edits specs or tests |
 | Reviewer | Reads, reviews in two stages, comments | Writes anything (read-only) |
 
-**Who may merge: the founder only.** Agents build and check; they never merge to
-`main`, never push to `main`, and never change branch protection. This is the
-enterprise's core boundary.
+**Merge authority: founder approval is the gate, not founder execution.** When
+work on a branch is complete, the founder's explicit "approved" is all that is
+needed — the orchestrator (main session) then runs the merge and, afterwards, the
+safe-cleanup of the merged branch itself. Subagents build and check; they never
+merge to `main`, never push to `main`, never delete branches, and never change
+branch protection. That subagent boundary, plus the approval requirement on the
+orchestrator, is the enterprise's core boundary.
 
 ## The behavior-first loop (DEC-1)
 
@@ -70,9 +74,11 @@ an issue, never to an in-place edit.
 
 ## The two hard gates
 
-1. **Agents never merge.** A hook blocks `git merge`, pushes to `main`, direct
-   commits on `main`, and the GitHub plugin's merge tool. Server-side branch
-   protection backstops this where the plan allows it.
+1. **Subagents never merge.** Subagent-scoped hooks block `git merge`, pushes to
+   `main`, `gh pr merge`, branch deletion, and the GitHub plugin's merge tool; a
+   global hook blocks direct commits on `main` for everyone. The orchestrator's
+   own merge and cleanup path stays open and runs only on founder approval.
+   Server-side branch protection backstops this where the plan allows it.
 2. **No commit on a red suite.** A hook runs the test command before every commit
    and blocks it if the suite is red.
 

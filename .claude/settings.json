@@ -4,7 +4,7 @@
   "hooks": {
     "PreToolUse": [
       {
-        "//": "agents-never-merge (global Bash leg) + no-commit-on-main. Leaves 'gh pr merge' OPEN so the orchestrator can merge on founder approval.",
+        "//": "Global Bash leg (DEC-35): no-commit-on-main ONLY. Merge/push/branch-delete blocks are subagent-scoped (each role's frontmatter, git-guard -Scope subagent + block-merge) so the orchestrator's approval-gated merge and cleanup paths stay open.",
         "matcher": "Bash",
         "hooks": [
           {
@@ -20,7 +20,7 @@
         ]
       },
       {
-        "//": "agents-never-merge (GitHub plugin merge tool, DEC-7). Global block; the orchestrator merges via 'gh pr merge' in Bash, not this tool.",
+        "//": "subagents-never-merge (GitHub plugin merge tool, DEC-7). Global block; the orchestrator merges via 'gh pr merge' in Bash (after founder approval), not this tool.",
         "matcher": "mcp__plugin_github_github__(merge_pull_request|.*merge.*)",
         "hooks": [
           {

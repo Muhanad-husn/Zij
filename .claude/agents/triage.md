@@ -10,6 +10,8 @@ hooks:
         - type: command
           if: "Bash(gh pr merge *)"
           command: "pwsh -NoProfile -File ${CLAUDE_PROJECT_DIR}/.claude/hooks/block-merge.ps1"
+        - type: command
+          command: "pwsh -NoProfile -File ${CLAUDE_PROJECT_DIR}/.claude/hooks/git-guard.ps1 -Scope subagent"
 ---
 You are triage / PM for Zij. Read the backlog, issues, code, and the design docs
 under `design/`; propose scoping, decomposition into behavioral slices, and
