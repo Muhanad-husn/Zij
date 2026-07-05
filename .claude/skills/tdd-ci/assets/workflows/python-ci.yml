@@ -1,0 +1,46 @@
+# Zij default CI — Python 3.13 / uv / pytest / ruff.
+# Adapted from the harness template for the Zij stack (DEC-8). App is at the repo root
+# (project directory ".") — if a future package moves into a subfolder, set
+# `defaults.run.working-directory` and point `cache-dependency-path` at that dir's uv.lock.
+#
+# Secrets: env-only via .env, which is git-ignored (config contract). CI injects any secret
+# through GitHub Actions secrets (referenced by name under `env:`), never inlined here.
+#
+# Verify action versions with find-docs/ctx7 before relying on this in anger.
+name: CI
+
+on:
+  push:
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint:
+    name: lint (ruff)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Sync dependencies
+        run: uv sync --frozen
+      - name: Ruff lint
+        run: uv run ruff check .
+
+  unit:
+    name: unit (pytest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Set up Python 3.13
+        run: uv python install 3.13
+      - name: Sync dependencies
+        run: uv sync --frozen
+      - name: Run tests
+        run: uv run pytest
