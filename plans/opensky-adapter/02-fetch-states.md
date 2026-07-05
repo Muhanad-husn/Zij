@@ -5,7 +5,7 @@
 - **Issue:** #14
 - **Branch:** feat/opensky-adapter/02-fetch-states
 - **Project directory:** `.`
-- **Status:** ☐ todo
+- **Status:** ☑ PR open (#29)
 - **Walking skeleton?** **yes** (first real upstream data; validates the credit math)
 
 > **Zij roles (DEC-1):** **test-author** commits the outer test **red** (strict-xfail, DEC-33) before implementation; **implementer** drives inner cycles, may not edit the outer test or `design/`; **test-author** removes the marker on green. Spec wrong mid-build ⇒ `spec-drift` issue.
@@ -66,3 +66,4 @@ And   model_dump() of the snapshot contains no raw_payload
 ## Status / progress log
 
 - 2026-07-05 planned (sprint v0). Blocked-by: fixtures/01, opensky-adapter/01.
+- 2026-07-05 built via /sprint-start: outer test red (2ea0bd9) → implementer greened fetch()/CreditLedger → inner units + xfail removed (a0f843c) → reviewer two-stage (stage-1 PASS; one must-fix on malformed Retry-After fixed 005e11c + regression 0ce981d) → PR #29 into main. Suite 70 passed, ruff clean. Awaiting founder merge approval.
