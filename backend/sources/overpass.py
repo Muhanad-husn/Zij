@@ -8,10 +8,13 @@ timeout, `elements` -> `Feature` parsing (point/linestring/polygon), dedup by
 capture (oldest across responses) stamped as every feature's and the
 snapshot's `timestamp_source`.
 
-Geometry simplification (Douglas-Peucker via shapely) and the <=5000
-deterministic drop priority are explicitly OUT of scope for this slice
-(deferred to overpass-adapter/02, design/specs/overpass.md "Geometry
-simplification"); `fetch()` here returns the parsed features un-simplified.
+Slice overpass-adapter/02 (issue #16) adds geometry simplification
+(Douglas-Peucker via shapely, design/specs/overpass.md "Geometry
+simplification") and the deterministic <=`max_rendered_features` drop
+priority (primary -> mainline rail -> trunk, shortest-within-tier first,
+never dropping motorway ways or point anchors), via the pure
+`simplify_and_cap` function, wired into `fetch()` after parsing+dedup and
+before the `LayerSnapshot` is built.
 """
 
 from __future__ import annotations
@@ -21,7 +24,9 @@ from datetime import datetime, timezone
 from typing import Any
 
 import httpx
+import shapely
 from pydantic import BaseModel
+from shapely.geometry import mapping, shape
 
 from backend.models import (
     Domain,
@@ -107,6 +112,103 @@ def _polygon_centroid(vertices: list[dict[str, float]]) -> tuple[float, float]:
     return cy, cx
 
 
+def _tuples_to_lists(value: Any) -> Any:
+    """Recursively convert shapely's `mapping()` coordinate tuples into plain
+    lists, so the rebuilt geometry dict compares equal to GeoJSON coordinate
+    lists (`[[lon, lat], ...]`) elsewhere in this module and in tests."""
+    if isinstance(value, (tuple, list)):
+        return [_tuples_to_lists(item) for item in value]
+    return value
+
+
+def _simplify_geometry(geometry: dict[str, Any], tolerance: float) -> dict[str, Any]:
+    """Douglas-Peucker simplify a GeoJSON LineString/Polygon geometry dict via
+    shapely (design/specs/overpass.md "Geometry simplification"),
+    `preserve_topology=False`. [lon, lat] coordinate order is preserved
+    (shapely is agnostic to axis meaning; it operates on x/y as given)."""
+    geom = shape(geometry)
+    simplified = shapely.simplify(geom, tolerance, preserve_topology=False)
+    geojson = mapping(simplified)
+    return {
+        "type": geojson["type"],
+        "coordinates": _tuples_to_lists(geojson["coordinates"]),
+    }
+
+
+def _geometry_length(geometry: dict[str, Any]) -> float:
+    """A stable, deterministic length measure for the within-tier drop
+    ordering (design/specs/overpass.md "Geometry simplification": "Use a
+    stable, deterministic length measure (e.g. shapely `.length`)")."""
+    return shape(geometry).length
+
+
+# Feature classes never eligible for the over-cap drop (design/specs/
+# overpass.md "Geometry simplification"): every point anchor (border_control,
+# aerodrome, port/harbour, rail station/yard) and `highway=motorway` ways --
+# the logistics anchors the land layer exists to show. Everything else that
+# doesn't match one of the three drop tiers below is also protected by
+# default (a classification gap should never silently make a feature
+# droppable).
+_TIER_PRIMARY = 1
+_TIER_RAIL = 2
+_TIER_TRUNK = 3
+
+
+def _drop_tier(feature: Feature) -> int | None:
+    """Classify a feature into one of the three deterministic drop tiers
+    (primary -> rail -> trunk), or `None` if it must never be dropped (any
+    POINT feature, any `highway=motorway` way, or anything unclassified)."""
+    if feature.geometry_type == GeometryType.POINT:
+        return None
+    highway = feature.attrs.get("highway")
+    if highway == "motorway":
+        return None
+    if highway == "primary":
+        return _TIER_PRIMARY
+    if feature.attrs.get("railway") == "rail":
+        return _TIER_RAIL
+    if highway == "trunk":
+        return _TIER_TRUNK
+    return None
+
+
+def simplify_and_cap(
+    features: list[Feature], tolerance: float, max_features: int
+) -> list[Feature]:
+    """Simplify LineString/Polygon geometry (Douglas-Peucker via shapely) and,
+    if the result still exceeds `max_features`, drop lowest-value features
+    first by the deterministic priority primary -> mainline rail -> trunk,
+    shortest-within-tier first, never dropping motorway ways or point anchors
+    (design/specs/overpass.md "Geometry simplification"). Pure and
+    deterministic: the same input list always yields the same output."""
+    simplified: list[Feature] = []
+    for feature in features:
+        if (
+            feature.geometry_type in (GeometryType.LINESTRING, GeometryType.POLYGON)
+            and feature.geometry is not None
+        ):
+            new_geometry = _simplify_geometry(feature.geometry, tolerance)
+            feature = feature.model_copy(update={"geometry": new_geometry})
+        simplified.append(feature)
+
+    if len(simplified) <= max_features:
+        return simplified
+
+    remaining_to_drop = len(simplified) - max_features
+    dropped_source_ids: set[str] = set()
+    for tier in (_TIER_PRIMARY, _TIER_RAIL, _TIER_TRUNK):
+        if remaining_to_drop <= 0:
+            break
+        candidates = [f for f in simplified if _drop_tier(f) == tier]
+        candidates.sort(key=lambda f: (_geometry_length(f.geometry), f.source_id))
+        n_to_drop = min(remaining_to_drop, len(candidates))
+        for feature in candidates[:n_to_drop]:
+            dropped_source_ids.add(feature.source_id)
+        remaining_to_drop -= n_to_drop
+
+    return [f for f in simplified if f.source_id not in dropped_source_ids]
+
+
 class OverpassAdapter(PollAdapter):
     domain = Domain.LAND
     source = "overpass"
@@ -158,6 +260,15 @@ class OverpassAdapter(PollAdapter):
                 features.append(
                     self._feature_from_element(element, source_id, now, osm_base)
                 )
+
+        if self._cfg.simplify_tolerance_deg is not None and (
+            self._cfg.max_rendered_features is not None
+        ):
+            features = simplify_and_cap(
+                features,
+                self._cfg.simplify_tolerance_deg,
+                self._cfg.max_rendered_features,
+            )
 
         return LayerSnapshot(
             meta=LayerSnapshotMeta(
