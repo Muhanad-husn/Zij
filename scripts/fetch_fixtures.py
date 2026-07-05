@@ -123,25 +123,67 @@ async def _fetch_overpass_class(
     backoff_base_s: float,
     backoff_max_s: float,
     max_attempts: int,
+    class_name: str,
+    class_index: int,
+    class_total: int,
 ) -> dict[str, Any]:
     """Sequential mirror rotation with exponential backoff (design/specs/
     overpass.md "Partitioning + mirror strategy"): `429`/`504`/timeout
     advances to the next mirror and retries with `delay = min(backoff_max_s,
-    backoff_base_s * 2**attempt)`."""
+    backoff_base_s * 2**attempt)`.
+
+    Prints per-class/per-attempt progress so a hung/throttled mirror is
+    visible on the terminal in real time (issue #12 observability fix)."""
+    # Capture-script convenience: cap the httpx per-request timeout tighter
+    # than the spec's `timeout_s + 30` (product adapter value, slice #15) so
+    # an unresponsive interactive mirror is abandoned in ~90s and rotates to
+    # the next mirror, instead of blocking ~210s per attempt.
+    request_timeout = min(timeout_s + 30, 90.0)
     last_exc: Exception | None = None
-    for mirror in mirrors:
+    for mirror_index, mirror in enumerate(mirrors):
+        host = httpx.URL(mirror).host
         for attempt in range(max_attempts):
+            print(
+                f"[overpass {class_index}/{class_total}] {class_name} — "
+                f"{host} attempt {attempt + 1}/{max_attempts}",
+                flush=True,
+            )
             try:
                 response = await client.post(
-                    mirror, data={"data": query}, timeout=timeout_s + 30
+                    mirror, data={"data": query}, timeout=request_timeout
                 )
                 # 429/504 (and any other non-2xx) trigger the same
                 # mirror-rotation-with-backoff retry path below.
                 response.raise_for_status()
-                return response.json()
+                data = response.json()
+                element_count = len(data.get("elements", []))
+                print(
+                    f"[overpass {class_index}/{class_total}] {class_name} — "
+                    f"OK ({element_count} elements) from {host}",
+                    flush=True,
+                )
+                return data
             except httpx.HTTPError as exc:
                 last_exc = exc
                 delay = min(backoff_max_s, backoff_base_s * (2**attempt))
+                reason = (
+                    f"HTTP {exc.response.status_code}"
+                    if isinstance(exc, httpx.HTTPStatusError)
+                    else type(exc).__name__
+                )
+                is_last_attempt_for_mirror = attempt == max_attempts - 1
+                if is_last_attempt_for_mirror and mirror_index + 1 < len(mirrors):
+                    next_host = httpx.URL(mirrors[mirror_index + 1]).host
+                    next_step = f"next mirror {next_host} in {delay:.0f}s"
+                elif is_last_attempt_for_mirror:
+                    next_step = f"mirrors exhausted; giving up in {delay:.0f}s"
+                else:
+                    next_step = f"retrying {host} in {delay:.0f}s"
+                print(
+                    f"[overpass {class_index}/{class_total}] {class_name} — "
+                    f"{host} failed: {reason}; {next_step}",
+                    flush=True,
+                )
                 await asyncio.sleep(delay)
     raise RuntimeError(f"overpass fetch exhausted mirrors and attempts: {last_exc}")
 
@@ -180,11 +222,21 @@ async def fetch_overpass_all(
     generator = "Overpass API"
     version: float = 0.6
 
+    class_total = len(OVERPASS_QUERIES)
     async with httpx.AsyncClient() as client:
-        for index, (_name, body_template) in enumerate(OVERPASS_QUERIES):
+        for index, (name, body_template) in enumerate(OVERPASS_QUERIES):
             query = _build_overpass_query(body_template, bbox_str, timeout_s, maxsize_bytes)
             data = await _fetch_overpass_class(
-                client, mirrors, query, timeout_s, backoff_base_s, backoff_max_s, max_attempts
+                client,
+                mirrors,
+                query,
+                timeout_s,
+                backoff_base_s,
+                backoff_max_s,
+                max_attempts,
+                name,
+                index + 1,
+                class_total,
             )
             generator = data.get("generator", generator)
             version = data.get("version", version)
@@ -209,11 +261,16 @@ async def _async_main() -> None:
 
     FIXTURES_DIR.mkdir(parents=True, exist_ok=True)
 
-    print("Fetching OpenSky /states/all for Hormuz...")
-    opensky_data = await fetch_opensky_states(cfg, secrets, bbox)
-    _write_json(OPENSKY_FIXTURE, opensky_data)
-    state_count = len(opensky_data.get("states") or [])
-    print(f"Wrote {state_count} OpenSky state vectors -> {OPENSKY_FIXTURE}")
+    if OPENSKY_FIXTURE.exists() and OPENSKY_FIXTURE.stat().st_size > 0:
+        # Idempotent skip: retrying the flaky Overpass phase should not
+        # re-spend OpenSky API credits (issue #12).
+        print("OpenSky fixture already present — skipping (delete it to re-capture)")
+    else:
+        print("Fetching OpenSky /states/all for Hormuz...")
+        opensky_data = await fetch_opensky_states(cfg, secrets, bbox)
+        _write_json(OPENSKY_FIXTURE, opensky_data)
+        state_count = len(opensky_data.get("states") or [])
+        print(f"Wrote {state_count} OpenSky state vectors -> {OPENSKY_FIXTURE}")
 
     print("Fetching Overpass land-class queries for Hormuz...")
     overpass_data = await fetch_overpass_all(cfg, bbox)
