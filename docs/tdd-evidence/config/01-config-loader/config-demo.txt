@@ -1,0 +1,10 @@
+=== load_config() boundary invocation ===
+regions loaded: 7  ->  ['eastern-med', 'gulf-of-oman', 'hormuz', 'iraq-corridor', 'persian-gulf', 'suez-canal', 'syria-corridor']
+hormuz bbox   : (55.0, 25.0, 57.5, 27.5)
+hormuz credits: 1  (expected 1 per config.md tier table)
+Secrets carries OpenSky creds : True
+client_id leaks into AppConfig JSON: False
+client_secret leaks into AppConfig JSON: False
+NFR5 secret-isolation holds   : True
+
+All boundary assertions passed. exit=0

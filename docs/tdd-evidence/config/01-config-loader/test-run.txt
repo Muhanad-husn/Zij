@@ -1,0 +1,47 @@
+============================= test session starts =============================
+platform win32 -- Python 3.13.14, pytest-9.1.1, pluggy-1.6.0 -- D:\Zij\.venv\Scripts\python.exe
+cachedir: .pytest_cache
+rootdir: D:\Zij
+configfile: pyproject.toml
+testpaths: backend/tests
+collecting ... collected 37 items
+
+backend/tests/test_baseline.py::test_baseline PASSED                     [  2%]
+backend/tests/test_config.py::test_missing_opensky_client_id_raises_named_error_when_air_enabled PASSED [  5%]
+backend/tests/test_config.py::test_missing_opensky_client_secret_raises_named_error_when_air_enabled PASSED [  8%]
+backend/tests/test_config.py::test_disabled_air_layer_needs_no_secret PASSED [ 10%]
+backend/tests/test_config.py::test_effective_cadence_s_applies_the_floor_when_cadence_below_floor PASSED [ 13%]
+backend/tests/test_config.py::test_effective_cadence_s_returns_cadence_when_above_floor PASSED [ 16%]
+backend/tests/test_config.py::test_effective_cadence_s_never_returns_below_floor_at_the_boundary PASSED [ 18%]
+backend/tests/test_config.py::test_stale_after_s_is_cadence_times_stale_multiplier PASSED [ 21%]
+backend/tests/test_config.py::test_stale_after_s_is_independent_per_layer PASSED [ 24%]
+backend/tests/test_config.py::test_deep_merge_overriding_one_key_preserves_sibling_keys PASSED [ 27%]
+backend/tests/test_config.py::test_deep_merge_does_not_mutate_inputs_and_replaces_lists_wholesale PASSED [ 29%]
+backend/tests/test_config.py::test_bundled_toml_value_overrides_code_default_for_same_key PASSED [ 32%]
+backend/tests/test_config.py::test_secrets_field_names_never_appear_as_keys_in_appconfig PASSED [ 35%]
+backend/tests/test_config.py::test_all_predefined_regions_have_config_md_bboxes_and_labels PASSED [ 37%]
+backend/tests/test_config.py::test_estimate_credits_matches_config_md_for_all_predefined_regions PASSED [ 40%]
+backend/tests/test_config.py::test_estimate_credits_tier_boundaries[25.0-1] PASSED [ 43%]
+backend/tests/test_config.py::test_estimate_credits_tier_boundaries[25.001-2] PASSED [ 45%]
+backend/tests/test_config.py::test_estimate_credits_tier_boundaries[100.0-2] PASSED [ 48%]
+backend/tests/test_config.py::test_estimate_credits_tier_boundaries[100.001-3] PASSED [ 51%]
+backend/tests/test_config.py::test_estimate_credits_tier_boundaries[400.0-3] PASSED [ 54%]
+backend/tests/test_config.py::test_estimate_credits_tier_boundaries[400.001-4] PASSED [ 56%]
+backend/tests/test_config_acceptance.py::test_load_config_returns_regions_credit_tier_and_isolated_secrets PASSED [ 59%]
+backend/tests/test_health_status_acceptance.py::test_health_status_returns_exact_contract_dict PASSED [ 62%]
+backend/tests/test_models_acceptance.py::test_feature_and_layer_snapshot_schema_from_air_wire_example PASSED [ 64%]
+backend/tests/test_models_unit.py::test_domain_enum_exhaustive PASSED    [ 67%]
+backend/tests/test_models_unit.py::test_geometry_type_enum_exhaustive PASSED [ 70%]
+backend/tests/test_models_unit.py::test_feature_status_enum_exhaustive PASSED [ 72%]
+backend/tests/test_models_unit.py::test_integrity_flag_enum_exhaustive PASSED [ 75%]
+backend/tests/test_models_unit.py::test_layer_status_enum_exhaustive PASSED [ 78%]
+backend/tests/test_models_unit.py::test_air_feature_allows_null_timestamp_source_and_position_age PASSED [ 81%]
+backend/tests/test_models_unit.py::test_feature_rejects_out_of_range_lat_lon PASSED [ 83%]
+backend/tests/test_models_unit.py::test_feature_forbids_unknown_fields PASSED [ 86%]
+backend/tests/test_models_unit.py::test_feature_rejects_naive_datetime PASSED [ 89%]
+backend/tests/test_models_unit.py::test_feature_accepts_aware_utc_datetime PASSED [ 91%]
+backend/tests/test_models_unit.py::test_raw_payload_excluded_from_dump_but_kept_in_memory PASSED [ 94%]
+backend/tests/test_models_unit.py::test_feature_normalizes_aware_non_utc_timestamp_to_utc PASSED [ 97%]
+backend/tests/test_models_unit.py::test_layer_snapshot_round_trip_carries_stale_after_s PASSED [100%]
+
+============================= 37 passed in 0.33s ==============================
