@@ -5,7 +5,7 @@
 - **Issue:** #15
 - **Branch:** feat/overpass-adapter/01-fetch-land
 - **Project directory:** `.`
-- **Status:** ☐ todo
+- **Status:** 🔬 in review — PR [#31](https://github.com/Muhanad-husn/Zij/pull/31) (done-with-concerns)
 - **Walking skeleton?** **yes** (first real land data; validates payload size + parsing)
 
 > **Zij roles (DEC-1):** **test-author** commits the outer test **red** (strict-xfail, DEC-33) before implementation; **implementer** drives inner cycles, may not edit the outer test or `design/`; **test-author** removes the marker on green. Spec wrong mid-build ⇒ `spec-drift` issue.
@@ -65,3 +65,11 @@ And   a source_id matched by two class queries appears exactly once (deduped, fi
 ## Status / progress log
 
 - 2026-07-05 planned (sprint v0). Blocked-by: fixtures/01, opensky-adapter/01 (for `sources/base`).
+- 2026-07-05 built + PR #31 into `main` (done-with-concerns). Outer test red (strict-xfail) →
+  implementer greened → inner tests + marker removal → error-branch coverage. Suite 83 green,
+  ruff clean. Walking-skeleton evidence: 8323 features parsed from the real fixture (138 point /
+  7948 linestring / 237 polygon), `osm_base` 2026-07-05T17:59:00Z stamped uniformly. Reviewer:
+  stage-1 spec-compliance passed. Concerns: spec-drift #30 filed (timeout failure-taxonomy
+  self-contradiction; as-built rotate-on-timeout is defensible, routed to an issue per DEC-1);
+  one deferred minor (wasted final-attempt backoff) folded into the #30 pass. Simplification +
+  ≤5000 cap remain slice 02 (#16).
