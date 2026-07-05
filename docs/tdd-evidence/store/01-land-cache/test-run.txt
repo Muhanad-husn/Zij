@@ -1,0 +1,20 @@
+============================= test session starts =============================
+platform win32 -- Python 3.13.14, pytest-9.1.1, pluggy-1.6.0
+rootdir: D:\Zij
+configfile: pyproject.toml
+testpaths: backend/tests
+plugins: anyio-4.14.1, asyncio-1.4.0, respx-0.23.1
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 43 items
+
+backend\tests\test_baseline.py .                                         [  2%]
+backend\tests\test_config.py ....................                        [ 48%]
+backend\tests\test_config_acceptance.py .                                [ 51%]
+backend\tests\test_health_status_acceptance.py .                         [ 53%]
+backend\tests\test_models_acceptance.py .                                [ 55%]
+backend\tests\test_models_unit.py .............                          [ 86%]
+backend\tests\test_opensky.py ....                                       [ 95%]
+backend\tests\test_store_acceptance.py .                                 [ 97%]
+backend\tests\test_store_unit.py .                                       [100%]
+
+============================= 43 passed in 0.55s ==============================

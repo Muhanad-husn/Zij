@@ -1,0 +1,13 @@
+init() ok — schema applied at C:\Users\mou97\AppData\Local\Temp\zij-demo-66ultnaa\zij.db
+init() called twice — idempotent, no error
+put_land_cache('hormuz', feature_count=1234) — written
+get_land_cache('hormuz') -> feature_count=1234
+  geojson round-trips equal: True
+  osm_base=2026-07-04T00:00:00+00:00  tz-aware=True  utc=True
+  osm_base equals stored value: True
+put_land_cache('hormuz') again (feature_count=999) — upsert
+get_land_cache('hormuz') -> feature_count=999 (replaced, one row)
+get_land_cache('gulf-of-oman') -> None (unknown region)
+close() ok
+
+RESULT: land_cache round-trip OK
