@@ -92,11 +92,12 @@ export function initMap(container: HTMLElement): MapLibreMap {
     }),
   );
 
-  // Swallow transient tile/source/network failures (OpenFreeMap slow or
-  // unreachable, /api down). These are non-fatal for the walking skeleton and
-  // must not reach the console — deliberately not console.error (spec §2, plan).
-  map.on('error', () => {
-    /* intentionally silent: transient fetch failures are non-fatal */
+  // Surface transient tile/source/network failures (OpenFreeMap slow or
+  // unreachable, /api down) without failing the walking skeleton. Logged via
+  // console.warn, deliberately not console.error (spec §2; the outer e2e
+  // asserts zero console.error, and warnings are ignored by it).
+  map.on('error', (e) => {
+    console.warn('[zij] map error:', e.error?.message ?? e);
   });
 
   map.on('load', () => {
