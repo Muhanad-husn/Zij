@@ -14,26 +14,22 @@ This is the behavioral contract (DEC-1), transcribed verbatim from
 plans/fixtures/01-fixture-capture.md ("Acceptance criterion (outer loop)" +
 inner unit list: OpenSky time/states/17-element vectors, Overpass
 osm3s.timestamp_osm_base ISO-parseable to UTC, elements non-empty covering
-node and way types). It is authored and committed red by the test-author
-before the fixtures exist, guarded by a strict xfail (DEC-33): the founder
-has not yet run `scripts/fetch_fixtures.py`, so the fixture files are absent
-and the assertions below fail today. The marker will be removed once the
-founder-run capture script has produced the two committed fixture files and
-this test genuinely passes.
+node and way types). It was authored and committed red by the test-author
+before the fixtures existed, guarded by a strict xfail (DEC-33). The founder
+has since run `scripts/fetch_fixtures.py` and committed both fixture files;
+the xfail marker has been removed and this test now genuinely passes,
+finalizing the contract green.
 """
 
 import json
 from datetime import datetime
 from pathlib import Path
 
-import pytest
-
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 OPENSKY_FIXTURE = FIXTURES_DIR / "opensky_states_all_hormuz.json"
 OVERPASS_FIXTURE = FIXTURES_DIR / "overpass_hormuz.json"
 
 
-@pytest.mark.xfail(reason="fixtures not yet captured — issue #12", strict=True)
 def test_fixtures_shape():
     # --- Given: the committed fixtures exist on disk ---
     assert OPENSKY_FIXTURE.exists(), f"missing fixture: {OPENSKY_FIXTURE}"
