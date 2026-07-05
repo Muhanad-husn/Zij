@@ -6,7 +6,9 @@ requires-python = ">=3.13"
 # Runtime deps intentionally empty at Phase 0 — added during the v0 spike sprint
 # per design/docs/STRUCTURE.md §5 (fastapi, uvicorn, httpx, websockets,
 # sse-starlette, pydantic, pydantic-settings, shapely, platformdirs).
-dependencies = []
+dependencies = [
+    "pydantic>=2.13.4",
+]
 
 [dependency-groups]
 dev = ["pytest>=8", "ruff>=0.6"]
