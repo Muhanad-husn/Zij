@@ -1,6 +1,6 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
-  "//": "Phase 3 hard gates. Scripts live in .claude/hooks/ (PowerShell, DEC-20). PreToolUse hooks block via permissionDecision=deny JSON on stdout, exit 0 (DEC-21).",
+  "//": "Phase 3 hard gates. Scripts live in .claude/hooks/ (PowerShell, DEC-20). Invoked via explicit 'pwsh -NoProfile -File' so execution does not depend on the host's default shell or the 'shell' hook field (DEC-24).",
   "hooks": {
     "PreToolUse": [
       {
@@ -9,15 +9,13 @@
         "hooks": [
           {
             "type": "command",
-            "shell": "powershell",
-            "command": "& '${CLAUDE_PROJECT_DIR}/.claude/hooks/git-guard.ps1'"
+            "command": "pwsh -NoProfile -File ${CLAUDE_PROJECT_DIR}/.claude/hooks/git-guard.ps1"
           },
           {
             "//": "no commit on a red suite — runs the suite only on a commit attempt.",
             "type": "command",
-            "shell": "powershell",
             "if": "Bash(git commit *)",
-            "command": "& '${CLAUDE_PROJECT_DIR}/.claude/hooks/tests-green.ps1'"
+            "command": "pwsh -NoProfile -File ${CLAUDE_PROJECT_DIR}/.claude/hooks/tests-green.ps1"
           }
         ]
       },
@@ -27,8 +25,7 @@
         "hooks": [
           {
             "type": "command",
-            "shell": "powershell",
-            "command": "& '${CLAUDE_PROJECT_DIR}/.claude/hooks/block-merge.ps1'"
+            "command": "pwsh -NoProfile -File ${CLAUDE_PROJECT_DIR}/.claude/hooks/block-merge.ps1"
           }
         ]
       },
@@ -38,8 +35,7 @@
         "hooks": [
           {
             "type": "command",
-            "shell": "powershell",
-            "command": "& '${CLAUDE_PROJECT_DIR}/.claude/hooks/spec-freeze.ps1'"
+            "command": "pwsh -NoProfile -File ${CLAUDE_PROJECT_DIR}/.claude/hooks/spec-freeze.ps1"
           }
         ]
       }

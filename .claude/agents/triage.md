@@ -8,9 +8,8 @@ hooks:
     - matcher: "Bash"
       hooks:
         - type: command
-          shell: powershell
           if: "Bash(gh pr merge *)"
-          command: "& '${CLAUDE_PROJECT_DIR}/.claude/hooks/block-merge.ps1'"
+          command: "pwsh -NoProfile -File ${CLAUDE_PROJECT_DIR}/.claude/hooks/block-merge.ps1"
 ---
 You are triage / PM for Zij. Read the backlog, issues, code, and the design docs
 under `design/`; propose scoping, decomposition into behavioral slices, and

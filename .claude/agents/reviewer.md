@@ -8,9 +8,8 @@ hooks:
     - matcher: "Bash"
       hooks:
         - type: command
-          shell: powershell
           if: "Bash(gh pr merge *)"
-          command: "& '${CLAUDE_PROJECT_DIR}/.claude/hooks/block-merge.ps1'"
+          command: "pwsh -NoProfile -File ${CLAUDE_PROJECT_DIR}/.claude/hooks/block-merge.ps1"
 ---
 You are the reviewer for Zij. Review in two stages, strictly in this order, and do
 not begin stage 2 until stage 1 passes:
