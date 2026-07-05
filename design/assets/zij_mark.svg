@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Zij logomark">
+  <defs>
+    <linearGradient id="sweep" gradientUnits="userSpaceOnUse" x1="406.7" y1="188.9" x2="307.0" y2="99.1">
+      <stop offset="0" stop-color="#F0B45A" stop-opacity="0.38"/>
+      <stop offset="1" stop-color="#F0B45A" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+
+  <!-- night disc -->
+  <circle cx="256" cy="256" r="244" fill="#101D30"/>
+
+  <!-- faint inner reference ring -->
+  <circle cx="256" cy="256" r="110" fill="none" stroke="#2C3E55" stroke-width="3"/>
+
+  <!-- sweep wedge (the live observation), 18° to 66° -->
+  <path d="M 256 256 L 307.0 99.1 A 165 165 0 0 1 406.7 188.9 Z" fill="url(#sweep)"/>
+  <!-- leading edge of the sweep -->
+  <path d="M 256 256 L 406.7 188.9" stroke="#F0B45A" stroke-width="4" opacity="0.9" fill="none"/>
+
+  <!-- segmented outer ring: three unequal arcs, three domains, honest gaps -->
+  <!-- air (amber), -10° to 140° -->
+  <path d="M 223.0 68.9 A 190 190 0 0 1 378.1 401.6" fill="none" stroke="#D99A3B" stroke-width="26"/>
+  <!-- marine (teal), 153° to 253° -->
+  <path d="M 342.3 425.3 A 190 190 0 0 1 74.3 311.5" fill="none" stroke="#4E9DB4" stroke-width="26"/>
+  <!-- land (dun), 266° to 336° -->
+  <path d="M 66.5 269.3 A 190 190 0 0 1 178.7 82.4" fill="none" stroke="#A38B62" stroke-width="26"/>
+
+  <!-- single position dot with heading tick: latest state vector, no trail -->
+  <circle cx="354.3" cy="187.2" r="13" fill="#F0B45A"/>
+  <path d="M 364.9 179.7 L 385.4 165.4" stroke="#F0B45A" stroke-width="6" stroke-linecap="round" fill="none"/>
+</svg>
