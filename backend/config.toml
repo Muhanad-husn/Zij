@@ -1,0 +1,78 @@
+# Bundled default configuration (ADR-6 precedence layer 2; config.md).
+#
+# Scope for slice config-01 (issue #10, plans/config/01-config-loader.md):
+# the 7 predefined regions plus the [opensky]/[overpass]/[layers.air]/
+# [layers.land] sections. Marine/aisstream/integrity sections and the
+# user-TOML/env-tunable/DB-override precedence layers are out of scope for
+# this slice and are added by later slices.
+
+[[regions]]
+id = "hormuz"
+label = "Strait of Hormuz"
+bbox = [55.0, 25.0, 57.5, 27.5]
+
+[[regions]]
+id = "persian-gulf"
+label = "Persian Gulf"
+bbox = [47.5, 23.5, 57.0, 30.5]
+
+[[regions]]
+id = "gulf-of-oman"
+label = "Gulf of Oman"
+bbox = [56.5, 22.0, 62.0, 26.5]
+
+[[regions]]
+id = "iraq-corridor"
+label = "Iraq corridor"
+bbox = [42.0, 29.5, 48.5, 35.0]
+
+[[regions]]
+id = "syria-corridor"
+label = "Syria corridor"
+bbox = [35.5, 32.0, 42.0, 37.5]
+
+[[regions]]
+id = "eastern-med"
+label = "Eastern Mediterranean"
+bbox = [31.0, 31.0, 36.5, 37.0]
+
+[[regions]]
+id = "suez-canal"
+label = "Suez Canal"
+bbox = [31.8, 29.0, 34.5, 32.2]
+
+[opensky]
+token_url = "https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token"
+states_url = "https://opensky-network.org/api/states/all"
+token_refresh_margin_s = 120
+daily_credit_budget = 4000
+credit_warn_ratio = 0.5
+
+[overpass]
+mirrors = [
+  "https://overpass-api.de/api/interpreter",
+  "https://overpass.kumi.systems/api/interpreter",
+  "https://overpass.private.coffee/api/interpreter",
+]
+timeout_s = 180
+maxsize_bytes = 536870912
+backoff_base_s = 5
+backoff_max_s = 300
+max_attempts = 4
+
+[layers.air]
+enabled = true
+cadence_s = 600
+cadence_floor_s = 60
+stale_multiplier = 2
+deemphasize_after_s = 60
+custom_bbox_cap_sq_deg = 100
+
+[layers.land]
+enabled = true
+cadence_s = 86400
+cadence_floor_s = 3600
+stale_multiplier = 2
+custom_bbox_cap_sq_deg = 40
+simplify_tolerance_deg = 0.0005
+max_rendered_features = 5000

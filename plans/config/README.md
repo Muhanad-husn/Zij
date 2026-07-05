@@ -15,7 +15,7 @@ the aviation credit-tier estimate (FR1 math). v0 populates only the `regions` +
 
 | # | Slice | Goal (one line) | Status | PR |
 |---|-------|-----------------|--------|----|
-| 01 | [config-loader](01-config-loader.md) | `load_config()` merges precedence, exposes regions, keeps secrets separate | ☐ todo | — |
+| 01 | [config-loader](01-config-loader.md) | `load_config()` merges precedence, exposes regions, keeps secrets separate | ✅ built (PR #24) | [#24](https://github.com/Muhanad-husn/Zij/pull/24) |
 
 ## Out of scope (whole feature)
 
