@@ -1,0 +1,26 @@
+============================= test session starts =============================
+platform win32 -- Python 3.13.14, pytest-9.1.1, pluggy-1.6.0 -- D:\Zij\.venv\Scripts\python.exe
+cachedir: .pytest_cache
+rootdir: D:\Zij
+configfile: pyproject.toml
+testpaths: backend/tests
+collecting ... collected 16 items
+
+backend/tests/test_baseline.py::test_baseline PASSED                     [  6%]
+backend/tests/test_health_status_acceptance.py::test_health_status_returns_exact_contract_dict PASSED [ 12%]
+backend/tests/test_models_acceptance.py::test_feature_and_layer_snapshot_schema_from_air_wire_example PASSED [ 18%]
+backend/tests/test_models_unit.py::test_domain_enum_exhaustive PASSED    [ 25%]
+backend/tests/test_models_unit.py::test_geometry_type_enum_exhaustive PASSED [ 31%]
+backend/tests/test_models_unit.py::test_feature_status_enum_exhaustive PASSED [ 37%]
+backend/tests/test_models_unit.py::test_integrity_flag_enum_exhaustive PASSED [ 43%]
+backend/tests/test_models_unit.py::test_layer_status_enum_exhaustive PASSED [ 50%]
+backend/tests/test_models_unit.py::test_air_feature_allows_null_timestamp_source_and_position_age PASSED [ 56%]
+backend/tests/test_models_unit.py::test_feature_rejects_out_of_range_lat_lon PASSED [ 62%]
+backend/tests/test_models_unit.py::test_feature_forbids_unknown_fields PASSED [ 68%]
+backend/tests/test_models_unit.py::test_feature_rejects_naive_datetime PASSED [ 75%]
+backend/tests/test_models_unit.py::test_feature_accepts_aware_utc_datetime PASSED [ 81%]
+backend/tests/test_models_unit.py::test_raw_payload_excluded_from_dump_but_kept_in_memory PASSED [ 87%]
+backend/tests/test_models_unit.py::test_feature_normalizes_aware_non_utc_timestamp_to_utc PASSED [ 93%]
+backend/tests/test_models_unit.py::test_layer_snapshot_round_trip_carries_stale_after_s PASSED [100%]
+
+============================= 16 passed in 0.17s ==============================

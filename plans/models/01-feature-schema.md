@@ -5,7 +5,7 @@
 - **Issue:** #9
 - **Branch:** feat/models/01-feature-schema
 - **Project directory:** `.`
-- **Status:** ☐ todo
+- **Status:** ◐ in-review (PR [#22](https://github.com/Muhanad-husn/Zij/pull/22))
 - **Walking skeleton?** no
 
 > **Zij roles (DEC-1):** the **test-author** transcribes the Acceptance criterion below into the **locked outer acceptance test** and commits it **red** before any implementation (via `@pytest.mark.xfail(strict=True)`, DEC-33); the **implementer** then drives the inner unit list to green and **may not edit the outer test or `design/` specs**. On green the strict-xfail flips the suite red — the **test-author** removes the marker to land the final green commit. If the locked test looks wrong mid-build, raise a `spec-drift` issue — never edit it to force green.
@@ -63,3 +63,4 @@ And   a LayerSnapshot wrapping that Feature round-trips through model_validate()
 ## Status / progress log
 
 - 2026-07-05 planned (sprint v0).
+- 2026-07-05 built via `/sprint-start`: outer test red (`99619f6`, strict-xfail) → implementer greened `backend/models.py` → marker removed on green (`b3f332f`). Two-stage review: stage-1 spec-compliance PASS; stage-2 found aware-non-UTC timestamps mis-serialized (not `Z`), fixed (`fa38395`) + regression test (`00af112`). Suite 16 green, ruff clean. PR #22 prepared into `main` (awaiting founder merge — Checkpoint).
