@@ -15,7 +15,7 @@ here survives unchanged into v1.
 
 | # | Slice | Goal (one line) | Status | PR |
 |---|-------|-----------------|--------|----|
-| 01 | [feature-schema](01-feature-schema.md) | `Feature`/`LayerSnapshot`/enums validate per the contract | ☐ todo | — |
+| 01 | [feature-schema](01-feature-schema.md) | `Feature`/`LayerSnapshot`/enums validate per the contract | ◐ in-review | [#22](https://github.com/Muhanad-husn/Zij/pull/22) |
 
 <!-- Status values: ☐ todo · ◐ in-progress · ✅ done. -->
 
