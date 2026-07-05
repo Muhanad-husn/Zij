@@ -17,7 +17,7 @@ itself; Zij's *product* decisions live separately in
 | Phase | Title | Status | Date | Notes |
 |---|---|---|---|---|
 | 0 | Repository foundation | **DONE** | 2026-07-05 | Scaffold on `setup/00-foundation`; green baseline; no `gh repo create` (repo exists). **Server-side branch protection unavailable on free private plan (403) — deferred, see DEC-16.** Founder to merge the branch. |
-| 1 | `CLAUDE.md` handbook | Not started | — | The constitution: hierarchy, role/merge boundaries, spec-freeze, gates. |
+| 1 | `CLAUDE.md` handbook | **DONE — awaiting Checkpoint 1** | 2026-07-05 | On `setup/01-handbook` (stacked on Phase 0). 111 lines; preserves Developer Principles; answers "who merges?" + "who edits specs, when?". Zij mappings included. |
 | 2 | Role subagents | Not started | — | triage / spec-author / test-author / implementer / reviewer. |
 | 3 | Hard gates (hooks) | Not started | — | deny / block-merge (+ plugin merge tool) / tests-green / spec-freeze. |
 | 4 | Vendor & adapt TDD harness | Not started | — | `brainqub3/red-green-refactor`, adapted to roles/gates/Python. |
