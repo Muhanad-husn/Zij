@@ -713,3 +713,312 @@ async def test_other_5xx_raises_immediate_upstream_error_without_retry():
         await adapter.stop()
 
     assert route.call_count == 1
+
+
+# ---------------------------------------------------------------------------
+# overpass-adapter/02 (issue #16) outer acceptance test ().
+# ---------------------------------------------------------------------------
+#
+# This is the locked behavioral contract for step, transcribed from
+# plans/overpass-adapter/02-simplify.md ("Acceptance criterion") and
+# design/specs/overpass.md ("Geometry simplification (Douglas-Peucker)"): the
+# adapter simplifies LineString/Polygon geometry via shapely Douglas-Peucker
+# at `simplify_tolerance_deg` (0.0005 deg) and, if the result still exceeds
+# `max_rendered_features` (5000), drops lowest-value features first by the
+# deterministic priority primary -> mainline rail -> trunk (shortest-within-
+# tier first), NEVER dropping motorway ways or any point anchor. Same input
+# must yield the same output (cacheable).
+#
+# Per the plan's boundary note ("the simplification path inside
+# OverpassAdapter.fetch, exercised via the adapter or a directly-called
+# internal function") and "no real fixture needed", this test targets a
+# directly-callable, pure, module-level function rather than reconstructing a
+# 7000-element Overpass HTTP fixture -- there is no behavior here that
+# depends on the network/parsing path step already covers.
+#
+# Name/signature this test requires the developer to provide (test-
+# author's plumbing choice; overpass.md fixes the ALGORITHM -- shapely
+# Douglas-Peucker at a given tolerance, the 5000 cap, the primary/rail/trunk
+# drop priority, shortest-first within a tier, never dropping motorway or
+# points -- but does not fix a function name or signature):
+#   backend.sources.overpass.simplify_and_cap(
+#       features: list[Feature], tolerance: float, max_features: int
+#   ) -> list[Feature]
+# the developer is expected to also call this from inside `fetch()` (per
+# overpass.md, `fetch` returns simplified output) as a separate wiring change;
+# this outer test exercises the pure function directly with synthetic data,
+# per the plan's boundary note.
+#
+# Scenario construction (all deterministic, no randomness):
+#   - 4 point anchors (border_control, aerodrome, port, station) -- always
+#     kept, regardless of the cap.
+#   - 496 motorway ways -- always kept, regardless of length or the cap.
+#   - 800 primary ways (tier 1) -- fully dropped: alone they don't cover the
+#     2000-feature excess (7000 - 5000), so the drop cascades into tier 2.
+#   - 700 mainline-rail ways (tier 2) -- fully dropped: primary+rail
+#     (800+700=1500) still doesn't cover the excess (2000), so the drop
+#     cascades into tier 3.
+#   - 5000 trunk ways (tier 3) -- only PARTIALLY dropped: exactly the 500
+#     shortest (of 5000) are dropped, the 4500 longest are kept. This is the
+#     tier that actually pins "shortest-within-tier-first" as an ORDERING
+#     rule, not merely "this tier gets touched" -- tiers 1 and 2 are fully
+#     drained either way, so a buggy implementation that ignored length
+#     entirely within a tier could still pass those two checks by accident;
+#     it cannot pass the trunk-tier check, because that requires excluding
+#     precisely the 500 lowest-length trunk ways and no others.
+#   Total input = 4 + 496 + 800 + 700 + 5000 = 7000 (matches the plan's
+#   Gherkin "7,000 features" and its 5000 cap exactly, so the expected
+#   output size is exactly 5000, not merely "<=5000" -- a stronger,
+#   fully-pinned assertion than the cap alone would require).
+#
+# Each way's geometry is a 3-vertex LineString: two endpoints separated by a
+# length proportional to its index within its tier (so ascending index means
+# ascending length, letting "shortest first" be checked by index), plus one
+# midpoint offset perpendicular to the line by 0.0001 deg -- strictly INSIDE
+# the 0.0005 deg simplify tolerance, so Douglas-Peucker is expected to drop
+# that midpoint (proving "fewer vertices after simplification") while
+# changing the line's overall length by a negligible amount (~1e-8 deg,
+# many orders of magnitude below the 0.001 deg spacing between distinct
+# lengths in a tier) -- so the length-ordering assumption above holds
+# whether "geometry length" is measured on the pre- or post-simplification
+# geometry.
+#
+# Assumptions about Feature construction (this author's choices, not
+# spec-fixed): `domain=Domain.LAND`, `source="overpass"`; way features use
+# `geometry_type=GeometryType.LINESTRING` with a GeoJSON
+# `{"type": "LineString", "coordinates": [[lon, lat], ...]}` dict (ADR-11
+# order, matching step's parsing); point anchors use
+# `geometry_type=GeometryType.POINT` with `geometry=None` (feature-schema.md
+# "Points ... geometry=None"). The discriminating tags mirror overpass.md's
+# whitelist verbatim: `highway` in {motorway, primary, trunk} for road ways,
+# `railway="rail"` for mainline-rail ways (distinct from the point classes'
+# `railway` in {station, yard}, which never carries LineString geometry),
+# `barrier="border_control"` / `aeroway="aerodrome"` / `harbour="yes"` for
+# the three non-rail point anchors.
+#
+# Red mechanism (): `backend.sources.overpass.simplify_and_cap` does
+# not exist yet, so `from backend.sources.overpass import simplify_and_cap`
+# inside the test body raises `ImportError` (module-level imports elsewhere
+# in this file stay untouched, so collection itself stays green -- mirroring
+# step's outer test). `shapely` is also not yet an installed dependency,
+# but this test never imports it directly (vertex counts and lengths are
+# computed by inspecting the plain GeoJSON coordinate lists this test itself
+# constructs and receives back, not via shapely) -- so no separate shapely
+# import guard is needed here; the strict-xfail covers the `ImportError`.
+
+_SIMPLIFY_TOLERANCE_DEG = 0.0005
+_MAX_RENDERED_FEATURES = 5000
+
+_N_POINT_ANCHORS = 4
+_N_MOTORWAY = 496
+_N_PRIMARY = 800
+_N_RAIL = 700
+_N_TRUNK = 5000
+_TOTAL_FEATURES = _N_POINT_ANCHORS + _N_MOTORWAY + _N_PRIMARY + _N_RAIL + _N_TRUNK
+
+
+def _simplify_now_and_osm_base():
+    now = datetime(2026, 7, 5, 12, 0, 0, tzinfo=timezone.utc)
+    osm_base = datetime(2026, 7, 4, 12, 0, 0, tzinfo=timezone.utc)
+    return now, osm_base
+
+
+def _synthetic_line_feature(source_id: str, attrs: dict, length_deg: float, lat_row: float):
+    """A 3-vertex LINESTRING way: two endpoints `length_deg` apart, plus one
+    midpoint offset 0.0001 deg perpendicular to the line -- strictly inside
+    the 0.0005 deg simplify tolerance (see module-level rationale above)."""
+    from backend.models import Domain, Feature, FeatureStatus, GeometryType
+
+    now, osm_base = _simplify_now_and_osm_base()
+    lon0, lat0 = 0.0, lat_row
+    lon1 = lon0 + length_deg
+    mid_lon = (lon0 + lon1) / 2.0
+    mid_lat = lat_row + 0.0001
+    coordinates = [[lon0, lat0], [mid_lon, mid_lat], [lon1, lat0]]
+    return Feature(
+        domain=Domain.LAND,
+        source="overpass",
+        source_id=source_id,
+        label=None,
+        lat=lat0,
+        lon=mid_lon,
+        geometry_type=GeometryType.LINESTRING,
+        geometry={"type": "LineString", "coordinates": coordinates},
+        timestamp_source=osm_base,
+        timestamp_fetched=now,
+        position_age_s=(now - osm_base).total_seconds(),
+        status=FeatureStatus.LIVE,
+        attrs=dict(attrs),
+    )
+
+
+def _synthetic_point_feature(source_id: str, attrs: dict, lat: float, lon: float):
+    from backend.models import Domain, Feature, FeatureStatus, GeometryType
+
+    now, osm_base = _simplify_now_and_osm_base()
+    return Feature(
+        domain=Domain.LAND,
+        source="overpass",
+        source_id=source_id,
+        label=None,
+        lat=lat,
+        lon=lon,
+        geometry_type=GeometryType.POINT,
+        geometry=None,
+        timestamp_source=osm_base,
+        timestamp_fetched=now,
+        position_age_s=(now - osm_base).total_seconds(),
+        status=FeatureStatus.LIVE,
+        attrs=dict(attrs),
+    )
+
+
+def _build_synthetic_land_features() -> list:
+    """Fresh, independent feature list on every call (never shared/mutated
+    across calls) -- so the two `simplify_and_cap` invocations in the
+    determinism check below are proven independent of any accidental
+    aliasing or in-place mutation of a shared input."""
+    features = []
+
+    features.append(
+        _synthetic_point_feature(
+            "node/border-control-1", {"barrier": "border_control"}, 24.0, 54.0
+        )
+    )
+    features.append(
+        _synthetic_point_feature(
+            "node/aerodrome-1", {"aeroway": "aerodrome"}, 25.0, 55.0
+        )
+    )
+    features.append(
+        _synthetic_point_feature("node/port-1", {"harbour": "yes"}, 26.0, 56.0)
+    )
+    features.append(
+        _synthetic_point_feature(
+            "node/station-1", {"railway": "station"}, 27.0, 57.0
+        )
+    )
+
+    for i in range(_N_MOTORWAY):
+        features.append(
+            _synthetic_line_feature(
+                f"way/motorway-{i}", {"highway": "motorway"}, 0.001 * (i + 1), 10.0
+            )
+        )
+    for i in range(_N_PRIMARY):
+        features.append(
+            _synthetic_line_feature(
+                f"way/primary-{i}", {"highway": "primary"}, 0.001 * (i + 1), 20.0
+            )
+        )
+    for i in range(_N_RAIL):
+        features.append(
+            _synthetic_line_feature(
+                f"way/rail-{i}", {"railway": "rail"}, 0.001 * (i + 1), 30.0
+            )
+        )
+    for i in range(_N_TRUNK):
+        features.append(
+            _synthetic_line_feature(
+                f"way/trunk-{i}", {"highway": "trunk"}, 0.001 * (i + 1), 40.0
+            )
+        )
+
+    return features
+
+
+@pytest.mark.xfail(reason="simplify+cap not yet implemented", strict=True)
+def test_simplify_and_cap():
+    from backend.models import GeometryType
+    from backend.sources.overpass import simplify_and_cap
+
+    # --- Given: a synthetic parsed land feature set of 7,000 features
+    # (mixed motorway/trunk/primary roads, mainline rail, and point anchors)
+    # exceeding the 5,000 cap ---
+    reference_features = _build_synthetic_land_features()
+    assert len(reference_features) == _TOTAL_FEATURES == 7000
+    reference_by_id = {f.source_id: f for f in reference_features}
+
+    excess = _TOTAL_FEATURES - _MAX_RENDERED_FEATURES
+    assert excess > 0
+    remaining_after_primary = excess - _N_PRIMARY
+    # Primary alone doesn't cover the excess -- the drop must cascade into
+    # rail (tier 2), which is exactly what this scenario is built to prove.
+    assert remaining_after_primary > 0
+    remaining_after_rail = remaining_after_primary - _N_RAIL
+    # Primary+rail together still don't cover the excess -- the drop must
+    # cascade into trunk (tier 3) too.
+    assert remaining_after_rail > 0
+    n_trunk_dropped = remaining_after_rail
+    # Trunk is only PARTIALLY drained: this is the tier whose drop set
+    # actually pins "shortest-within-tier-first" as an ordering rule.
+    assert 0 < n_trunk_dropped < _N_TRUNK
+
+    # --- When: simplification runs at tolerance 0.0005 with
+    # max_rendered_features 5000 (twice, on independently-built but
+    # conceptually identical input, to check determinism) ---
+    output_run_1 = simplify_and_cap(
+        _build_synthetic_land_features(),
+        _SIMPLIFY_TOLERANCE_DEG,
+        _MAX_RENDERED_FEATURES,
+    )
+    output_run_2 = simplify_and_cap(
+        _build_synthetic_land_features(),
+        _SIMPLIFY_TOLERANCE_DEG,
+        _MAX_RENDERED_FEATURES,
+    )
+
+    # --- Then: the output has at most 5000 features (exactly 5000, given
+    # this scenario's construction) ---
+    assert len(output_run_1) <= _MAX_RENDERED_FEATURES
+    assert len(output_run_1) == _MAX_RENDERED_FEATURES
+
+    output_ids_1 = {f.source_id for f in output_run_1}
+
+    # --- And: every motorway way and every point anchor is retained ---
+    motorway_ids = {f"way/motorway-{i}" for i in range(_N_MOTORWAY)}
+    point_anchor_ids = {
+        "node/border-control-1",
+        "node/aerodrome-1",
+        "node/port-1",
+        "node/station-1",
+    }
+    assert motorway_ids <= output_ids_1
+    assert point_anchor_ids <= output_ids_1
+
+    # --- And: dropped features follow the priority primary -> rail ->
+    # trunk, shortest-within-tier first ---
+    primary_ids = {f"way/primary-{i}" for i in range(_N_PRIMARY)}
+    rail_ids = {f"way/rail-{i}" for i in range(_N_RAIL)}
+    # Tier 1 (primary) is fully drained before tier 2 is touched at all.
+    assert primary_ids.isdisjoint(output_ids_1)
+    # Tier 2 (rail) is fully drained too, before tier 3 is touched.
+    assert rail_ids.isdisjoint(output_ids_1)
+    # Tier 3 (trunk): exactly the shortest `n_trunk_dropped` (ascending
+    # index == ascending length) are dropped; the rest are kept.
+    expected_dropped_trunk_ids = {f"way/trunk-{i}" for i in range(n_trunk_dropped)}
+    expected_retained_trunk_ids = {
+        f"way/trunk-{i}" for i in range(n_trunk_dropped, _N_TRUNK)
+    }
+    assert expected_dropped_trunk_ids.isdisjoint(output_ids_1)
+    assert expected_retained_trunk_ids <= output_ids_1
+
+    # --- And: running it twice on the same input yields identical feature
+    # sets (deterministic, cacheable) ---
+    dump_1 = {f.source_id: f.model_dump() for f in output_run_1}
+    dump_2 = {f.source_id: f.model_dump() for f in output_run_2}
+    assert dump_1 == dump_2
+
+    # --- And: simplified LineStrings have strictly fewer vertices than
+    # their (3-vertex) inputs; points are untouched ---
+    for line_id in motorway_ids | expected_retained_trunk_ids:
+        feature = next(f for f in output_run_1 if f.source_id == line_id)
+        assert feature.geometry_type == GeometryType.LINESTRING
+        original_vertex_count = len(reference_by_id[line_id].geometry["coordinates"])
+        simplified_vertex_count = len(feature.geometry["coordinates"])
+        assert simplified_vertex_count < original_vertex_count
+
+    for point_id in point_anchor_ids:
+        feature = next(f for f in output_run_1 if f.source_id == point_id)
+        assert feature.geometry_type == GeometryType.POINT
+        assert feature.geometry is None
