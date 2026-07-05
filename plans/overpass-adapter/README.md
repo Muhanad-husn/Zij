@@ -14,7 +14,7 @@ simplification budget against a real Hormuz response is one of v0's three purpos
 
 | # | Slice | Goal (one line) | Status | PR |
 |---|-------|-----------------|--------|----|
-| 01 | [fetch-land](01-fetch-land.md) ⭐ | Parse the real Hormuz Overpass fixture → `LayerSnapshot(LAND)` + `osm_base` + geometry | ☐ todo | — |
+| 01 | [fetch-land](01-fetch-land.md) ⭐ | Parse the real Hormuz Overpass fixture → `LayerSnapshot(LAND)` + `osm_base` + geometry | 🔬 in review (PR #31, done-with-concerns) | [#31](https://github.com/Muhanad-husn/Zij/pull/31) |
 | 02 | [simplify](02-simplify.md) | Douglas-Peucker + deterministic ≤5,000 drop priority | ☐ todo | — |
 
 ⭐ = walking skeleton (first real land data; validates payload sizes).
