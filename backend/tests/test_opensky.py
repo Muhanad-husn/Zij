@@ -653,14 +653,17 @@ def test_parse_states_unknown_position_source_code_stringified():
     ("age_s", "expected_status"),
     [
         (59.0, "live"),
+        (60.0, "live"),
         (61.0, "stale"),
     ],
 )
 def test_parse_states_stale_status_threshold(age_s, expected_status):
     """Inner unit (plan item 4): `FeatureStatus.STALE` is stamped only when
     `position_age_s > deemphasize_after_s` (60s, config); at or below the
-    threshold the feature stays LIVE. Pinning both sides of the boundary
-    catches an off-by-one (>= vs >)."""
+    threshold the feature stays LIVE. Pinning both sides of the boundary,
+    plus the exact threshold value itself (60.0s == deemphasize_after_s),
+    catches an off-by-one (>= vs >): the spec's rule is strict `>`, so
+    age == threshold must NOT be stale."""
     from backend.models import FeatureStatus
 
     now = datetime(2026, 7, 5, 12, 0, 0, tzinfo=timezone.utc)
@@ -672,6 +675,46 @@ def test_parse_states_stale_status_threshold(age_s, expected_status):
     features, _ = adapter._parse_states({"states": [vector]}, now)
 
     assert features[0].status == FeatureStatus(expected_status)
+
+
+@pytest.mark.parametrize("order", ["ascending", "chronological_mixed", "descending"])
+def test_parse_states_newest_timestamp_source_across_multiple_vectors(order):
+    """Inner unit: `_parse_states`'s second return value (`newest_source_ts`,
+    the snapshot's `meta.timestamp_source`) is the MAXIMUM of every feature's
+    non-null `time_position` across the WHOLE batch, not merely the first
+    vector seen. The existing outer/inner tests only ever pass a single
+    vector, so a 'keep first' (or 'keep last-seen unconditionally') bug in
+    place of an actual max-reduction would slip through uncaught. Parametrized
+    over three input orderings of the same three timestamps (already
+    ascending, out-of-order, and fully descending) to pin that the result is
+    order-independent -- a real max, not an accidental artifact of iteration
+    order."""
+    now = datetime(2026, 7, 5, 12, 0, 0, tzinfo=timezone.utc)
+    cfg = _make_full_opensky_cfg()
+    adapter = _make_bare_adapter(cfg)
+
+    # Three distinct, non-null time_position epochs; the middle one (oldest,
+    # newest, middle) is deliberately not sorted in source order.
+    oldest_epoch = int((now - timedelta(seconds=300)).timestamp())
+    middle_epoch = int((now - timedelta(seconds=150)).timestamp())
+    newest_epoch = int((now - timedelta(seconds=5)).timestamp())
+    newest_ts = datetime.fromtimestamp(newest_epoch, tz=timezone.utc)
+
+    vector_oldest = _make_state_vector(icao24="old0001", time_position=oldest_epoch)
+    vector_middle = _make_state_vector(icao24="mid0002", time_position=middle_epoch)
+    vector_newest = _make_state_vector(icao24="new0003", time_position=newest_epoch)
+
+    orderings = {
+        "ascending": [vector_oldest, vector_middle, vector_newest],
+        "chronological_mixed": [vector_middle, vector_newest, vector_oldest],
+        "descending": [vector_newest, vector_middle, vector_oldest],
+    }
+    vectors = orderings[order]
+
+    features, batch_newest_ts = adapter._parse_states({"states": vectors}, now)
+
+    assert len(features) == 3
+    assert batch_newest_ts == newest_ts
 
 
 def test_credit_ledger_spend_decrements_and_warn_ratio():
@@ -768,6 +811,37 @@ async def test_fetch_429_without_retry_after_header_leaves_retry_after_none():
     async with respx.mock() as respx_mock:
         respx_mock.post(TOKEN_URL).mock(return_value=Response(200, json=TOKEN_RESPONSE_1))
         respx_mock.get(STATES_URL).mock(return_value=Response(429))
+        adapter = OpenSkyAdapter(cfg, secrets, credits)
+        with pytest.raises(RateLimitedError) as exc_info:
+            await adapter.fetch(region)
+        assert exc_info.value.retry_after is None
+
+
+async def test_fetch_429_with_malformed_retry_after_header_yields_typed_error():
+    """Regression (review must-fix, commit 005e11c): a 429 whose `Retry-After`
+    header is present but not a bare-float form (RFC 7231 also allows an
+    HTTP-date, which `float()` cannot parse) must still raise the typed
+    `RateLimitedError` with `retry_after=None` -- not let a bare `ValueError`
+    from the failed `float()` parse escape uncaught. Distinct from the
+    existing 'with header' (numeric) and 'without header' (absent) cases:
+    this is the third, malformed case a naive `float(header)` with no
+    try/except would blow up on."""
+    from backend.config import Secrets
+    from backend.sources.base import RateLimitedError, Region
+    from backend.sources.opensky import CreditLedger, OpenSkyAdapter
+
+    cfg = _make_full_opensky_cfg()
+    secrets = Secrets(opensky_client_id="x", opensky_client_secret="y")
+    credits = CreditLedger(budget=cfg.daily_credit_budget)
+    region = Region(id="hormuz", label="Strait of Hormuz", bbox=(55.0, 25.0, 57.5, 27.5))
+
+    async with respx.mock() as respx_mock:
+        respx_mock.post(TOKEN_URL).mock(return_value=Response(200, json=TOKEN_RESPONSE_1))
+        respx_mock.get(STATES_URL).mock(
+            return_value=Response(
+                429, headers={"Retry-After": "Wed, 21 Oct 2026 07:28:00 GMT"}
+            )
+        )
         adapter = OpenSkyAdapter(cfg, secrets, credits)
         with pytest.raises(RateLimitedError) as exc_info:
             await adapter.fetch(region)
