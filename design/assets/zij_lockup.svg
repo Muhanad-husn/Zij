@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 780 240" role="img" aria-label="Zij wordmark: zij, Arabic zay-ya-jim, latest available projection">
+  <defs>
+    <linearGradient id="sweepL" gradientUnits="userSpaceOnUse" x1="406.7" y1="188.9" x2="307.0" y2="99.1">
+      <stop offset="0" stop-color="#F0B45A" stop-opacity="0.38"/>
+      <stop offset="1" stop-color="#F0B45A" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+
+  <!-- logomark, scaled to 200px -->
+  <g transform="translate(20,20) scale(0.390625)">
+    <circle cx="256" cy="256" r="244" fill="#101D30"/>
+    <circle cx="256" cy="256" r="110" fill="none" stroke="#2C3E55" stroke-width="3"/>
+    <path d="M 256 256 L 307.0 99.1 A 165 165 0 0 1 406.7 188.9 Z" fill="url(#sweepL)"/>
+    <path d="M 256 256 L 406.7 188.9" stroke="#F0B45A" stroke-width="4" opacity="0.9" fill="none"/>
+    <path d="M 223.0 68.9 A 190 190 0 0 1 378.1 401.6" fill="none" stroke="#D99A3B" stroke-width="26"/>
+    <path d="M 342.3 425.3 A 190 190 0 0 1 74.3 311.5" fill="none" stroke="#4E9DB4" stroke-width="26"/>
+    <path d="M 66.5 269.3 A 190 190 0 0 1 178.7 82.4" fill="none" stroke="#A38B62" stroke-width="26"/>
+    <circle cx="354.3" cy="187.2" r="13" fill="#F0B45A"/>
+    <path d="M 364.9 179.7 L 385.4 165.4" stroke="#F0B45A" stroke-width="6" stroke-linecap="round" fill="none"/>
+  </g>
+
+  <!-- Latin wordmark -->
+  <text x="268" y="128" font-family="Archivo, 'Archivo Black', 'Helvetica Neue', Arial, sans-serif"
+        font-size="100" font-weight="700" letter-spacing="14" fill="#101D30">ZIJ</text>
+
+  <!-- Arabic wordmark -->
+  <text x="530" y="122" font-family="'Noto Naskh Arabic', 'Amiri', 'Traditional Arabic', serif"
+        font-size="76" fill="#D99A3B" direction="rtl">زيج</text>
+
+  <!-- tagline -->
+  <text x="272" y="182" font-family="'Spline Sans Mono', 'IBM Plex Mono', 'Courier New', monospace"
+        font-size="21" letter-spacing="5" fill="#5A6B80">LATEST AVAILABLE PROJECTION</text>
+</svg>
