@@ -251,9 +251,15 @@ class OpenSkyAdapter(PollAdapter):
         status = response.status_code
         if status == 429:
             retry_after_header = response.headers.get("Retry-After")
-            retry_after = (
-                float(retry_after_header) if retry_after_header is not None else None
-            )
+            retry_after: float | None = None
+            if retry_after_header is not None:
+                try:
+                    retry_after = float(retry_after_header)
+                except ValueError:
+                    # RFC 7231 also allows an HTTP-date here; we don't parse
+                    # that form. Falling back to None matches the spec's
+                    # "header absent" semantics (scheduler uses config backoff).
+                    retry_after = None
             raise RateLimitedError(retry_after=retry_after)
         if status in (401, 403):
             self._token_manager.invalidate()
@@ -379,7 +385,7 @@ class OpenSkyAdapter(PollAdapter):
                     # is carried through untouched.
                     raw_payload={"state_vector": vector},
                 )
-            except (IndexError, TypeError, ValidationError) as exc:
+            except (IndexError, KeyError, TypeError, ValidationError) as exc:
                 raise ParseError(
                     f"opensky state vector failed validation: {exc}"
                 ) from exc
