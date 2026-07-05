@@ -1,0 +1,22 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+build/
+dist/
+
+# Node / frontend
+node_modules/
+frontend/dist/
+
+# Secrets & runtime state
+.env
+*.db
+*.sqlite*
+data/
+
+# Local agent-org override (Phase 3: spec-authoring mode toggle, if file-based)
+.claude/settings.local.json
