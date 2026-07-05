@@ -7,7 +7,7 @@ the API layer, and storage. Transcribed verbatim from the frozen contract.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Any
 
@@ -58,10 +58,17 @@ class LayerStatus(str, Enum):
 def _reject_naive_datetime(value: datetime | None) -> datetime | None:
     """Shared validator: every timestamp must be timezone-aware UTC (NFR6).
 
-    No naive datetimes, ever -- reject outright rather than coerce.
+    Naive datetimes are ambiguous and are rejected outright rather than
+    coerced. Aware datetimes in a non-UTC offset are normalized to UTC
+    (lossless, since the offset is known) so the wire format is always
+    ``Z``. Aware UTC datetimes pass through unchanged.
     """
-    if value is not None and value.tzinfo is None:
+    if value is None:
+        return value
+    if value.tzinfo is None or value.utcoffset() is None:
         raise ValueError("timestamp must be timezone-aware (no naive datetimes)")
+    if value.utcoffset() != timezone.utc.utcoffset(None):
+        return value.astimezone(timezone.utc)
     return value
 
 
