@@ -1,0 +1,34 @@
+== Feature.model_dump() (wire form) ==
+{
+  "domain": "air",
+  "source": "opensky",
+  "source_id": "896451",
+  "label": "IRA655",
+  "lat": 26.61,
+  "lon": 56.27,
+  "geometry_type": "point",
+  "geometry": null,
+  "timestamp_source": "2026-07-05 09:11:58+00:00",
+  "timestamp_fetched": "2026-07-05 09:12:03+00:00",
+  "position_age_s": 5.0,
+  "status": "live",
+  "integrity_flags": [],
+  "attrs": {
+    "altitude_m": 10668.0,
+    "geo_altitude_m": 10820.0,
+    "velocity_ms": 231.5,
+    "vertical_rate_ms": 0.0,
+    "true_track_deg": 118.4,
+    "position_source": "ADS-B",
+    "on_ground": false
+  }
+}
+
+raw_payload present in-memory : True
+raw_payload in model_dump()   : False
+timestamp_fetched serialized  : 2026-07-05T09:12:03Z
+non-UTC +05:00 normalized to   : 2026-07-05T04:12:03Z
+
+== LayerSnapshot round-trip ==
+round-trip equal to original  : True
+feature_count / stale_after_s : 1 / 1200
