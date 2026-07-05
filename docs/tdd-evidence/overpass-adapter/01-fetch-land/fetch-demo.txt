@@ -1,0 +1,31 @@
+=== OverpassAdapter.fetch(hormuz) -- real fixture, httpx mocked ===
+fixture raw elements (x6 class queries served) : 8323
+meta.layer                                     : land
+meta.region_id                                 : hormuz
+meta.status                                    : live
+meta.timestamp_source (osm_base, FR4)          : 2026-07-05T17:59:00+00:00
+meta.timestamp_fetched                         : 2026-07-05T19:31:44.952707+00:00
+meta.feature_count (deduped by source_id)      : 8323
+len(features)                                  : 8323
+features by geometry_type                      : {'point': 138, 'linestring': 7948, 'polygon': 237}
+
+every feature.timestamp_source == osm_base     : True
+
+--- sample primary road (way/4846466) ---
+  source_id     : way/4846466
+  geometry_type : linestring
+  label         : جسر آل مكتوم
+  attrs.highway : primary
+  vertices      : 6 ([lon,lat] order)
+  first vertex  : [55.3205668, 25.251009]
+
+--- sample port node (node/2109558996) ---
+  source_id     : node/2109558996
+  geometry_type : point
+  geometry      : None
+  lat, lon      : 25.301846, 55.3339001
+  label         : ميناء الحمرية
+
+POINT features   : 138
+LINESTRING feats : 7948
+OK -- snapshot built from real fixture, deduped, osm_base stamped.
