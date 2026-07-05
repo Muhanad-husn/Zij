@@ -1,0 +1,21 @@
+=== (A) fetch() over the real Hormuz fixture — now simplified + capped ===
+config: simplify_tolerance_deg=0.0005, max_rendered_features=5000
+raw fixture elements (slice 01 returned all of these) : 8323
+fetch() feature_count now (<= 5000 cap enforced)      : 5000
+cap holds (<= 5000)                                   : True
+features by geometry_type                             : {'point': 138, 'linestring': 4767, 'polygon': 95}
+primary way/4846466 present? (first drop tier)        : False
+a surviving motorway (way/4009554)         : retained
+  vertices raw -> simplified                          : 33 -> 4 (Douglas-Peucker reduced: True)
+osm_base stamped uniformly                            : True
+
+=== (B) simplify_and_cap() synthetic over-cap drop order ===
+input: 7 features (2 point anchors, 1 motorway, 2 primary, 1 rail, 1 trunk); cap=6
+kept (6) : ['node/1', 'node/2', 'way/mot', 'way/pri_long', 'way/rail', 'way/trunk']
+both point anchors kept : True
+motorway kept           : True
+shortest primary dropped first (pri_short out, pri_long in) : True
+rail + trunk untouched (primary tier covered the excess) : True
+deterministic (two runs identical) : True
+
+OK -- Douglas-Peucker simplification + deterministic <=5000 cap working.

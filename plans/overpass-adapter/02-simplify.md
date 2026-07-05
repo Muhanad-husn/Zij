@@ -5,7 +5,7 @@
 - **Issue:** #16
 - **Branch:** feat/overpass-adapter/02-simplify
 - **Project directory:** `.`
-- **Status:** ☐ todo
+- **Status:** 🔬 in review — PR [#32](https://github.com/Muhanad-husn/Zij/pull/32) (done-with-concerns)
 - **Walking skeleton?** no
 
 > **Zij roles (DEC-1):** **test-author** commits the outer test **red** (strict-xfail, DEC-33) before implementation; **implementer** drives inner cycles, may not edit the outer test or `design/`; **test-author** removes the marker on green. Spec wrong mid-build ⇒ `spec-drift` issue.
@@ -63,3 +63,11 @@ And   simplified LineStrings have strictly fewer vertices than their inputs
 ## Status / progress log
 
 - 2026-07-05 planned (sprint v0). Blocked-by: overpass-adapter/01.
+- 2026-07-05 built + PR #32 into `main` (done-with-concerns). `simplify_and_cap()` (shapely
+  Douglas-Peucker at 0.0005° + deterministic primary→rail→trunk shortest-first drop to ≤5000,
+  motorway/points/polygons protected) wired into `fetch()`; `shapely==2.1.2` added. Reconciled
+  slice-01 `test_fetch_hormuz_land` for the now-capped fetch output (real fixture 8323→5000,
+  primary dropped, surviving motorway proves [lon,lat]). Suite 92 green, ruff clean. Reviewer:
+  both stages PASS; reconciliation verified honest. Closed 2 flagged test gaps (POLYGON-simplify,
+  at-cap boundary). One founder-decision open: fail-fast vs silent-skip when land simplify config
+  is absent (harmless today — config.toml sets both). **Completes the overpass-adapter feature.**
