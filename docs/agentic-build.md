@@ -16,7 +16,7 @@ itself; Zij's *product* decisions live separately in
 
 | Phase | Title | Status | Date | Notes |
 |---|---|---|---|---|
-| 0 | Repository foundation | **DONE — awaiting Checkpoint 0** | 2026-07-05 | Scaffold on `setup/00-foundation`; green baseline; branch protection prepared (repo already exists → no `gh repo create`). |
+| 0 | Repository foundation | **DONE** | 2026-07-05 | Scaffold on `setup/00-foundation`; green baseline; no `gh repo create` (repo exists). **Server-side branch protection unavailable on free private plan (403) — deferred, see DEC-16.** Founder to merge the branch. |
 | 1 | `CLAUDE.md` handbook | Not started | — | The constitution: hierarchy, role/merge boundaries, spec-freeze, gates. |
 | 2 | Role subagents | Not started | — | triage / spec-author / test-author / implementer / reviewer. |
 | 3 | Hard gates (hooks) | Not started | — | deny / block-merge (+ plugin merge tool) / tests-green / spec-freeze. |
@@ -51,6 +51,7 @@ resolved ambiguity.
 | DEC-13 | Phase-0 scaffold committed on branch `setup/00-foundation` for the **founder to merge** (dogfooding the workflow), rather than the skill's "one commit on main" (which assumed a brand-new empty repo). | Operating rule 4; repo already has history on `main`. |
 | DEC-14 | Branch protection via a **repository ruleset** (`protect-main`), not classic branch-protection. | Repo is **private**; classic protection needs a paid plan, rulesets work on free private repos and are GitHub's current recommendation. |
 | DEC-15 | Ruleset requires a **PR before merge but 0 approving reviews** (plus block-deletion, block-force-push). | **Solo operator**: GitHub forbids approving your own PR, so a 1-review requirement would lock the founder out of merging. Direct push to `main` stays blocked; the human still manually merges. Server-side status-check requirement deferred to Phase 4 (no CI workflow exists yet). |
+| DEC-16 | **Server-side branch protection deferred.** On a **free plan + private repo**, GitHub rejects both rulesets and classic protection (403: "Upgrade to Pro or make public"). The **local hooks (Phase 3) are the primary, sufficient deterministic gates**; branch protection is only ever a *backstop* in this design. Founder decides later: go public, upgrade to Pro, or accept local-hooks-only. Not a hard blocker. | The DoD's "branch protection backstops it" can't be met on the current plan; the enforcement that matters (agents-never-merge, tests-green) is client-side and unaffected. |
 
 ---
 
