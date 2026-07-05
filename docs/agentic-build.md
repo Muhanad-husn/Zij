@@ -49,6 +49,8 @@ resolved ambiguity.
 | DEC-11 | **Secrets via `.env`** (env-only, per `design/contracts/config.md`), not the template's `secrets/secrets.toml`. Created `.env.example`; `.gitignore` excludes `.env`. | Zij's config contract mandates env-only secrets. |
 | DEC-12 | Phase 0 `pyproject.toml` carries **empty runtime `dependencies`** (only dev = pytest, ruff). Real runtime deps land during the v0 spike sprint. | Keep the baseline light + green; avoid front-running the implementation sprint's dependency wiring. |
 | DEC-13 | Phase-0 scaffold committed on branch `setup/00-foundation` for the **founder to merge** (dogfooding the workflow), rather than the skill's "one commit on main" (which assumed a brand-new empty repo). | Operating rule 4; repo already has history on `main`. |
+| DEC-14 | Branch protection via a **repository ruleset** (`protect-main`), not classic branch-protection. | Repo is **private**; classic protection needs a paid plan, rulesets work on free private repos and are GitHub's current recommendation. |
+| DEC-15 | Ruleset requires a **PR before merge but 0 approving reviews** (plus block-deletion, block-force-push). | **Solo operator**: GitHub forbids approving your own PR, so a 1-review requirement would lock the founder out of merging. Direct push to `main` stays blocked; the human still manually merges. Server-side status-check requirement deferred to Phase 4 (no CI workflow exists yet). |
 
 ---
 
