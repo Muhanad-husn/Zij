@@ -24,6 +24,7 @@ from backend.config import (
     _deep_merge,
     _load_bundled_toml,
     effective_cadence_s,
+    estimate_credits,
     load_config,
     stale_after_s,
 )
@@ -97,8 +98,14 @@ def test_disabled_air_layer_needs_no_secret(monkeypatch):
     # the check" branch in isolation.
     from backend.config import _check_required_secrets
 
-    monkeypatch.delenv("OPENSKY_CLIENT_ID", raising=False)
-    monkeypatch.delenv("OPENSKY_CLIENT_SECRET", raising=False)
+    # Set to empty string, not delenv: a local dev `.env` on disk carries real
+    # OpenSky credentials (config.md "Secrets, env-only"), so delenv alone
+    # would silently fall through to the .env file's value and this test
+    # would pass even if the "disabled skips the check" branch were dropped.
+    # An explicit empty-string env var is still falsy but takes priority over
+    # the dotenv source, so the secrets really are absent here.
+    monkeypatch.setenv("OPENSKY_CLIENT_ID", "")
+    monkeypatch.setenv("OPENSKY_CLIENT_SECRET", "")
 
     cfg = AppConfig(
         regions=[],
@@ -294,3 +301,58 @@ def test_all_predefined_regions_have_config_md_bboxes_and_labels(monkeypatch):
         region = regions_by_id[region_id]
         assert region.label == label
         assert tuple(region.bbox) == bbox
+
+
+# --- Credit-tier coverage: all 7 predefined regions (config.md) -------------
+# The plan (plans/config/01-config-loader.md) calls for all 7 predefined
+# regions to match the config.md tier table, not just a spot check. Expected
+# credits are hand-copied from config.md's "computed cost" table (not
+# recomputed with estimate_credits itself), so this is a genuine independent
+# check against the contract, not a tautology against the function under
+# test.
+EXPECTED_REGION_CREDITS = {
+    "hormuz": 1,  # area 6.25
+    "persian-gulf": 2,  # area 66.5
+    "gulf-of-oman": 1,  # area 24.75
+    "iraq-corridor": 2,  # area 35.75
+    "syria-corridor": 2,  # area 35.75
+    "eastern-med": 2,  # area 33.0
+    "suez-canal": 1,  # area 8.64
+}
+
+
+def test_estimate_credits_matches_config_md_for_all_predefined_regions():
+    assert set(EXPECTED_REGION_CREDITS) == set(PREDEFINED_REGIONS)
+
+    for region_id, (_, bbox) in PREDEFINED_REGIONS.items():
+        expected = EXPECTED_REGION_CREDITS[region_id]
+        assert estimate_credits(bbox) == expected, (
+            f"{region_id}: expected {expected} credits per config.md, "
+            f"got {estimate_credits(bbox)}"
+        )
+
+
+# --- Credit-tier boundaries (config.md tier table) ---------------------------
+# No predefined region's area lands exactly on a tier boundary, so an
+# off-by-one (`<` vs `<=`) in estimate_credits would go uncaught by the
+# region-based tests above. These synthetic bboxes pin the exact boundary
+# values from config.md: <=25 -> 1, <=100 -> 2, <=400 -> 3, else 4.
+#
+# Each bbox is (0.0, 0.0, area, 1.0): area = (east - west) * (north - south)
+# = area * 1.0 = area exactly (per estimate_credits's area formula in
+# backend/config.py), so the boundary areas land on the exact float values
+# below with no rounding.
+@pytest.mark.parametrize(
+    "area, expected_credits",
+    [
+        (25.0, 1),  # exactly on the 25 boundary -- still tier 1 (<=25)
+        (25.001, 2),  # just over 25 -- tier 2
+        (100.0, 2),  # exactly on the 100 boundary -- still tier 2 (<=100)
+        (100.001, 3),  # just over 100 -- tier 3
+        (400.0, 3),  # exactly on the 400 boundary -- still tier 3 (<=400)
+        (400.001, 4),  # just over 400 -- tier 4
+    ],
+)
+def test_estimate_credits_tier_boundaries(area, expected_credits):
+    bbox = (0.0, 0.0, area, 1.0)
+    assert estimate_credits(bbox) == expected_credits
