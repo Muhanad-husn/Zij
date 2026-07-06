@@ -14,12 +14,14 @@
  *   Then  POST /api/refresh is issued and the layers re-render from the new
  *         snapshots
  *
- * `test.fail()` below is this web slice's analog to a strict pytest xfail
- * (): it marks the scenario "expected to fail." An unexpected *pass*
- * fails the run, so once the developer greens the behavior, this file must
- * flip to failing-the-run until the author removes the `test.fail()`
- * marker in the final pass — mirroring "xfail(strict=True) turned XPASS,
- * blocking commits until the marker is removed."
+ * `test.fail()` was this web slice's analog to a strict pytest xfail ():
+ * it marked the scenario "expected to fail," so an unexpected *pass* failed
+ * the run — mirroring "xfail(strict=True) turned XPASS, blocking commits
+ * until the marker is removed." the developer greened every clause below
+ * (commit `defb2c0`); the author confirmed each assertion passes (see
+ * the slice's evidence trace) and removed the `test.fail()` marker in this
+ * final pass, so the scenario now runs as a normal `test(...)` and is
+ * expected to pass for real.
  *
  * This slice has no live backend in the e2e run (`playwright.config.ts`
  * serves the production `vite build` + `vite preview` bundle on :4173, no
@@ -77,8 +79,8 @@
  *      sources reflect the NEW snapshot fixtures below.
  *
  * This test is not the author's to loosen and not the developer's to
- * touch. Removing `test.fail()` happens only once every assertion below
- * passes for real, in the author's final follow-up pass.
+ * touch. The `test.fail()` marker was removed only once every assertion
+ * below passed for real, in the author's final follow-up pass.
  */
 
 import { test, expect, type Page } from '@playwright/test';
@@ -379,7 +381,7 @@ async function stubApi(page: Page) {
   });
 }
 
-test.fail(
+test(
   'air + land snapshots render (rotated brass aircraft, dun land, UTC freshness + count) and Refresh re-renders from new snapshots',
   async ({ page }) => {
     const consoleErrors: string[] = [];
