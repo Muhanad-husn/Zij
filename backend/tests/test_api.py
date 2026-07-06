@@ -976,22 +976,15 @@ def test_land_snapshot_from_cache_row_meta_uses_config_not_row(monkeypatch):
 
 # --- Inner unit tests, slice 02 hardening (issue #18 two-stage review) ------
 #
-# Two non-blocking review findings the founder chose to fix before the PR.
-# Both behaviors are ABSENT today, so each test is committed RED under a strict
-# xfail (DEC-33): the assertion inside the marked body fails, pytest reports it
-# `xfailed`, and the suite stays green so the red commit can land before the
-# implementer greens it. Neither assertion is weakened; the markers come off in
-# a later pass once the behavior exists (which, under strict=True, turns the
-# suite red until the marker is removed).
+# Two non-blocking review findings the founder chose to fix before the PR. Both
+# were committed RED under a strict xfail (DEC-33): the assertion inside each
+# body failed, pytest reported it `xfailed`, and the suite stayed green so the
+# red commit could land before the implementer greened it. The implementer has
+# since hardened `backend/main.py` to satisfy both -- the tests now genuinely
+# pass and the markers have been removed to finalize the contract. Neither
+# assertion was ever weakened.
 
 
-@pytest.mark.xfail(
-    reason=(
-        "envelope hardening for non-AdapterError + integer Retry-After not yet "
-        "implemented (issue #18 review)"
-    ),
-    strict=True,
-)
 def test_unexpected_handler_failure_still_returns_api_md_envelope(tmp_path, monkeypatch):
     """Review finding #1: every non-2xx response must use the api.md error
     envelope, but the snapshot handlers catch only `AdapterError`. A NON-
@@ -1068,13 +1061,6 @@ def test_unexpected_handler_failure_still_returns_api_md_envelope(tmp_path, monk
     assert "message" in body["error"]
 
 
-@pytest.mark.xfail(
-    reason=(
-        "envelope hardening for non-AdapterError + integer Retry-After not yet "
-        "implemented (issue #18 review)"
-    ),
-    strict=True,
-)
 def test_retry_after_header_is_integer_delta_seconds():
     """Review finding #2: RFC 7231 `Retry-After` as delta-seconds must be an
     integer. `_adapter_error_to_http` currently renders the header via

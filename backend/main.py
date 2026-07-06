@@ -90,7 +90,9 @@ def _adapter_error_to_http(exc: AdapterError) -> HTTPException:
         message = str(exc) or "upstream rate limit exceeded"
         body = _error_envelope("rate_limited", message, retry_after_s=exc.retry_after)
         headers = (
-            {"Retry-After": str(exc.retry_after)} if exc.retry_after is not None else None
+            {"Retry-After": str(round(exc.retry_after))}
+            if exc.retry_after is not None
+            else None
         )
         return HTTPException(status_code=429, detail=body, headers=headers)
     if isinstance(exc, AuthError):
@@ -221,6 +223,22 @@ def create_app(
             body = _error_envelope(code, message)
         headers = dict(exc.headers) if exc.headers else None
         return JSONResponse(status_code=exc.status_code, content=body, headers=headers)
+
+    @app.exception_handler(Exception)
+    async def _unhandled_exception_handler(
+        request: Request, exc: Exception
+    ) -> JSONResponse:
+        # Catch-all so every non-2xx response uses the api.md envelope (api.md
+        # "Error envelope"), even for faults the handlers don't explicitly
+        # catch (e.g. a non-`AdapterError` from a collaborator). The message
+        # is a fixed generic string -- the exception text is never
+        # interpolated into the response body -- so internals/secrets never
+        # leak into a client-visible error (NFR5 spirit).
+        del request
+        _LOG.exception("unhandled exception in request handler", exc_info=exc)
+        return JSONResponse(
+            status_code=500, content=_error_envelope("internal", "internal server error")
+        )
 
     @app.get("/api/health")
     async def health() -> dict:
