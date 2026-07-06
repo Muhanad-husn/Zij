@@ -5,7 +5,7 @@
 - **Issue:** #19
 - **Branch:** feat/frontend-map/01-map-init
 - **Project directory:** `frontend`
-- **Status:** ☐ todo
+- **Status:** ⧗ PR #34 open (awaiting founder merge approval)
 - **Walking skeleton?** **yes** (first visible product; validates the build + render perf)
 
 > **Zij roles (DEC-1):** **test-author** commits the outer acceptance test (Playwright) **red** before implementation; **implementer** drives inner cycles and may not edit the outer test or `design/`; **test-author** confirms green. Spec wrong mid-build ⇒ `spec-drift` issue.
@@ -60,3 +60,4 @@ And   no uncaught console error is thrown during load
 ## Status / progress log
 
 - 2026-07-05 planned (sprint v0). Establishes `frontend/` (Vite + vanilla TS + MapLibre, Playwright + Vitest).
+- 2026-07-06 built via /sprint-start. Outer Playwright test red (`6c87ce8`) → implementer scaffold (`c604b93`) → inner Vitest units + finalized contract (`0de0cb1`) → CI jobs + error-log fix (`c55a574`, `544ac9f`) → evidence (`9839bd3`). Reviewer: stage-1 spec-compliance PASS, stage-2 solid; DONE_WITH_CONCERNS, two findings fixed in-PR. **PR #34** (Closes #19), awaiting founder merge approval. Follow-ups: spec-drift #35 (TESTING.md vs Playwright), backend `dist`-absent test over-strict, Windows Playwright teardown hang (Linux CI authoritative), cosmetic water/roads token duplication.
