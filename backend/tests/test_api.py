@@ -972,3 +972,128 @@ def test_land_snapshot_from_cache_row_meta_uses_config_not_row(monkeypatch):
     assert len(snapshot.features) == len(features)
     # Round-trip fidelity: the rebuilt features equal the originals.
     assert snapshot.features == features
+
+
+# --- Inner unit tests, step hardening (issue #18 two-stage review) ------
+#
+# Two non-blocking review findings the maintainer chose to fix before the PR.
+# Both behaviors are ABSENT today, so each test is committed RED under a strict
+# xfail (): the assertion inside the marked body fails, pytest reports it
+# `xfailed`, and the suite stays green so the red commit can land before the
+# developer greens it. Neither assertion is weakened; the markers come off in
+# a later pass once the behavior exists (which, under strict=True, turns the
+# suite red until the marker is removed).
+
+
+@pytest.mark.xfail(
+    reason=(
+        "envelope hardening for non-AdapterError + integer Retry-After not yet "
+        "implemented (issue #18 review)"
+    ),
+    strict=True,
+)
+def test_unexpected_handler_failure_still_returns_api_md_envelope(tmp_path, monkeypatch):
+    """Review finding #1: every non-2xx response must use the api.md error
+    envelope, but the snapshot handlers catch only `AdapterError`. A NON-
+    `AdapterError` raised by a collaborator (here a `RuntimeError` from the air
+    adapter's `fetch`, standing in for any unexpected fault such as a `Store`/
+    sqlite error) currently falls through to Starlette's default 500 -- a bare,
+    non-envelope body -- violating "every non-2xx uses the envelope".
+
+    Lock the hardened behavior: an unexpected exception inside a snapshot
+    handler is surfaced as **500** with the api.md `internal` envelope
+    (`{"error": {"code": "internal", "message": ...}}`), NOT a bare Starlette
+    500. The distinguishing assertion is the presence of the top-level `error`
+    key with `code == "internal"` -- a bare Starlette 500 has no such envelope
+    (it is a plain "Internal Server Error"), mirroring how
+    `test_unmatched_non_api_path...` distinguishes our envelope from a plain
+    static 404.
+
+    Deterministic trigger: a minimal fake air adapter whose `fetch` raises
+    `RuntimeError("boom")`, injected via `create_app`, with a real `Store` on a
+    tmp db and real `config`/`secrets`. `raise_server_exceptions=False` so the
+    unhandled exception is materialized as an actual HTTP response we can
+    inspect (rather than re-raised into the test), letting the *envelope*
+    assertion -- not an incidental propagated exception -- be the thing that is
+    absent today and present once hardened.
+    """
+    monkeypatch.setenv("OPENSKY_CLIENT_ID", "boom-test-opensky-client-id")
+    monkeypatch.setenv("OPENSKY_CLIENT_SECRET", "boom-test-opensky-client-secret")
+    monkeypatch.delenv("AISSTREAM_API_KEY", raising=False)
+    monkeypatch.delenv("AISHUB_USERNAME", raising=False)
+    monkeypatch.delenv("ZIJ_CONFIG_PATH", raising=False)
+
+    from backend.config import load_config
+    from backend.main import create_app
+    from backend.store import Store
+
+    cfg, secrets = load_config()
+
+    class _BoomAirAdapter:
+        """Minimal fake air adapter exposing only what the app touches: an
+        `async fetch` that raises a NON-`AdapterError`, and a no-op `async stop`
+        (the lifespan calls `stop()` on shutdown)."""
+
+        async def fetch(self, region):
+            del region
+            raise RuntimeError("boom")
+
+        async def stop(self):
+            return None
+
+    static_dir = tmp_path / "dist"
+    static_dir.mkdir()
+    (static_dir / "index.html").write_text(
+        "<!doctype html><html><body>Zij</body></html>", encoding="utf-8"
+    )
+
+    store = Store(db_path=tmp_path / "boom.db")
+    app = create_app(
+        static_dir=static_dir,
+        config=cfg,
+        secrets=secrets,
+        air_adapter=_BoomAirAdapter(),
+        store=store,
+    )
+
+    with TestClient(app, raise_server_exceptions=False) as client:
+        resp = client.get("/api/layers/air/snapshot")
+
+    assert resp.status_code == 500
+    body = resp.json()
+    # The distinguishing assertion: the api.md envelope, not a bare Starlette
+    # 500 (which has no top-level "error" key).
+    assert "error" in body
+    assert body["error"]["code"] == "internal"
+    assert "message" in body["error"]
+
+
+@pytest.mark.xfail(
+    reason=(
+        "envelope hardening for non-AdapterError + integer Retry-After not yet "
+        "implemented (issue #18 review)"
+    ),
+    strict=True,
+)
+def test_retry_after_header_is_integer_delta_seconds():
+    """Review finding #2: RFC 7231 `Retry-After` as delta-seconds must be an
+    integer. `_adapter_error_to_http` currently renders the header via
+    `str(exc.retry_after)`, so a whole-number `retry_after` of `42.0` yields the
+    header `"42.0"` -- not a valid integer delta-seconds.
+
+    Lock: for a whole-number `retry_after`, the `Retry-After` header string is
+    `"42"` (integer, no trailing `.0`), while the envelope body's
+    `retry_after_s` still carries the numeric value `42`. Pure unit on the
+    helper -- no HTTP needed.
+    """
+    from backend.main import _adapter_error_to_http
+    from backend.sources.base import RateLimitedError
+
+    exc = _adapter_error_to_http(RateLimitedError(retry_after=42.0))
+
+    assert exc.status_code == 429
+    # RFC 7231 integer delta-seconds: "42", not "42.0".
+    assert exc.headers["Retry-After"] == "42"
+    # The envelope body still carries the numeric retry_after_s.
+    assert exc.detail["error"]["code"] == "rate_limited"
+    assert exc.detail["error"]["retry_after_s"] == 42
