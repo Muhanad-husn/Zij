@@ -1,0 +1,20 @@
+### frontend e2e: npm run test:e2e (Playwright, chromium) ###
+
+> zij-frontend@0.0.0 test:e2e
+> playwright test
+
+[WebServer] 
+[WebServer] (!) Some chunks are larger than 500 kB after minification. Consider:
+[WebServer] - Using dynamic import() to code-split the application
+[WebServer] - Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+[WebServer] - Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+
+Running 1 test using 1 worker
+
+  ✓  1 [chromium] › tests\e2e\map-init.spec.ts:34:1 › Hormuz map boots in night-ink with OSM + OpenFreeMap attribution and no console errors (749ms)
+Error: worker-0 process did not exit within 300000ms after stop, force-killed it
+Error: worker-0 process did not exit within 300000ms after stop, force-killed it
+
+  1 passed (5.1m)
+  2 errors were not a part of any test, see above for details
+PLAYWRIGHT EXITED code=1

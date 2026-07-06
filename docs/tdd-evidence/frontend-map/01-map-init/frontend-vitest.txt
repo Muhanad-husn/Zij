@@ -1,0 +1,16 @@
+### frontend: npm run test (vitest) ###
+
+> zij-frontend@0.0.0 test
+> vitest run
+
+
+[1m[7m[36m RUN [39m[27m[22m [36mv2.1.9 [39m[90mD:/Zij/frontend[39m
+
+ [32m✓[39m tests/unit/map-factory.test.ts [2m([22m[2m3 tests[22m[2m)[22m[90m 80[2mms[22m[39m
+ [32m✓[39m tests/unit/build-style.test.ts [2m([22m[2m5 tests[22m[2m)[22m[90m 87[2mms[22m[39m
+
+[2m Test Files [22m [1m[32m2 passed[39m[22m[90m (2)[39m
+[2m      Tests [22m [1m[32m8 passed[39m[22m[90m (8)[39m
+[2m   Start at [22m 01:57:52
+[2m   Duration [22m 1.67s[2m (transform 109ms, setup 0ms, collect 135ms, tests 167ms, environment 1.76s, prepare 448ms)[22m
+

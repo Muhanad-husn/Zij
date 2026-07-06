@@ -1,0 +1,43 @@
+/* Visual identity tokens — frontend spec §8 (PRD §1.1). Single source of truth
+   for palette + type. The map background reads --zij-ink from here (map/map.ts),
+   never a duplicated hex literal. */
+:root {
+  /* palette */
+  --zij-ink: #101D30; /* base background, night ink */
+  --zij-ink-raised: #16283F; /* panels/badges, one step lighter */
+  --zij-brass: #D99A3B; /* air domain */
+  --zij-teal: #4E9DB4; /* marine domain */
+  --zij-dun: #A38B62; /* land domain */
+  --zij-text: #EDE6D6; /* warm off-white, on-ink contrast */
+  --zij-text-muted: #9AA6B8;
+
+  /* status scale — distinct hues from the domain scale above */
+  --status-live: #4CAF7D;
+  --status-stale: #E8C468;
+  --status-loading: #6FA8DC;
+  --status-rate-limited: #E08A3C;
+  --status-error: #D9534F;
+  --status-cached-fallback: #9B8AA6;
+  --status-reconnecting: var(--status-loading);
+
+  /* type */
+  --font-ui: 'Archivo', system-ui, sans-serif;
+  --font-mono: 'Spline Sans Mono', ui-monospace, monospace;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+  background: var(--zij-ink);
+  color: var(--zij-text);
+  font-family: var(--font-ui);
+}
+
+/* Full-viewport map container (single map screen, ADR-3). */
+#map {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
