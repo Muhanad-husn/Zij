@@ -5,7 +5,7 @@
 - **Issue:** #18
 - **Branch:** feat/backend-api/02-data-endpoints
 - **Project directory:** `.`
-- **Status:** ☐ todo
+- **Status:** ⏳ PR open ([#36](https://github.com/Muhanad-husn/Zij/pull/36))
 - **Walking skeleton?** no
 
 > **Zij roles (DEC-1):** **test-author** commits the outer test **red** (strict-xfail, DEC-33) before implementation; **implementer** drives inner cycles, may not edit the outer test or `design/`; **test-author** removes the marker on green. Spec wrong mid-build ⇒ `spec-drift` issue.
@@ -63,3 +63,4 @@ And   when the OpenSky mock returns 429, the air snapshot surfaces the rate_limi
 ## Status / progress log
 
 - 2026-07-05 planned (sprint v0). Blocked-by: backend-api/01, opensky-adapter/02, overpass-adapter/01, store/01.
+- 2026-07-06 built via harness. Outer test committed red (`444ce3d`, strict-xfail DEC-33) → greened + inner tests (`4329390`) → two-stage review (Stage 1 pass; DONE_WITH_CONCERNS) → review findings #1 (unexpected-error → `internal` envelope) + #2 (integer `Retry-After`) hardened in-branch (`f0dfdbe`→`11770c7`). 105 passed, ruff clean. Review findings #3/#4 filed as v1 follow-ups #37/#38. PR #36 open into `main`; awaiting founder approval.
