@@ -47,8 +47,25 @@ removed below to finalize the contract. This assertion itself is never
 weakened.
 """
 
+import json
+from pathlib import Path
+
 import pytest
+import respx
 from fastapi.testclient import TestClient
+from httpx import Response
+
+_FIXTURES_DIR = Path(__file__).parent / "fixtures"
+_OPENSKY_FIXTURE = _FIXTURES_DIR / "opensky_states_all_hormuz.json"
+_OVERPASS_FIXTURE = _FIXTURES_DIR / "overpass_hormuz.json"
+
+# A valid-looking OAuth token response so the injected OpenSkyAdapter's token
+# manager succeeds before it reaches the (respx-mocked) /states/all call.
+_TOKEN_RESPONSE = {
+    "access_token": "outer-test-opensky-access-token-18",
+    "expires_in": 1800,
+    "token_type": "bearer",
+}
 
 
 def test_health_and_config(tmp_path, monkeypatch):
@@ -311,3 +328,253 @@ def test_module_level_app_fails_fast_when_required_secret_missing(monkeypatch):
         monkeypatch.setenv("OPENSKY_CLIENT_ID", "restore-opensky-client-id")
         monkeypatch.setenv("OPENSKY_CLIENT_SECRET", "restore-opensky-client-secret")
         importlib.reload(main_module)
+
+
+# ===========================================================================
+# backend-api step (issue #18): REST snapshot + manual refresh endpoints.
+#
+# Locked outer acceptance test (), transcribed from
+# plans/backend-api/02-data-endpoints.md ("Acceptance criterion") and
+# design/contracts/api.md ("GET /api/layers/{domain}/snapshot", "POST
+# /api/refresh", "Error envelope") + design/contracts/storage.md
+# ("land_cache" 24h freshness). Committed RED first (strict xfail, ).
+# ===========================================================================
+
+
+@pytest.mark.xfail(
+    reason="/api/layers/{air,land}/snapshot + POST /api/refresh not yet implemented (issue #18)",
+    strict=True,
+)
+def test_snapshots_and_refresh(tmp_path, monkeypatch):
+    """Given the app with Hormuz active and OpenSky/Overpass mocked (respx) to
+    return the recorded Hormuz fixtures:
+
+    - GET /api/layers/air/snapshot -> 200 LayerSnapshot(AIR); feature_count
+      matches the parsed states; the body carries no `raw_payload`.
+    - GET /api/layers/land/snapshot -> 200 LayerSnapshot(LAND); the first call
+      fetches Overpass and writes the land_cache through, the second call is
+      served from the (still-fresh, <24h) cache WITHOUT a second Overpass
+      fetch.
+    - POST /api/refresh -> 202 {"queued":["air","land"]} and forces a fresh
+      fetch of both layers (a fresh Overpass fetch despite the warm cache, and
+      a fresh /states/all fetch).
+    - When OpenSky returns 429, GET /api/layers/air/snapshot surfaces the
+      api.md `rate_limited` error envelope (429, code/message/retry_after_s)
+      while GET /api/layers/land/snapshot still succeeds -- FR10 failure
+      isolation: one layer failing never blocks the other.
+
+    Design seam this test locks in for the developer (backend/main.py). The
+    three new endpoints need three collaborators -- the OpenSky adapter, the
+    Overpass adapter, and the Store -- injected into `create_app` by dependency
+    injection. The locked signature EXTENDS step's factory with three new
+    keyword-only params, each OPTIONAL with a config/secrets-derived default so
+    every existing `create_app(static_dir=, config=, secrets=)` call keeps
+    working unchanged:
+
+        def create_app(
+            *,
+            static_dir: Path | str,
+            config: AppConfig,
+            secrets: Secrets,
+            air_adapter: OpenSkyAdapter | None = None,
+            land_adapter: OverpassAdapter | None = None,
+            store: Store | None = None,
+        ) -> FastAPI: ...
+
+    This test injects its own real `OpenSkyAdapter` / `OverpassAdapter` (so
+    their upstream httpx traffic is respx-mockable) and a real `Store` on a
+    hermetic per-app tmp sqlite db (so the land_cache round-trip is real and
+    isolated). The app is responsible for initializing its Store at startup
+    (the app is driven through `with TestClient(app)` so that startup runs on
+    the same event loop the async handlers use); the region is hardcoded to
+    Hormuz for this slice (no activation endpoint yet), so the test never needs
+    to construct a Region -- it only mocks the token/states/mirror URLs, which
+    respx matches on URL (ignoring the region-derived query string).
+
+    Why this is not satisfiable by a stub or a tautology:
+      - The AIR `feature_count` is pinned to the number of non-null-position
+        states in the recorded fixture (read at test time, not a hardcoded
+        literal), and cross-checked against `len(features)` and `> 0`; a stub
+        returning an empty snapshot fails.
+      - The warm-cache lock compares the Overpass route's `call_count` across
+        the two land reads: it must be > 0 after the first (a real fetch
+        happened) and UNCHANGED after the second (served from cache, no second
+        Overpass call). A "fetch every time" implementation fails the second
+        assertion; a "never fetch" one fails the first.
+      - `POST /api/refresh` must raise the Overpass and /states/all counts
+        ABOVE their warm-cache values -- a fresh fetch of both despite the warm
+        cache -- so an implementation that merely returns the queued list
+        without forcing a refetch fails.
+      - The FR10 429 branch asserts the air request 429s with the exact api.md
+        `rate_limited` envelope AND that the land request still returns 200 in
+        the same app -- failure isolation is not satisfiable by an
+        all-or-nothing handler.
+
+    Committed RED before implementation (strict xfail, ): the three
+    endpoints do not exist and `create_app` does not yet accept the injection
+    keywords, so the assertions/`create_app` call fail inside this test body
+    and it xfails cleanly under the tests-green gate. The marker is removed by
+    the author once the developer greens the behavior; the assertions
+    themselves are never weakened.
+    """
+    # --- Given: known OpenSky secrets in env (NFR5: env only) ---
+    monkeypatch.setenv("OPENSKY_CLIENT_ID", "outer-test-opensky-client-id-18")
+    monkeypatch.setenv("OPENSKY_CLIENT_SECRET", "outer-test-opensky-client-secret-18")
+    monkeypatch.delenv("AISSTREAM_API_KEY", raising=False)
+    monkeypatch.delenv("AISHUB_USERNAME", raising=False)
+    monkeypatch.delenv("ZIJ_CONFIG_PATH", raising=False)
+
+    # Test-only speedup (allowed): drop the 0.5s inter-class Overpass sleep so
+    # the six sequential class queries per land fetch don't slow the suite.
+    import backend.sources.overpass as overpass_module
+
+    monkeypatch.setattr(overpass_module, "_CLASS_DELAY_S", 0)
+
+    from backend.config import load_config
+    from backend.main import create_app
+    from backend.sources.opensky import CreditLedger, OpenSkyAdapter, OpenSkyCfg
+    from backend.sources.overpass import OverpassAdapter, OverpassCfg
+    from backend.store import Store
+
+    cfg, secrets = load_config()
+
+    token_url = cfg.opensky["token_url"]
+    states_url = cfg.opensky["states_url"]
+    mirror_url = OverpassCfg(
+        **cfg.overpass, **cfg.layers["land"].model_dump()
+    ).mirrors[0]
+
+    opensky_fixture = json.loads(_OPENSKY_FIXTURE.read_text(encoding="utf-8"))
+    overpass_fixture = json.loads(_OVERPASS_FIXTURE.read_text(encoding="utf-8"))
+
+    # Derived from the fixture content (not a hardcoded literal): the adapter
+    # drops states with null lat/lon (vector[6]/vector[5]), so the expected AIR
+    # feature_count is exactly the count of states with both present.
+    expected_air_count = sum(
+        1
+        for state in opensky_fixture["states"]
+        if state[5] is not None and state[6] is not None
+    )
+    assert expected_air_count > 0
+
+    # A hermetic static dir standing in for the not-yet-built frontend.
+    static_dir = tmp_path / "dist"
+    static_dir.mkdir()
+    (static_dir / "index.html").write_text(
+        "<!doctype html><html><body>Zij</body></html>", encoding="utf-8"
+    )
+
+    def build_app(db_name: str):
+        """Build an app with freshly injected real adapters + a real Store on
+        its own tmp sqlite db, so each scenario is independent."""
+        opensky_cfg = OpenSkyCfg(**cfg.opensky, **cfg.layers["air"].model_dump())
+        credits = CreditLedger(
+            budget=opensky_cfg.daily_credit_budget,
+            warn_ratio=opensky_cfg.credit_warn_ratio,
+        )
+        air_adapter = OpenSkyAdapter(opensky_cfg, secrets, credits)
+        overpass_cfg = OverpassCfg(**cfg.overpass, **cfg.layers["land"].model_dump())
+        land_adapter = OverpassAdapter(overpass_cfg)
+        store = Store(db_path=tmp_path / db_name)
+        return create_app(
+            static_dir=static_dir,
+            config=cfg,
+            secrets=secrets,
+            air_adapter=air_adapter,
+            land_adapter=land_adapter,
+            store=store,
+        )
+
+    # --- Happy path: air snapshot, land snapshot + warm cache, refresh ---
+    app = build_app("happy.db")
+    with respx.mock() as respx_mock:
+        respx_mock.post(token_url).mock(
+            return_value=Response(200, json=_TOKEN_RESPONSE)
+        )
+        states_route = respx_mock.get(states_url).mock(
+            return_value=Response(200, json=opensky_fixture)
+        )
+        # Matched on URL only (any method/body): every one of the six
+        # whitelisted Overpass class queries hits this same mocked mirror.
+        overpass_route = respx_mock.route(url=mirror_url).mock(
+            return_value=Response(200, json=overpass_fixture)
+        )
+
+        with TestClient(app) as client:
+            # --- GET /api/layers/air/snapshot ---
+            air_resp = client.get("/api/layers/air/snapshot")
+            assert air_resp.status_code == 200
+            air_body = air_resp.json()
+            assert air_body["meta"]["layer"] == "air"
+            assert air_body["meta"]["region_id"] == "hormuz"
+            assert air_body["meta"]["feature_count"] == expected_air_count
+            assert len(air_body["features"]) == expected_air_count
+            # No raw_payload anywhere in the body (Feature.raw_payload is
+            # exclude=True; api.md: "raw_payload excluded").
+            assert "raw_payload" not in air_resp.text
+            for feature in air_body["features"]:
+                assert "raw_payload" not in feature
+
+            # --- GET /api/layers/land/snapshot (1st: cold cache -> fetch) ---
+            land_resp_1 = client.get("/api/layers/land/snapshot")
+            assert land_resp_1.status_code == 200
+            land_body_1 = land_resp_1.json()
+            assert land_body_1["meta"]["layer"] == "land"
+            assert land_body_1["meta"]["region_id"] == "hormuz"
+            assert land_body_1["meta"]["feature_count"] == len(land_body_1["features"])
+            assert land_body_1["meta"]["feature_count"] > 0
+            overpass_after_first = overpass_route.call_count
+            assert overpass_after_first > 0  # a real Overpass fetch happened
+
+            # --- GET /api/layers/land/snapshot (2nd: warm cache -> no fetch) ---
+            land_resp_2 = client.get("/api/layers/land/snapshot")
+            assert land_resp_2.status_code == 200
+            land_body_2 = land_resp_2.json()
+            assert land_body_2["meta"]["layer"] == "land"
+            assert land_body_2["meta"]["region_id"] == "hormuz"
+            # Equivalent snapshot, served from the fresh (<24h) land_cache
+            # WITHOUT a second Overpass call.
+            assert (
+                land_body_2["meta"]["feature_count"]
+                == land_body_1["meta"]["feature_count"]
+            )
+            assert overpass_route.call_count == overpass_after_first
+
+            # --- POST /api/refresh -> 202, forces a fresh fetch of both ---
+            states_before_refresh = states_route.call_count
+            refresh_resp = client.post("/api/refresh")
+            assert refresh_resp.status_code == 202
+            assert refresh_resp.json() == {"queued": ["air", "land"]}
+            # A fresh Overpass fetch despite the warm cache, and a fresh
+            # /states/all fetch: both counts rise above their warm values.
+            assert overpass_route.call_count > overpass_after_first
+            assert states_route.call_count > states_before_refresh
+
+    # --- FR10: OpenSky 429 -> air rate_limited envelope; land still succeeds ---
+    app_429 = build_app("fr10.db")
+    with respx.mock() as respx_mock_429:
+        respx_mock_429.post(token_url).mock(
+            return_value=Response(200, json=_TOKEN_RESPONSE)
+        )
+        respx_mock_429.get(states_url).mock(
+            return_value=Response(429, headers={"Retry-After": "42"})
+        )
+        respx_mock_429.route(url=mirror_url).mock(
+            return_value=Response(200, json=overpass_fixture)
+        )
+
+        with TestClient(app_429) as client_429:
+            air_429 = client_429.get("/api/layers/air/snapshot")
+            assert air_429.status_code == 429
+            air_429_body = air_429.json()
+            assert air_429_body["error"]["code"] == "rate_limited"
+            assert "message" in air_429_body["error"]
+            assert air_429_body["error"]["retry_after_s"] == 42
+
+            # FR10 failure isolation: the air 429 does not block land.
+            land_ok = client_429.get("/api/layers/land/snapshot")
+            assert land_ok.status_code == 200
+            land_ok_body = land_ok.json()
+            assert land_ok_body["meta"]["layer"] == "land"
+            assert land_ok_body["meta"]["region_id"] == "hormuz"
+            assert land_ok_body["meta"]["feature_count"] > 0
