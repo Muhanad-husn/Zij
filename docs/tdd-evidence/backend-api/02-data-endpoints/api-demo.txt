@@ -1,0 +1,62 @@
+D:\Zij\.venv\Lib\site-packages\fastapi\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+  from starlette.testclient import TestClient as TestClient  # noqa
+Recorded OpenSky fixture: 20 states with a position (expected AIR feature_count)
+
+========================================================================
+GET /api/layers/air/snapshot  (OpenSky mocked -> recorded Hormuz fixture)
+========================================================================
+HTTP 200 GET /api/layers/air/snapshot
+  meta.layer=air region_id=hormuz feature_count=20 status=live
+  len(features)=20  raw_payload present=False
+  timestamp_source=2026-07-05T17:28:04Z
+
+========================================================================
+GET /api/layers/land/snapshot  (1st call: cold cache -> Overpass fetch + write-through)
+========================================================================
+HTTP 200 GET /api/layers/land/snapshot
+  meta.layer=land region_id=hormuz feature_count=5000 status=live
+  len(features)=5000  raw_payload present=False
+  timestamp_source=2026-07-05T17:59:00Z
+  Overpass upstream calls so far: 6
+
+========================================================================
+GET /api/layers/land/snapshot  (2nd call: warm cache <24h -> served WITHOUT a 2nd Overpass call)
+========================================================================
+HTTP 200 GET /api/layers/land/snapshot
+  meta.layer=land region_id=hormuz feature_count=5000 status=live
+  len(features)=5000  raw_payload present=False
+  timestamp_source=2026-07-05T17:59:00Z
+  Overpass upstream calls: before=6 after=6  (unchanged => served from cache)
+
+========================================================================
+POST /api/refresh  (forces a fresh fetch of BOTH layers despite the warm cache)
+========================================================================
+HTTP 202 POST /api/refresh
+  body={
+  "queued": [
+    "air",
+    "land"
+  ]
+}
+  Overpass calls 6->12, /states/all calls 1->2  (both rose => real refetch)
+
+========================================================================
+FR10: GET /api/layers/air/snapshot with OpenSky 429 -> api.md rate_limited envelope
+========================================================================
+HTTP 429 GET /api/layers/air/snapshot
+  body={
+  "error": {
+    "code": "rate_limited",
+    "message": "upstream rate limit exceeded",
+    "retry_after_s": 42.0
+  }
+}
+  Retry-After header='42'
+
+========================================================================
+FR10: GET /api/layers/land/snapshot still succeeds (one layer failing never blocks the other)
+========================================================================
+HTTP 200 GET /api/layers/land/snapshot
+  meta.layer=land region_id=hormuz feature_count=5000 status=live
+  len(features)=5000  raw_payload present=False
+  timestamp_source=2026-07-05T17:59:00Z
