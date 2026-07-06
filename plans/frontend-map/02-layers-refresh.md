@@ -5,7 +5,7 @@
 - **Issue:** #20
 - **Branch:** feat/frontend-map/02-layers-refresh
 - **Project directory:** `frontend`
-- **Status:** ☐ todo
+- **Status:** ⧗ PR open ([#39](https://github.com/Muhanad-husn/Zij/pull/39))
 - **Walking skeleton?** no
 
 > **Zij roles (DEC-1):** **test-author** commits the outer acceptance test (Playwright) **red** before implementation; **implementer** drives inner cycles and may not edit the outer test or `design/`; **test-author** confirms green. Spec wrong mid-build ⇒ `spec-drift` issue.
@@ -64,3 +64,4 @@ Then  POST /api/refresh is issued and the layers re-render from the new snapshot
 ## Status / progress log
 
 - 2026-07-05 planned (sprint v0). Blocked-by: frontend-map/01, backend-api/02.
+- 2026-07-06 built via `/sprint-start` (deps #19 + #18 both closed). Harness: red outer Playwright (`c29e383`, `test.fail()`) → implementer greened (`defb2c0`) → marker removed + 32 inner Vitest units (`6a77217`). Two-stage review: **Stage 1 PASS / Stage 2 DONE_WITH_CONCERNS, no must-fix**. FR10 finding #1 hardened in-branch (founder-approved) via red→green mini-loop: `Promise.all` → `Promise.allSettled` in `app/loadLayers.ts` (`8e9a274` red inner test → `49b603d` green). Suites: Vitest 44, Playwright 1, pytest 105 green. Evidence `ba3a774`. **PR [#39](https://github.com/Muhanad-husn/Zij/pull/39) into `main` — awaiting founder merge approval.** Non-blocking v1 follow-ups: shared test-helper module; `frontend/src` line-count watch.

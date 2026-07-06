@@ -16,8 +16,8 @@ picker, no caveat panel, no SSE (all v1).
 
 | # | Slice | Goal (one line) | Status | PR |
 |---|-------|-----------------|--------|----|
-| 01 | [map-init](01-map-init.md) ⭐ | Interactive night-ink MapLibre map centered on Hormuz, with attribution | ⧗ PR open | [#34](https://github.com/Muhanad-husn/Zij/pull/34) |
-| 02 | [layers-refresh](02-layers-refresh.md) | Render air + land from REST; manual refresh; UTC freshness display | ☐ todo | — |
+| 01 | [map-init](01-map-init.md) ⭐ | Interactive night-ink MapLibre map centered on Hormuz, with attribution | ✅ merged | [#34](https://github.com/Muhanad-husn/Zij/pull/34) |
+| 02 | [layers-refresh](02-layers-refresh.md) | Render air + land from REST; manual refresh; UTC freshness display | ⧗ PR open | [#39](https://github.com/Muhanad-husn/Zij/pull/39) |
 
 ⭐ = walking skeleton (first visible product; validates the frontend build + render perf).
 
