@@ -1,0 +1,58 @@
+/* Badges/panel/controls layout (spec §7 layout skeleton). This slice: just
+   enough chrome for the top bar's "Refresh all" and the two v0 badges to sit
+   above the full-viewport map (#map is `position:fixed; inset:0`, tokens.css). */
+
+#topbar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 16px;
+  background: var(--zij-ink-raised);
+  color: var(--zij-text);
+}
+
+#topbar button {
+  font-family: var(--font-ui);
+  background: var(--zij-brass);
+  color: var(--zij-ink);
+  border: none;
+  border-radius: 4px;
+  padding: 6px 12px;
+  cursor: pointer;
+}
+
+#badges {
+  position: fixed;
+  top: 56px;
+  left: 0;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px;
+}
+
+.zij-badge {
+  background: var(--zij-ink-raised);
+  color: var(--zij-text);
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  border-radius: 4px;
+  padding: 8px 12px;
+  min-width: 160px;
+}
+
+.zij-badge__title {
+  font-family: var(--font-ui);
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.zij-badge__label {
+  color: var(--zij-text-muted);
+}
