@@ -1,0 +1,15 @@
+# Dependencies & build output
+node_modules/
+dist/
+
+# Playwright / Vitest artifacts
+playwright-report/
+test-results/
+.playwright-artifacts-*/
+*.log
+
+# Local diagnostic scaffolding (never product code)
+_diag.*
+
+# Playwright browser download cache (if ever local)
+.cache/
