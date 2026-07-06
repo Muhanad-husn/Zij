@@ -27,9 +27,72 @@
  *
  * This test is not the author's to loosen and not the developer's to
  * touch.
+ *
+ * RECONCILIATION (slice frontend-map/02-layers-refresh, issue #20): step
+ * made the app fetch `GET /api/layers/{air,land}/snapshot` on the map's `load`
+ * event. This test has no live FastAPI backend (playwright.config.ts serves
+ * only the built static bundle), so those two requests 404/500 through Vite's
+ * preview proxy, each logging a `console.error`, which trips this test's
+ * existing "zero console errors" clause even though the map itself boots
+ * cleanly. This is a genuine change to the app's boot post-condition, not a
+ * loosening of any locked clause: a `page.route('**\/api/**')` stub is added
+ * below, registered before `page.goto('/')`, fulfilling both snapshot
+ * endpoints with a minimal valid empty `LayerSnapshot` (shape per
+ * `design/contracts/feature-schema.md`) so the data-layer fetches the app now
+ * issues on load succeed quietly. This test still asserts nothing about the
+ * air/land layers themselves (that's `layers-refresh.spec.ts`'s job) — it
+ * stays a pure map-boot test. All five original clauses below are unchanged.
  */
 
 import { test, expect } from '@playwright/test';
+
+/** Minimal valid empty LayerSnapshot per design/contracts/feature-schema.md
+ * §"LayerSnapshot & metadata". Only used to keep the app's on-load snapshot
+ * fetches (added in step) from 404/500-ing against this test's live-backend-less
+ * preview server; this test asserts nothing about the resulting layers. */
+function emptySnapshot(layer: 'air' | 'land') {
+  return {
+    meta: {
+      layer,
+      region_id: 'hormuz',
+      status: 'live',
+      timestamp_fetched: '2026-07-06T09:12:03Z',
+      timestamp_source: '2026-07-06T09:11:58Z',
+      cadence_s: layer === 'air' ? 600 : 86400,
+      stale_after_s: layer === 'air' ? 1200 : 172800,
+      feature_count: 0,
+      retry_after_s: null,
+      detail: null,
+    },
+    features: [],
+  };
+}
+
+async function stubApi(page: import('@playwright/test').Page) {
+  await page.route('**/api/refresh', async (route) => {
+    await route.fulfill({
+      status: 202,
+      contentType: 'application/json',
+      body: JSON.stringify({ queued: ['air', 'land'] }),
+    });
+  });
+
+  await page.route('**/api/layers/air/snapshot', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(emptySnapshot('air')),
+    });
+  });
+
+  await page.route('**/api/layers/land/snapshot', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(emptySnapshot('land')),
+    });
+  });
+}
 
 test(
   'Hormuz map boots in night-ink with OSM + OpenFreeMap attribution and no console errors',
@@ -46,6 +109,10 @@ test(
     page.on('pageerror', (err) => {
       pageErrors.push(err.message);
     });
+
+    // Route interception MUST be registered before goto — see RECONCILIATION
+    // note above the imports.
+    await stubApi(page);
 
     await page.goto('/');
 
