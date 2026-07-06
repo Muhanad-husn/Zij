@@ -341,10 +341,6 @@ def test_module_level_app_fails_fast_when_required_secret_missing(monkeypatch):
 # ===========================================================================
 
 
-@pytest.mark.xfail(
-    reason="/api/layers/{air,land}/snapshot + POST /api/refresh not yet implemented (issue #18)",
-    strict=True,
-)
 def test_snapshots_and_refresh(tmp_path, monkeypatch):
     """Given the app with Hormuz active and OpenSky/Overpass mocked (respx) to
     return the recorded Hormuz fixtures:
@@ -411,11 +407,12 @@ def test_snapshots_and_refresh(tmp_path, monkeypatch):
         all-or-nothing handler.
 
     Committed RED before implementation (strict xfail, DEC-33): the three
-    endpoints do not exist and `create_app` does not yet accept the injection
-    keywords, so the assertions/`create_app` call fail inside this test body
-    and it xfails cleanly under the tests-green gate. The marker is removed by
-    the test-author once the implementer greens the behavior; the assertions
-    themselves are never weakened.
+    endpoints did not exist and `create_app` did not yet accept the injection
+    keywords, so the assertions/`create_app` call failed inside this test body
+    and it xfailed cleanly under the tests-green gate. The implementer has since
+    built `backend/main.py` to satisfy this exact seam -- the test now genuinely
+    passes and the marker has been removed to finalize the contract. The
+    assertions themselves are never weakened.
     """
     # --- Given: known OpenSky secrets in env (NFR5: env only) ---
     monkeypatch.setenv("OPENSKY_CLIENT_ID", "outer-test-opensky-client-id-18")
@@ -578,3 +575,400 @@ def test_snapshots_and_refresh(tmp_path, monkeypatch):
             assert land_ok_body["meta"]["layer"] == "land"
             assert land_ok_body["meta"]["region_id"] == "hormuz"
             assert land_ok_body["meta"]["feature_count"] > 0
+
+
+# --- Inner unit tests, slice 02 (DEC-34) -----------------------------------
+#
+# These target collaborators of backend/main.py that the outer
+# `test_snapshots_and_refresh` above does NOT isolate:
+#   1. the full AdapterError -> HTTP status/envelope table (the outer test
+#      only drives the 429 branch end-to-end);
+#   2. the lossless Feature <-> GeoJSON-Feature round-trip that backs the
+#      land_cache serialization (the load-bearing new logic);
+#   3. the stale-cache (>=24h) refetch + write-through branch the outer
+#      test's warm-cache path never reaches;
+#   4. `_land_snapshot_from_cache_row`'s meta assembly (cadence/stale from
+#      config, osm_base as the source timestamp -- FR4).
+
+
+def test_adapter_error_to_http_maps_the_full_taxonomy():
+    """api.md ("Error envelope") + adapter-interface.md error taxonomy: every
+    `AdapterError` subtype maps to a specific status + envelope `code`. The
+    outer test only exercises the 429/`rate_limited` branch end-to-end; pin
+    the whole table here so the 401/502/500 branches (and the 429 header) are
+    each locked, not just the one the happy path happens to hit.
+    """
+    from backend.main import _adapter_error_to_http
+    from backend.sources.base import (
+        AdapterError,
+        AuthError,
+        ParseError,
+        RateLimitedError,
+        UpstreamError,
+    )
+
+    # 401 auth_error, no extra headers.
+    auth = _adapter_error_to_http(AuthError("bad credentials"))
+    assert auth.status_code == 401
+    assert auth.detail == {
+        "error": {"code": "auth_error", "message": "bad credentials"}
+    }
+    assert auth.headers is None
+
+    # 502 upstream_error from a transient UpstreamError.
+    upstream = _adapter_error_to_http(UpstreamError("overpass 5xx"))
+    assert upstream.status_code == 502
+    assert upstream.detail == {
+        "error": {"code": "upstream_error", "message": "overpass 5xx"}
+    }
+
+    # 502 upstream_error from a ParseError too (same status + envelope code).
+    parse = _adapter_error_to_http(ParseError("unparseable body"))
+    assert parse.status_code == 502
+    assert parse.detail["error"]["code"] == "upstream_error"
+    assert parse.detail["error"]["message"] == "unparseable body"
+
+    # 500 internal for a generic / unknown AdapterError subtype.
+    generic = _adapter_error_to_http(AdapterError("something else"))
+    assert generic.status_code == 500
+    assert generic.detail == {
+        "error": {"code": "internal", "message": "something else"}
+    }
+
+    # 429 rate_limited: retry_after_s in the body AND a Retry-After header.
+    limited = _adapter_error_to_http(
+        RateLimitedError(retry_after=42, message="slow down")
+    )
+    assert limited.status_code == 429
+    assert limited.detail["error"]["code"] == "rate_limited"
+    assert limited.detail["error"]["message"] == "slow down"
+    assert limited.detail["error"]["retry_after_s"] == 42
+    assert limited.headers == {"Retry-After": "42"}
+
+    # 429 with no Retry-After available: retry_after_s null, no header emitted.
+    limited_none = _adapter_error_to_http(RateLimitedError())
+    assert limited_none.status_code == 429
+    assert limited_none.detail["error"]["code"] == "rate_limited"
+    assert limited_none.detail["error"]["retry_after_s"] is None
+    assert limited_none.headers is None
+
+
+def test_feature_geojson_round_trip_is_lossless():
+    """`_feature_to_geojson` / `_geojson_to_feature` back the land_cache
+    `geojson` column: a `LayerSnapshot(LAND)` is stored as a GeoJSON
+    FeatureCollection and later rebuilt from it. The round-trip must be
+    lossless for every geometry shape the Overpass adapter emits -- POINT
+    (geometry None, synthesized Point on the wire), LINESTRING and POLYGON
+    (real geometry dict), and a feature with no source timestamp
+    (timestamp_source None). Real `Feature` instances are constructed here
+    (mirroring the adapter's output) so this is not a tautology against a stub.
+    """
+    from datetime import datetime, timezone
+
+    from backend.main import _feature_to_geojson, _geojson_to_feature
+    from backend.models import Domain, Feature, FeatureStatus, GeometryType
+
+    osm_base = datetime(2024, 6, 1, 12, 0, 0, tzinfo=timezone.utc)
+    fetched = datetime(2024, 6, 2, 0, 0, 0, tzinfo=timezone.utc)
+    age = (fetched - osm_base).total_seconds()
+
+    point = Feature(
+        domain=Domain.LAND,
+        source="overpass",
+        source_id="node/1",
+        label="Port of Hormuz",
+        lat=26.9,
+        lon=56.3,
+        geometry_type=GeometryType.POINT,
+        geometry=None,
+        timestamp_source=osm_base,
+        timestamp_fetched=fetched,
+        position_age_s=age,
+        status=FeatureStatus.LIVE,
+        attrs={"harbour": "yes", "name": "Port of Hormuz"},
+    )
+    linestring = Feature(
+        domain=Domain.LAND,
+        source="overpass",
+        source_id="way/100",
+        label="E311",
+        lat=25.2,
+        lon=55.5,
+        geometry_type=GeometryType.LINESTRING,
+        geometry={"type": "LineString", "coordinates": [[55.5, 25.2], [55.6, 25.3]]},
+        timestamp_source=osm_base,
+        timestamp_fetched=fetched,
+        position_age_s=age,
+        attrs={"highway": "motorway", "ref": "E311"},
+    )
+    polygon = Feature(
+        domain=Domain.LAND,
+        source="overpass",
+        source_id="way/200",
+        label=None,
+        lat=25.0,
+        lon=55.0,
+        geometry_type=GeometryType.POLYGON,
+        geometry={
+            "type": "Polygon",
+            "coordinates": [
+                [[55.0, 25.0], [55.1, 25.0], [55.1, 25.1], [55.0, 25.0]]
+            ],
+        },
+        timestamp_source=osm_base,
+        timestamp_fetched=fetched,
+        position_age_s=age,
+        attrs={"landuse": "port"},
+    )
+    no_source_ts = Feature(
+        domain=Domain.LAND,
+        source="overpass",
+        source_id="node/2",
+        label=None,
+        lat=26.0,
+        lon=56.0,
+        geometry_type=GeometryType.POINT,
+        geometry=None,
+        timestamp_source=None,
+        timestamp_fetched=fetched,
+        position_age_s=None,
+    )
+
+    # POINT features synthesize a Point geometry from lon/lat on the wire...
+    point_gj = _feature_to_geojson(point)
+    assert point_gj["type"] == "Feature"
+    assert point_gj["geometry"] == {
+        "type": "Point",
+        "coordinates": [point.lon, point.lat],
+    }
+    # ...while line/polygon features carry their real geometry dict verbatim.
+    line_gj = _feature_to_geojson(linestring)
+    assert line_gj["geometry"] == linestring.geometry
+
+    # Full lossless round-trip for every representative shape.
+    for feature in (point, linestring, polygon, no_source_ts):
+        rebuilt = _geojson_to_feature(_feature_to_geojson(feature))
+        assert rebuilt == feature
+
+
+def test_stale_land_cache_triggers_refetch_and_write_through(tmp_path, monkeypatch):
+    """storage.md land_cache freshness gate: serve from cache only while
+    `now - fetched_at < 24h`, else refetch and write the fresh result through.
+    The outer test only ever exercises the WARM (<24h) branch; this drives the
+    STALE (>=86400s) branch it never reaches. A stale row is seeded with a
+    deliberately-wrong feature_count (1) so a served-from-stale response is
+    distinguishable from a genuine refetch: after the GET the response must
+    carry the freshly-fetched fixture's real count (>1), proving the >=24h
+    boundary forced an Overpass call rather than serving the stale row.
+    """
+    import asyncio
+    from datetime import datetime, timedelta, timezone
+
+    monkeypatch.setenv("OPENSKY_CLIENT_ID", "stale-test-opensky-client-id")
+    monkeypatch.setenv("OPENSKY_CLIENT_SECRET", "stale-test-opensky-client-secret")
+    monkeypatch.delenv("AISSTREAM_API_KEY", raising=False)
+    monkeypatch.delenv("AISHUB_USERNAME", raising=False)
+    monkeypatch.delenv("ZIJ_CONFIG_PATH", raising=False)
+
+    import backend.sources.overpass as overpass_module
+
+    monkeypatch.setattr(overpass_module, "_CLASS_DELAY_S", 0)
+
+    from backend.config import load_config
+    from backend.main import create_app
+    from backend.sources.opensky import CreditLedger, OpenSkyAdapter, OpenSkyCfg
+    from backend.sources.overpass import OverpassAdapter, OverpassCfg
+    from backend.store import LandCacheRow, Store
+
+    cfg, secrets = load_config()
+    mirror_url = OverpassCfg(
+        **cfg.overpass, **cfg.layers["land"].model_dump()
+    ).mirrors[0]
+    overpass_fixture = json.loads(_OVERPASS_FIXTURE.read_text(encoding="utf-8"))
+
+    db_path = tmp_path / "stale.db"
+
+    # A >24h-old row (25h) with feature_count deliberately == 1, so serving it
+    # from cache would be visibly wrong versus a real Overpass refetch.
+    stale_row = LandCacheRow(
+        region_id="hormuz",
+        bbox=(55.0, 25.0, 57.5, 27.5),
+        geojson={
+            "type": "FeatureCollection",
+            "features": [
+                {
+                    "type": "Feature",
+                    "geometry": {"type": "Point", "coordinates": [56.0, 26.0]},
+                    "properties": {
+                        "domain": "land",
+                        "source": "overpass",
+                        "source_id": "node/stale",
+                        "label": None,
+                        "lat": 26.0,
+                        "lon": 56.0,
+                        "geometry_type": "point",
+                        "timestamp_source": None,
+                        "timestamp_fetched": "2000-01-01T00:00:00Z",
+                        "position_age_s": None,
+                        "status": "live",
+                        "integrity_flags": [],
+                        "attrs": {},
+                    },
+                }
+            ],
+        },
+        feature_count=1,
+        osm_base=datetime(2000, 1, 1, tzinfo=timezone.utc),
+        fetched_at=datetime.now(timezone.utc) - timedelta(hours=25),
+    )
+
+    async def _seed() -> None:
+        seeder = Store(db_path=db_path)
+        await seeder.init()
+        await seeder.put_land_cache(stale_row)
+        await seeder.close()
+
+    asyncio.run(_seed())
+
+    static_dir = tmp_path / "dist"
+    static_dir.mkdir()
+    (static_dir / "index.html").write_text(
+        "<!doctype html><html><body>Zij</body></html>", encoding="utf-8"
+    )
+
+    opensky_cfg = OpenSkyCfg(**cfg.opensky, **cfg.layers["air"].model_dump())
+    credits = CreditLedger(
+        budget=opensky_cfg.daily_credit_budget,
+        warn_ratio=opensky_cfg.credit_warn_ratio,
+    )
+    air_adapter = OpenSkyAdapter(opensky_cfg, secrets, credits)
+    land_adapter = OverpassAdapter(
+        OverpassCfg(**cfg.overpass, **cfg.layers["land"].model_dump())
+    )
+    store = Store(db_path=db_path)
+    app = create_app(
+        static_dir=static_dir,
+        config=cfg,
+        secrets=secrets,
+        air_adapter=air_adapter,
+        land_adapter=land_adapter,
+        store=store,
+    )
+
+    with respx.mock() as respx_mock:
+        overpass_route = respx_mock.route(url=mirror_url).mock(
+            return_value=Response(200, json=overpass_fixture)
+        )
+        with TestClient(app) as client:
+            resp = client.get("/api/layers/land/snapshot")
+            assert resp.status_code == 200
+            body = resp.json()
+            # The stale (>=24h) row forced a real Overpass refetch...
+            assert overpass_route.call_count > 0
+            # ...and the served snapshot is the freshly-fetched one, NOT the
+            # seeded stale row (whose feature_count was 1).
+            assert body["meta"]["feature_count"] > 1
+            assert body["meta"]["feature_count"] == len(body["features"])
+            refetch_count = overpass_route.call_count
+
+            # The refetch wrote a fresh row through: a second read is now served
+            # from the (<24h) cache with no further Overpass calls.
+            resp2 = client.get("/api/layers/land/snapshot")
+            assert resp2.status_code == 200
+            assert (
+                resp2.json()["meta"]["feature_count"]
+                == body["meta"]["feature_count"]
+            )
+            assert overpass_route.call_count == refetch_count
+
+
+def test_land_snapshot_from_cache_row_meta_uses_config_not_row(monkeypatch):
+    """`_land_snapshot_from_cache_row` rebuilds a `LayerSnapshot(LAND)` meta
+    from a cache row plus config-derived cadence. Per FR4/FR7 + config.md the
+    land badge's cadence/stale come from `config.layers["land"]` (86400 / 2x),
+    NOT from the row (which has no cadence field), and `timestamp_source` is
+    the row's `osm_base` (FR4: the land badge shows osm_base), while
+    `timestamp_fetched`/`feature_count` come from the row.
+    """
+    from datetime import datetime, timezone
+
+    monkeypatch.setenv("OPENSKY_CLIENT_ID", "meta-test-opensky-client-id")
+    monkeypatch.setenv("OPENSKY_CLIENT_SECRET", "meta-test-opensky-client-secret")
+    monkeypatch.delenv("ZIJ_CONFIG_PATH", raising=False)
+
+    from backend.config import load_config
+    from backend.main import _feature_to_geojson, _land_snapshot_from_cache_row
+    from backend.models import Domain, Feature, GeometryType, LayerStatus
+    from backend.store import LandCacheRow
+
+    cfg, _ = load_config()
+    land = cfg.layers["land"]
+    cadence_s = land.cadence_s
+    stale_after_s = land.cadence_s * land.stale_multiplier
+    assert cadence_s == 86400
+    assert stale_after_s == 172800
+
+    osm_base = datetime(2024, 5, 1, 6, 0, 0, tzinfo=timezone.utc)
+    fetched_at = datetime(2024, 5, 1, 8, 0, 0, tzinfo=timezone.utc)
+    features = [
+        Feature(
+            domain=Domain.LAND,
+            source="overpass",
+            source_id="node/9",
+            label="Port",
+            lat=26.5,
+            lon=56.1,
+            geometry_type=GeometryType.POINT,
+            geometry=None,
+            timestamp_source=osm_base,
+            timestamp_fetched=fetched_at,
+            position_age_s=7200.0,
+            attrs={"harbour": "yes"},
+        ),
+        Feature(
+            domain=Domain.LAND,
+            source="overpass",
+            source_id="way/9",
+            label=None,
+            lat=25.5,
+            lon=55.5,
+            geometry_type=GeometryType.LINESTRING,
+            geometry={
+                "type": "LineString",
+                "coordinates": [[55.5, 25.5], [55.6, 25.6]],
+            },
+            timestamp_source=osm_base,
+            timestamp_fetched=fetched_at,
+            position_age_s=7200.0,
+            attrs={"highway": "motorway"},
+        ),
+    ]
+    row = LandCacheRow(
+        region_id="hormuz",
+        bbox=(55.0, 25.0, 57.5, 27.5),
+        geojson={
+            "type": "FeatureCollection",
+            "features": [_feature_to_geojson(f) for f in features],
+        },
+        feature_count=len(features),
+        osm_base=osm_base,
+        fetched_at=fetched_at,
+    )
+
+    snapshot = _land_snapshot_from_cache_row(
+        row, cadence_s=cadence_s, stale_after_s=stale_after_s
+    )
+    meta = snapshot.meta
+    assert meta.layer == Domain.LAND
+    assert meta.region_id == "hormuz"
+    assert meta.status == LayerStatus.LIVE
+    # cadence/stale come from config (land 86400 / 2x), independent of the row.
+    assert meta.cadence_s == 86400
+    assert meta.stale_after_s == 172800
+    # FR4: the land badge's source timestamp is the row's osm_base.
+    assert meta.timestamp_source == osm_base
+    assert meta.timestamp_fetched == fetched_at
+    assert meta.feature_count == len(features)
+    assert len(snapshot.features) == len(features)
+    # Round-trip fidelity: the rebuilt features equal the originals.
+    assert snapshot.features == features
