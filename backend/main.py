@@ -1,26 +1,58 @@
 """FastAPI application factory (contract: design/contracts/api.md).
 
-Exposes `GET /api/health`, `GET /api/config`, and mounts the built frontend
-as static files at `/` (`/api/*` takes precedence over the static fallback).
+Exposes `GET /api/health`, `GET /api/config`, the per-layer snapshot/refresh
+endpoints (issue #18), and mounts the built frontend as static files at `/`
+(`/api/*` takes precedence over the static fallback).
 
 `create_app` is an explicit factory so tests can inject a hermetic
 `static_dir` plus a controlled `config`/`secrets` pair rather than depending
-on `load_config()` and a real frontend build (backend/tests/test_api.py).
-The module-level `app` below is the real uvicorn entrypoint, built lazily
-from `load_config()` and the real frontend build directory so importing
-this module never fails even before the frontend is built.
+on `load_config()` and a real frontend build (backend/tests/test_api.py). It
+also accepts optional `air_adapter`/`land_adapter`/`store` collaborators
+(each defaulted from `config`/`secrets` when omitted) so tests can inject
+respx-mockable adapters and a hermetic `Store`. The module-level `app` below
+is the real uvicorn entrypoint, built lazily from `load_config()` and the
+real frontend build directory so importing this module never fails even
+before the frontend is built.
 """
 
 from __future__ import annotations
 
+import logging
 import time
+from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from backend.config import AppConfig, Secrets, load_config
+from backend.models import (
+    Domain,
+    Feature,
+    GeometryType,
+    LayerSnapshot,
+    LayerSnapshotMeta,
+    LayerStatus,
+)
+from backend.sources.base import (
+    AdapterError,
+    AuthError,
+    ParseError,
+    RateLimitedError,
+    Region,
+    UpstreamError,
+)
+from backend.sources.opensky import CreditLedger, OpenSkyAdapter, OpenSkyCfg
+from backend.sources.overpass import OverpassAdapter, OverpassCfg
+from backend.store import LandCacheRow, Store
+
+_LOG = logging.getLogger(__name__)
+
+# storage.md: "serve from cache if now - fetched_at < 24h".
+_LAND_CACHE_FRESH_S = 86400
 
 __version__ = "0.1.0"
 
@@ -51,16 +83,130 @@ def _error_envelope(code: str, message: str, **extra: object) -> dict:
     return {"error": body}
 
 
-def create_app(*, static_dir: Path | str, config: AppConfig, secrets: Secrets) -> FastAPI:
+def _adapter_error_to_http(exc: AdapterError) -> HTTPException:
+    """Map a raised `AdapterError` (adapter-interface.md) to the api.md error
+    envelope + matching HTTP status."""
+    if isinstance(exc, RateLimitedError):
+        message = str(exc) or "upstream rate limit exceeded"
+        body = _error_envelope("rate_limited", message, retry_after_s=exc.retry_after)
+        headers = (
+            {"Retry-After": str(round(exc.retry_after))}
+            if exc.retry_after is not None
+            else None
+        )
+        return HTTPException(status_code=429, detail=body, headers=headers)
+    if isinstance(exc, AuthError):
+        body = _error_envelope("auth_error", str(exc) or "upstream authentication error")
+        return HTTPException(status_code=401, detail=body)
+    if isinstance(exc, (UpstreamError, ParseError)):
+        body = _error_envelope("upstream_error", str(exc) or "upstream error")
+        return HTTPException(status_code=502, detail=body)
+    body = _error_envelope("internal", str(exc) or "internal error")
+    return HTTPException(status_code=500, detail=body)
+
+
+def _feature_to_geojson(feature: Feature) -> dict[str, Any]:
+    """Convert a Zij `Feature` to a GeoJSON `Feature` for `land_cache.geojson`
+    (storage.md: "simplified FeatureCollection"). `geometry` carries the
+    line/polygon geometry when present, else a synthesized `Point` from
+    `lat`/`lon`; every other `Feature` field (including `lat`/`lon`
+    themselves, so the round-trip is lossless) rides in `properties`."""
+    properties = feature.model_dump(mode="json")
+    geometry = properties.pop("geometry")
+    if geometry is None:
+        geometry = {"type": "Point", "coordinates": [feature.lon, feature.lat]}
+    return {"type": "Feature", "geometry": geometry, "properties": properties}
+
+
+def _geojson_to_feature(gj_feature: dict[str, Any]) -> Feature:
+    """Inverse of `_feature_to_geojson`: reconstruct a `Feature` from a
+    GeoJSON `Feature` produced by it. Point features carry `geometry=None` on
+    the Zij `Feature` (feature-schema.md), so the synthesized `Point`
+    geometry is dropped rather than round-tripped back into the field."""
+    properties = dict(gj_feature["properties"])
+    if properties.get("geometry_type") == GeometryType.POINT.value:
+        properties["geometry"] = None
+    else:
+        properties["geometry"] = gj_feature.get("geometry")
+    return Feature.model_validate(properties)
+
+
+def _land_snapshot_to_feature_collection(snapshot: LayerSnapshot) -> dict[str, Any]:
+    return {
+        "type": "FeatureCollection",
+        "features": [_feature_to_geojson(feature) for feature in snapshot.features],
+    }
+
+
+def _land_snapshot_from_cache_row(
+    row: LandCacheRow, *, cadence_s: int, stale_after_s: int
+) -> LayerSnapshot:
+    features = [_geojson_to_feature(gj) for gj in row.geojson.get("features", [])]
+    meta = LayerSnapshotMeta(
+        layer=Domain.LAND,
+        region_id=row.region_id,
+        status=LayerStatus.LIVE,
+        timestamp_fetched=row.fetched_at,
+        timestamp_source=row.osm_base,
+        cadence_s=cadence_s,
+        stale_after_s=stale_after_s,
+        feature_count=row.feature_count,
+    )
+    return LayerSnapshot(meta=meta, features=features)
+
+
+def create_app(
+    *,
+    static_dir: Path | str,
+    config: AppConfig,
+    secrets: Secrets,
+    air_adapter: OpenSkyAdapter | None = None,
+    land_adapter: OverpassAdapter | None = None,
+    store: Store | None = None,
+) -> FastAPI:
     """Build the Zij FastAPI app.
 
-    `secrets` is accepted (per api.md's implied startup shape and NFR5) but
-    deliberately never referenced in any response -- only `config` is ever
-    serialized.
+    `secrets` is never referenced in any response body -- only `config` is
+    ever serialized (NFR5) -- but is used to build the default `air_adapter`
+    when one isn't injected. `air_adapter`/`land_adapter`/`store` are each
+    optional and default to a real collaborator built from `config`/
+    `secrets` when omitted, so the real uvicorn entrypoint
+    (`_build_default_app`) keeps working unchanged.
     """
-    del secrets  # never serialized (NFR5); accepted for signature/startup parity
+    if air_adapter is None:
+        opensky_cfg = OpenSkyCfg(**config.opensky, **config.layers["air"].model_dump())
+        credits = CreditLedger(
+            budget=opensky_cfg.daily_credit_budget,
+            warn_ratio=opensky_cfg.credit_warn_ratio,
+        )
+        air_adapter = OpenSkyAdapter(opensky_cfg, secrets, credits)
+    if land_adapter is None:
+        overpass_cfg = OverpassCfg(**config.overpass, **config.layers["land"].model_dump())
+        land_adapter = OverpassAdapter(overpass_cfg)
+    if store is None:
+        store = Store()
 
-    app = FastAPI()
+    land_cfg = config.layers["land"]
+    land_cadence_s = land_cfg.cadence_s
+    land_stale_after_s = land_cfg.cadence_s * land_cfg.stale_multiplier
+
+    hormuz_cfg = next(region for region in config.regions if region.id == "hormuz")
+    hormuz_region = Region(id=hormuz_cfg.id, label=hormuz_cfg.label, bbox=hormuz_cfg.bbox)
+
+    @asynccontextmanager
+    async def _lifespan(_app: FastAPI):
+        # `Store` uses an `asyncio.Lock`; it must be initialized on the same
+        # event loop the async handlers run on, hence startup-time (not
+        # construction-time) init.
+        await store.init()
+        try:
+            yield
+        finally:
+            await air_adapter.stop()
+            await land_adapter.stop()
+            await store.close()
+
+    app = FastAPI(lifespan=_lifespan)
     start_monotonic = time.monotonic()
 
     @app.exception_handler(HTTPException)
@@ -78,6 +224,22 @@ def create_app(*, static_dir: Path | str, config: AppConfig, secrets: Secrets) -
         headers = dict(exc.headers) if exc.headers else None
         return JSONResponse(status_code=exc.status_code, content=body, headers=headers)
 
+    @app.exception_handler(Exception)
+    async def _unhandled_exception_handler(
+        request: Request, exc: Exception
+    ) -> JSONResponse:
+        # Catch-all so every non-2xx response uses the api.md envelope (api.md
+        # "Error envelope"), even for faults the handlers don't explicitly
+        # catch (e.g. a non-`AdapterError` from a collaborator). The message
+        # is a fixed generic string -- the exception text is never
+        # interpolated into the response body -- so internals/secrets never
+        # leak into a client-visible error (NFR5 spirit).
+        del request
+        _LOG.exception("unhandled exception in request handler", exc_info=exc)
+        return JSONResponse(
+            status_code=500, content=_error_envelope("internal", "internal server error")
+        )
+
     @app.get("/api/health")
     async def health() -> dict:
         return {
@@ -89,6 +251,63 @@ def create_app(*, static_dir: Path | str, config: AppConfig, secrets: Secrets) -
     @app.get("/api/config")
     async def get_config() -> dict:
         return config.model_dump(mode="json")
+
+    async def _fetch_and_cache_land() -> LayerSnapshot:
+        """Force a fresh Overpass fetch and write it through to
+        `land_cache`, bypassing the freshness check (used by both the cold
+        cache path and `POST /api/refresh`)."""
+        snapshot = await land_adapter.fetch(hormuz_region)
+        row = LandCacheRow(
+            region_id=hormuz_region.id,
+            bbox=hormuz_region.bbox,
+            geojson=_land_snapshot_to_feature_collection(snapshot),
+            feature_count=snapshot.meta.feature_count,
+            osm_base=snapshot.meta.timestamp_source,
+            fetched_at=snapshot.meta.timestamp_fetched,
+        )
+        await store.put_land_cache(row)
+        return snapshot
+
+    @app.get("/api/layers/air/snapshot")
+    async def get_air_snapshot() -> dict:
+        try:
+            snapshot = await air_adapter.fetch(hormuz_region)
+        except AdapterError as exc:
+            raise _adapter_error_to_http(exc) from exc
+        return snapshot.model_dump(mode="json")
+
+    @app.get("/api/layers/land/snapshot")
+    async def get_land_snapshot() -> dict:
+        try:
+            cached = await store.get_land_cache(hormuz_region.id)
+            if cached is not None:
+                age_s = (datetime.now(timezone.utc) - cached.fetched_at).total_seconds()
+                if age_s < _LAND_CACHE_FRESH_S:
+                    snapshot = _land_snapshot_from_cache_row(
+                        cached,
+                        cadence_s=land_cadence_s,
+                        stale_after_s=land_stale_after_s,
+                    )
+                    return snapshot.model_dump(mode="json")
+            snapshot = await _fetch_and_cache_land()
+        except AdapterError as exc:
+            raise _adapter_error_to_http(exc) from exc
+        return snapshot.model_dump(mode="json")
+
+    @app.post("/api/refresh", status_code=202)
+    async def refresh() -> dict:
+        # v0 is manual-refresh-only (no scheduler): force both layers to
+        # refetch inline. FR10 isolation -- one layer's failure never aborts
+        # the other's refresh.
+        try:
+            await air_adapter.fetch(hormuz_region)
+        except AdapterError:
+            _LOG.warning("POST /api/refresh: air layer refetch failed", exc_info=True)
+        try:
+            await _fetch_and_cache_land()
+        except AdapterError:
+            _LOG.warning("POST /api/refresh: land layer refetch failed", exc_info=True)
+        return {"queued": ["air", "land"]}
 
     @app.get("/api/{rest:path}")
     async def api_catch_all(rest: str) -> None:
