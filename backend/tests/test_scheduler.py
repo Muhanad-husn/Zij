@@ -77,10 +77,11 @@ scheduling clock (`loop.time()`, tracking `time.monotonic()`) is not
 something `freezegun` intercepts, so a frozen wall clock would not actually
 control `asyncio.wait_for` cadence ticks here.
 
-It is authored and committed red by the test-author before any
-implementation exists (strict xfail, DEC-33): `backend.scheduler` does not
-exist yet, so this errors on import and xfails cleanly under the
-tests-green gate.
+It was authored and committed red by the test-author before any
+implementation existed (strict xfail, DEC-33): `backend.scheduler` did not
+exist yet, so this errored on import and xfailed cleanly under the
+tests-green gate. The implementer has since made it genuinely pass; the
+xfail marker has been removed to finalize the contract.
 """
 
 from __future__ import annotations
@@ -198,7 +199,6 @@ async def _running_scheduler(scheduler):
             await task
 
 
-@pytest.mark.xfail(reason="scheduler core-runtime not yet implemented", strict=True)
 async def test_scheduler_core_runtime_coalescing_cadence_independence_and_disable():
     from backend.scheduler import Scheduler
 
