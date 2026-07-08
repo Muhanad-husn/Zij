@@ -8,9 +8,6 @@ hooks:
     - matcher: "Bash"
       hooks:
         - type: command
-          if: "Bash(gh pr merge *)"
-          command: "pwsh -NoProfile -File ${CLAUDE_PROJECT_DIR}/.claude/hooks/block-merge.ps1"
-        - type: command
           command: "pwsh -NoProfile -File ${CLAUDE_PROJECT_DIR}/.claude/hooks/git-guard.ps1 -Scope subagent"
 ---
 You are the reviewer for Zij. Review in two stages, strictly in this order, and do
@@ -25,6 +22,8 @@ not begin stage 2 until stage 1 passes:
    `design/docs/STRUCTURE.md`.
 
 You have no Edit or Write capability by design: you propose changes, you never make
-them, and you never merge. Point to specific files and lines.
+them, and you never merge. Point to specific files and lines. Rate each finding's
+confidence 0–100 and report only findings ≥ 80 — quality over quantity; a wall of
+low-confidence nits buries the ones that matter.
 
 Report exactly one status: DONE / DONE_WITH_CONCERNS / BLOCKED / NEEDS_CONTEXT.

@@ -1,7 +1,16 @@
-# deny.ps1 — per-role path guard (Phase 3, DEC-17).
-# Fired from a role subagent's own PreToolUse frontmatter on every Edit|Write.
+# deny.ps1 — per-role path guard (Phase 3, DEC-17; double-wired per DEC-37).
 # Reads the hook payload from stdin, extracts the target file path, and applies
-# per-role allow/deny. Fail-closed: anything unparseable or unknown is denied.
+# per-role allow/deny.
+#
+# TWO WIRINGS, ONE SCRIPT (DEC-18/DEC-37):
+#   - Frontmatter layer: each writing role passes its role explicitly
+#     (`deny.ps1 -Role <role>`). Fail-closed there: an unparseable payload,
+#     a missing path, or an unknown role is denied.
+#   - Global backstop layer: settings.json runs `deny.ps1` with NO -Role on every
+#     Edit|Write. The role is then read from the stdin `agent_type` (present only in
+#     subagent calls). The orchestrator (no agent_type) and any non-writing subagent
+#     pass through — a stale frontmatter snapshot (GH #18392) can no longer silently
+#     disable the guard.
 #
 # Allowed write roots:
 #   spec-author  -> design/ only
@@ -13,9 +22,13 @@
 # Allow = exit 0 with no output (defers to normal permission flow, so global
 # hooks like spec-freeze still apply).
 
-param([Parameter(Mandatory = $true)][string]$Role)
+param([string]$Role = '')
 
 $ErrorActionPreference = 'Stop'
+
+# Whether the role was pinned by frontmatter. Fail-closed applies only then; the
+# global layer must never block the orchestrator or a non-role subagent.
+$explicit = -not [string]::IsNullOrWhiteSpace($Role)
 
 function Deny([string]$reason) {
     $payload = @{
@@ -34,12 +47,21 @@ try {
     $hook = $raw | ConvertFrom-Json
 }
 catch {
-    Deny "path-guard ($Role): could not parse hook input (fail-closed)."
+    if ($explicit) { Deny "path-guard ($Role): could not parse hook input (fail-closed)." }
+    exit 0  # global layer: unknown actor, defer to normal flow
+}
+
+# Global layer: resolve the role from the subagent's agent_type. No agent_type
+# means the orchestrator (or a non-subagent context) — pass through.
+if (-not $explicit) {
+    $Role = "$($hook.agent_type)"
+    if ([string]::IsNullOrWhiteSpace($Role)) { exit 0 }
 }
 
 $path = $hook.tool_input.file_path
 if ([string]::IsNullOrWhiteSpace($path)) {
-    Deny "path-guard ($Role): no file_path in tool input (fail-closed)."
+    if ($explicit) { Deny "path-guard ($Role): no file_path in tool input (fail-closed)." }
+    exit 0
 }
 
 # Normalize to a project-relative, forward-slash path.
@@ -80,7 +102,11 @@ switch ($Role) {
         }
     }
     default {
-        Deny "path-guard: unknown role '$Role' (fail-closed)."
+        # Frontmatter with an unknown role is a misconfiguration -> fail closed.
+        # A non-writing-role subagent (Explore, general-purpose, ...) via the global
+        # layer just passes through.
+        if ($explicit) { Deny "path-guard: unknown role '$Role' (fail-closed)." }
+        exit 0
     }
 }
 

@@ -12,9 +12,6 @@ hooks:
     - matcher: "Bash"
       hooks:
         - type: command
-          if: "Bash(gh pr merge *)"
-          command: "pwsh -NoProfile -File ${CLAUDE_PROJECT_DIR}/.claude/hooks/block-merge.ps1"
-        - type: command
           command: "pwsh -NoProfile -File ${CLAUDE_PROJECT_DIR}/.claude/hooks/git-guard.ps1 -Scope subagent"
 ---
 You are the test author for Zij. From the spec under `design/`, write the outer
