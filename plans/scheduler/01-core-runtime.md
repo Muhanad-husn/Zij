@@ -74,3 +74,6 @@ And   a disabled layer's poll loop issues zero adapter.fetch calls until re-enab
   unretrieved coalescing `Future`, so asyncio logs `Future exception was never retrieved` to
   stderr. Cosmetic; no test impact. Slice 02 reworks `_do_fetch` for the write path and will
   sweep this seam.
+- 2026-07-08 PR prepared via `safe-pr`: **[#64](https://github.com/Muhanad-husn/Zij/pull/64)**
+  into `main` (`Closes #45`), evidence committed under `docs/tdd-evidence/scheduler/01-core-runtime/`.
+  Awaiting founder merge approval.
