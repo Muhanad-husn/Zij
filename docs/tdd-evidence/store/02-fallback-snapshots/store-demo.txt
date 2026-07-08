@@ -1,0 +1,18 @@
+== put_fallback(air) v1, then get_fallback('air') ==
+  region_id           = hormuz
+  feature_count       = 1
+  timestamp_fetched   = 2026-07-08T12:00:00+00:00  (tzinfo=UTC)
+  feature[0].label    = UAE123
+  feature[0].raw_payload = None   <- excluded on rehydrate (FR11/feature-schema exclude=True)
+
+== get_fallback('marine') with no marine row ==
+  -> None
+
+== second put_fallback(air) v2 replaces (upsert, one row/layer) ==
+  feature_count now   = 42  (was 1)
+  rows WHERE layer='air' = 1   total rows = 1   <- exactly one (PK-enforced)
+
+== CHECK(layer IN ('air','marine')) rejects 'land' ==
+  rejected as expected -> sqlite3.IntegrityError: CHECK constraint failed: layer IN ('air','marine')
+
+DONE: FR8 fallback round-trip verified through the store boundary.
