@@ -1,10 +1,10 @@
 # Bundled default configuration (ADR-6 precedence layer 2; config.md).
 #
-# Scope for slice config-01 (issue #10, plans/config/01-config-loader.md):
-# the 7 predefined regions plus the [opensky]/[overpass]/[layers.air]/
-# [layers.land] sections. Marine/aisstream/integrity sections and the
-# user-TOML/env-tunable/DB-override precedence layers are out of scope for
-# this slice and are added by later slices.
+# Covers the 7 predefined regions plus [opensky]/[overpass]/[layers.air]/
+# [layers.land] (slice config-01, issue #10) and [layers.marine]/
+# [aisstream]/[integrity]/[server] (slice config-02, issue #42). The
+# user-TOML/env-tunable/DB-override precedence layers are out of scope and
+# are added by later slices.
 
 [[regions]]
 id = "hormuz"
@@ -68,6 +68,15 @@ stale_multiplier = 2
 deemphasize_after_s = 60
 custom_bbox_cap_sq_deg = 100
 
+[layers.marine]
+enabled = true
+cadence_s = 60
+cadence_floor_s = 60
+stale_multiplier = 2
+drop_after_s = 7200
+deemphasize_after_s = 1800
+custom_bbox_cap_sq_deg = 40
+
 [layers.land]
 enabled = true
 cadence_s = 86400
@@ -76,3 +85,17 @@ stale_multiplier = 2
 custom_bbox_cap_sq_deg = 40
 simplify_tolerance_deg = 0.0005
 max_rendered_features = 5000
+
+[aisstream]
+ws_url = "wss://stream.aisstream.io/v0/stream"
+reconnect_base_s = 2
+reconnect_max_s = 60
+
+[integrity]
+landmask_path = ""
+max_speed_kn_marine = 120
+max_speed_kn_air = 990
+
+[server]
+sse_ping_s = 15
+static_dir = "frontend/dist"

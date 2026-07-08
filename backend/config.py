@@ -3,10 +3,9 @@ design/specs/config-module.md).
 
 Merges code defaults with the bundled `config.toml` (ADR-6 precedence layers
 1-2). The user-TOML, `ZIJ_`-env-tunable, and `config_presets` (DB) precedence
-layers, the full `ConfigService` (region presets + `validate_bbox`), and the
-marine/aisstream/integrity sections are out of scope for this slice
-(plans/config/01-config-loader.md "Out of scope") and land in later slices
-once `store.py` exists.
+layers, and the full `ConfigService` (region presets + `validate_bbox`), are
+out of scope for this slice (plans/config/01-config-loader.md "Out of
+scope") and land in later slices once `store.py` exists.
 
 Secrets are loaded separately, from env/`.env` only (NFR5), and are never
 folded into `AppConfig` -- so they can never leak into `GET /api/config`'s
@@ -25,10 +24,11 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 _BUNDLED_CONFIG_PATH = Path(__file__).with_name("config.toml")
 
-# Code defaults (ADR-6 precedence layer 1). Only the sections this slice
-# covers (the air/land layers, opensky, overpass) get non-trivial defaults;
-# the remaining AppConfig sections (aisstream/integrity/server) default to an
-# empty dict until a later slice populates them.
+# Code defaults (ADR-6 precedence layer 1). Only the air/land layers,
+# opensky, and overpass get non-trivial code defaults here; marine and the
+# aisstream/integrity/server sections default to an empty dict/absent layer
+# at this precedence layer -- their real values come from the bundled
+# `config.toml` (layer 2), which every step assertion reads from.
 _DEFAULTS: dict[str, Any] = {
     "regions": [],
     "layers": {
@@ -135,15 +135,19 @@ def _load_bundled_toml(path: Path = _BUNDLED_CONFIG_PATH) -> dict[str, Any]:
 
 def _check_required_secrets(cfg: AppConfig, secrets: Secrets) -> None:
     """Fail fast (named error) when an enabled layer's required secret is
-    missing. Only the air layer's secret (OpenSky) is in scope for this
-    slice -- marine/aisstream/aishub are out of scope
-    (plans/config/01-config-loader.md "Out of scope")."""
+    missing. Air (OpenSky) and marine (aisstream) are gated here; aishub is
+    still out of scope (no layer currently requires it)."""
     air = cfg.layers.get("air")
     if air is not None and air.enabled:
         if not secrets.opensky_client_id:
             raise MissingSecretError("OPENSKY_CLIENT_ID", "air")
         if not secrets.opensky_client_secret:
             raise MissingSecretError("OPENSKY_CLIENT_SECRET", "air")
+
+    marine = cfg.layers.get("marine")
+    if marine is not None and marine.enabled:
+        if not secrets.aisstream_api_key:
+            raise MissingSecretError("AISSTREAM_API_KEY", "marine")
 
 
 def load_config() -> tuple[AppConfig, Secrets]:

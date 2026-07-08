@@ -76,7 +76,10 @@ def test_health_and_config(tmp_path, monkeypatch):
     client_secret = "outer-test-opensky-client-secret-9b7d"
     monkeypatch.setenv("OPENSKY_CLIENT_ID", client_id)
     monkeypatch.setenv("OPENSKY_CLIENT_SECRET", client_secret)
-    monkeypatch.delenv("AISSTREAM_API_KEY", raising=False)
+    # Marine is enabled in the bundled config.toml (slice config-02, #42), so
+    # its own secret gate needs a non-empty value too, or load_config() below
+    # raises MissingSecretError for an unrelated reason.
+    monkeypatch.setenv("AISSTREAM_API_KEY", "outer-test-aisstream-api-key-4f2a")
     monkeypatch.delenv("AISHUB_USERNAME", raising=False)
     monkeypatch.delenv("ZIJ_CONFIG_PATH", raising=False)
 
@@ -417,7 +420,10 @@ def test_snapshots_and_refresh(tmp_path, monkeypatch):
     # --- Given: known OpenSky secrets in env (NFR5: env only) ---
     monkeypatch.setenv("OPENSKY_CLIENT_ID", "outer-test-opensky-client-id-18")
     monkeypatch.setenv("OPENSKY_CLIENT_SECRET", "outer-test-opensky-client-secret-18")
-    monkeypatch.delenv("AISSTREAM_API_KEY", raising=False)
+    # Marine is enabled in the bundled config.toml (slice config-02, #42); a
+    # non-empty value keeps its secret gate from firing for an unrelated
+    # reason in this air/land-focused test.
+    monkeypatch.setenv("AISSTREAM_API_KEY", "outer-test-aisstream-api-key-18")
     monkeypatch.delenv("AISHUB_USERNAME", raising=False)
     monkeypatch.delenv("ZIJ_CONFIG_PATH", raising=False)
 
@@ -437,9 +443,9 @@ def test_snapshots_and_refresh(tmp_path, monkeypatch):
 
     token_url = cfg.opensky["token_url"]
     states_url = cfg.opensky["states_url"]
-    mirror_url = OverpassCfg(
-        **cfg.overpass, **cfg.layers["land"].model_dump()
-    ).mirrors[0]
+    mirror_url = OverpassCfg(**cfg.overpass, **cfg.layers["land"].model_dump()).mirrors[
+        0
+    ]
 
     opensky_fixture = json.loads(_OPENSKY_FIXTURE.read_text(encoding="utf-8"))
     overpass_fixture = json.loads(_OVERPASS_FIXTURE.read_text(encoding="utf-8"))
@@ -711,9 +717,7 @@ def test_feature_geojson_round_trip_is_lossless():
         geometry_type=GeometryType.POLYGON,
         geometry={
             "type": "Polygon",
-            "coordinates": [
-                [[55.0, 25.0], [55.1, 25.0], [55.1, 25.1], [55.0, 25.0]]
-            ],
+            "coordinates": [[[55.0, 25.0], [55.1, 25.0], [55.1, 25.1], [55.0, 25.0]]],
         },
         timestamp_source=osm_base,
         timestamp_fetched=fetched,
@@ -766,7 +770,10 @@ def test_stale_land_cache_triggers_refetch_and_write_through(tmp_path, monkeypat
 
     monkeypatch.setenv("OPENSKY_CLIENT_ID", "stale-test-opensky-client-id")
     monkeypatch.setenv("OPENSKY_CLIENT_SECRET", "stale-test-opensky-client-secret")
-    monkeypatch.delenv("AISSTREAM_API_KEY", raising=False)
+    # Marine is enabled in the bundled config.toml (slice config-02, #42); a
+    # non-empty value keeps its secret gate from firing for an unrelated
+    # reason in this land-cache-focused test.
+    monkeypatch.setenv("AISSTREAM_API_KEY", "stale-test-aisstream-api-key")
     monkeypatch.delenv("AISHUB_USERNAME", raising=False)
     monkeypatch.delenv("ZIJ_CONFIG_PATH", raising=False)
 
@@ -781,9 +788,9 @@ def test_stale_land_cache_triggers_refetch_and_write_through(tmp_path, monkeypat
     from backend.store import LandCacheRow, Store
 
     cfg, secrets = load_config()
-    mirror_url = OverpassCfg(
-        **cfg.overpass, **cfg.layers["land"].model_dump()
-    ).mirrors[0]
+    mirror_url = OverpassCfg(**cfg.overpass, **cfg.layers["land"].model_dump()).mirrors[
+        0
+    ]
     overpass_fixture = json.loads(_OVERPASS_FIXTURE.read_text(encoding="utf-8"))
 
     db_path = tmp_path / "stale.db"
@@ -876,8 +883,7 @@ def test_stale_land_cache_triggers_refetch_and_write_through(tmp_path, monkeypat
             resp2 = client.get("/api/layers/land/snapshot")
             assert resp2.status_code == 200
             assert (
-                resp2.json()["meta"]["feature_count"]
-                == body["meta"]["feature_count"]
+                resp2.json()["meta"]["feature_count"] == body["meta"]["feature_count"]
             )
             assert overpass_route.call_count == refetch_count
 
@@ -985,7 +991,9 @@ def test_land_snapshot_from_cache_row_meta_uses_config_not_row(monkeypatch):
 # assertion was ever weakened.
 
 
-def test_unexpected_handler_failure_still_returns_api_md_envelope(tmp_path, monkeypatch):
+def test_unexpected_handler_failure_still_returns_api_md_envelope(
+    tmp_path, monkeypatch
+):
     """Review finding #1: every non-2xx response must use the api.md error
     envelope, but the snapshot handlers catch only `AdapterError`. A NON-
     `AdapterError` raised by a collaborator (here a `RuntimeError` from the air
@@ -1012,7 +1020,10 @@ def test_unexpected_handler_failure_still_returns_api_md_envelope(tmp_path, monk
     """
     monkeypatch.setenv("OPENSKY_CLIENT_ID", "boom-test-opensky-client-id")
     monkeypatch.setenv("OPENSKY_CLIENT_SECRET", "boom-test-opensky-client-secret")
-    monkeypatch.delenv("AISSTREAM_API_KEY", raising=False)
+    # Marine is enabled in the bundled config.toml (slice config-02, #42); a
+    # non-empty value keeps its secret gate from firing for an unrelated
+    # reason in this error-envelope-focused test.
+    monkeypatch.setenv("AISSTREAM_API_KEY", "boom-test-aisstream-api-key")
     monkeypatch.delenv("AISHUB_USERNAME", raising=False)
     monkeypatch.delenv("ZIJ_CONFIG_PATH", raising=False)
 
