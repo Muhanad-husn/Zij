@@ -168,6 +168,22 @@ def test_resolve_active_region_id_empty_regions_list_defaults_to_empty_string():
     assert _resolve_active_region_id([], None) == ""
 
 
+def test_active_region_id_excluded_from_model_dump_but_readable_as_an_attribute(
+    monkeypatch,
+):
+    """Regression lock (config slice 03 / #46, review fix 5a9907e):
+    `AppConfig.active_region_id` is `Field(exclude=True)` -- it must stay a
+    readable attribute internally while never appearing in `model_dump()`
+    (the same serialization `/api/config` uses), since it's an internal
+    resolved value that api.md's response shape doesn't include."""
+    _hermetic_secrets(monkeypatch)
+
+    cfg, _secrets = load_config()
+
+    assert cfg.active_region_id
+    assert "active_region_id" not in cfg.model_dump()
+
+
 # --- Adjacent-layer precedence pairs via load_config() -----------------------
 # (The outer test drives one single staged saga bundle->user->env->DB; these
 # isolate each *adjacent pair* directly, so a regression in just one hop is
