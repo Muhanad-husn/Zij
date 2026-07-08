@@ -391,10 +391,6 @@ class _FailOnceThenSucceedAdapter(PollAdapter):
         return _make_snapshot(self.domain, region)
 
 
-@pytest.mark.xfail(
-    reason="per-layer failure isolation (FR10) not yet implemented",
-    strict=True,
-)
 async def test_one_layers_raising_adapter_does_not_crash_run_or_the_other_layer():
     """FR10: with two poll layers (air, land) running under one `run()`, air's
     adapter raising on its first tick must NOT crash the `TaskGroup`/`run()`,
@@ -403,12 +399,10 @@ async def test_one_layers_raising_adapter_does_not_crash_run_or_the_other_layer(
     status/LayerStatus/backoff, so this asserts survival + continuation only,
     never any status mapping.
 
-    Against current `_poll_loop` code (scheduler.py: `await
-    self._do_fetch(domain)` with no surrounding try/except), air's raised
-    exception propagates out of its task; `asyncio.TaskGroup` semantics then
-    cancel every sibling task (killing land's loop too) and re-raise a
-    combined `ExceptionGroup` out of `run()` -- so this errors/fails against
-    the current implementation and xfails cleanly (DEC-33)."""
+    `_poll_loop` now wraps `_do_fetch` in its own try/except (scheduler.py),
+    so air's raised exception is caught and logged in place -- it never
+    propagates out of air's task, `asyncio.TaskGroup`/`run()` stays alive, and
+    land's independent cadence is unaffected (DEC-33: was xfail, now green)."""
     air_adapter = _FailOnceThenSucceedAdapter(Domain.AIR, fail_on_calls={1})
     land_adapter = _CountingAdapter(Domain.LAND)
     cfg = _make_cfg(air_cadence_s=1, land_cadence_s=1)

@@ -17,10 +17,13 @@ fallback), backoff, the event-driven stale timer, region-switch
 from __future__ import annotations
 
 import asyncio
+import logging
 
 from backend.config import AppConfig, effective_cadence_s
 from backend.models import Domain, LayerSnapshot
 from backend.sources.base import PollAdapter, Region
+
+logger = logging.getLogger(__name__)
 
 
 class Scheduler:
@@ -79,7 +82,18 @@ class Scheduler:
                 await wake.wait()
             wake.clear()
             if self._enabled[domain]:
-                await self._do_fetch(domain)
+                # FR10: per-layer failure isolation -- a crashing adapter
+                # must not kill the scheduler or a sibling layer's task.
+                # Cancellation still propagates for clean shutdown.
+                try:
+                    await self._do_fetch(domain)
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    logger.exception(
+                        "layer %s: fetch failed, will retry next cadence tick",
+                        domain,
+                    )
 
     async def set_enabled(self, domain: Domain, enabled: bool) -> None:
         """FR5. Disabling parks the loop on `_wake` (checked on its next
