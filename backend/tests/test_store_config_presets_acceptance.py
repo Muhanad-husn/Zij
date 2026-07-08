@@ -16,12 +16,10 @@ plans/store/03-config-presets.md ("Acceptance criterion" + inner unit list:
 schema idempotency [inherited from slice 01/02], add_preset -> list_presets
 round-trip with {bbox,label} payload, UNIQUE(kind,name) -> ConflictError,
 delete_preset removes the row, config_override upsert/read of active_region
-with UTC-stamped created_at/updated_at). It is authored and committed red by
-the test-author before any implementation exists, guarded by a strict xfail
-(DEC-33): none of `Store.list_presets`/`add_preset`/`delete_preset`/
-`get_config_overrides`/`put_config_override` exist yet, so the call below
-raises `AttributeError`, xfail catches it, the suite reports `xfailed`, and
-the red commit is allowed to land under the tests-green gate.
+with UTC-stamped created_at/updated_at). It was authored and committed red by
+the test-author before any implementation existed, guarded by a strict xfail
+(DEC-33). The implementer has since made it genuinely pass; the xfail marker
+has been removed to finalize the contract.
 
 **API surface pinned here (method names the implementer must build to).**
 `design/contracts/storage.md` gives an *illustrative* shape
@@ -77,11 +75,6 @@ ACTIVE_REGION_OVERRIDE_NAME = "active_region"
 ACTIVE_REGION_PAYLOAD = {"region_id": "gulf-of-oman"}
 
 
-@pytest.mark.xfail(
-    reason="config_presets store methods (list_presets/add_preset/delete_preset/"
-    "get_config_overrides/put_config_override) not yet implemented",
-    strict=True,
-)
 async def test_config_presets_crud_conflict_and_active_region_override_round_trip(
     tmp_path, monkeypatch
 ):
