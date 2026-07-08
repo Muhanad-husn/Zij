@@ -76,11 +76,11 @@ a marine feature by mistake, this pair would wrongly go unflagged and the
 test would catch it.
 
 It was authored and committed red by the test-author before any
-implementation existed (strict xfail, DEC-33): `backend.integrity` does not
-exist yet, so importing it inside the test body raises `ModuleNotFoundError`
-and the test xfails cleanly under the tests-green gate. Once the
-implementer makes this genuinely pass, the xfail marker will be removed to
-finalize the contract (test-author's later pass).
+implementation existed (strict xfail, DEC-33): `backend.integrity` did not
+exist yet, so importing it inside the test body raised `ModuleNotFoundError`
+and the test xfailed cleanly under the tests-green gate. The implementer has
+since made this genuinely pass; the xfail marker has been removed to
+finalize the contract (test-author's marker-removal pass, DEC-1).
 """
 
 from __future__ import annotations
@@ -89,8 +89,7 @@ import math
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-import pytest
-
+from backend.integrity import Integrity, IntegrityCfg, PrevPos
 from backend.models import Domain, Feature, GeometryType, IntegrityFlag
 
 LANDMASK_FIXTURE = Path(__file__).parent / "fixtures" / "landmask_test.geojson"
@@ -170,10 +169,7 @@ def _feature(
     )
 
 
-@pytest.mark.xfail(reason="integrity.apply not yet implemented", strict=True)
 def test_apply_flags_spoof_suspect_on_land_and_implausible_kinematics():
-    from backend.integrity import Integrity, IntegrityCfg, PrevPos
-
     # =========================================================================
     # Given: an Integrity loaded with a known (fixture) landmask and
     # configured thresholds.
