@@ -6,10 +6,12 @@ The only SQLite gateway (D4, NFR2, ADR-10): stdlib `sqlite3` behind a thin
 keeping blocking DB work off the event loop. `store.py` never parses source
 payloads (STRUCTURE.md) -- it only serializes/deserializes rows it is handed.
 
-This slice (plans/store/01-land-cache.md, issue #11) implements only the
+step (plans/store/01-land-cache.md, issue #11) implements the
 `land_cache` path: `Store.init`/`close`/`get_land_cache`/`put_land_cache` and
-`LandCacheRow`. `fallback_snapshots`/`config_presets` methods are out of scope
-here and land in later slices.
+`LandCacheRow`. step (plans/store/02-fallback-snapshots.md, issue #40)
+adds the `fallback_snapshots` path: `Store.put_fallback`/`get_fallback`
+(FR8). `config_presets` methods are out of scope here and land in a later
+slice.
 """
 
 from __future__ import annotations
@@ -25,7 +27,7 @@ from typing import Any
 import platformdirs
 from pydantic import BaseModel, ConfigDict, field_validator
 
-from backend.models import _reject_naive_datetime
+from backend.models import LayerSnapshot, _reject_naive_datetime
 
 _SCHEMA_PATH = Path(__file__).with_name("schema.sql")
 
@@ -147,3 +149,61 @@ class Store:
             ),
         )
         self._conn.commit()
+
+    async def put_fallback(self, snap: LayerSnapshot) -> None:
+        """Upsert the single fallback snapshot for `snap.meta.layer` (FR8:
+        one fallback row per layer, replaced on each successful fetch)."""
+        async with self._lock:
+            await to_thread(self._put_fallback_sync, snap)
+
+    def _put_fallback_sync(self, snap: LayerSnapshot) -> None:
+        assert self._conn is not None, "Store.init() must be called first"
+        meta = snap.meta
+        source_ts = (
+            meta.timestamp_source.isoformat().replace("+00:00", "Z")
+            if meta.timestamp_source is not None
+            else None
+        )
+        fetched_at = (
+            meta.timestamp_fetched.isoformat().replace("+00:00", "Z")
+            if meta.timestamp_fetched is not None
+            else None
+        )
+        self._conn.execute(
+            """
+            INSERT INTO fallback_snapshots
+                (layer, region_id, snapshot_json, source_ts, fetched_at)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(layer) DO UPDATE SET
+                region_id=excluded.region_id,
+                snapshot_json=excluded.snapshot_json,
+                source_ts=excluded.source_ts,
+                fetched_at=excluded.fetched_at
+            """,
+            (
+                meta.layer.value,
+                meta.region_id,
+                snap.model_dump_json(),
+                source_ts,
+                fetched_at,
+            ),
+        )
+        self._conn.commit()
+
+    async def get_fallback(self, layer: str) -> LayerSnapshot | None:
+        """Fetch the fallback snapshot for `layer` ('air' or 'marine'), if
+        one exists (FR8: cold-start/outage fallback data)."""
+        async with self._lock:
+            return await to_thread(self._get_fallback_sync, layer)
+
+    def _get_fallback_sync(self, layer: str) -> LayerSnapshot | None:
+        assert self._conn is not None, "Store.init() must be called first"
+        cursor = self._conn.execute(
+            "SELECT snapshot_json FROM fallback_snapshots WHERE layer = ?",
+            (layer,),
+        )
+        row = cursor.fetchone()
+        if row is None:
+            return None
+        (snapshot_json,) = row
+        return LayerSnapshot.model_validate_json(snapshot_json)
