@@ -10,8 +10,10 @@ step (plans/store/01-land-cache.md, issue #11) implements the
 `land_cache` path: `Store.init`/`close`/`get_land_cache`/`put_land_cache` and
 `LandCacheRow`. step (plans/store/02-fallback-snapshots.md, issue #40)
 adds the `fallback_snapshots` path: `Store.put_fallback`/`get_fallback`
-(FR8). `config_presets` methods are out of scope here and land in a later
-slice.
+(FR8). step (plans/store/03-config-presets.md, issue #41) adds the
+`config_presets` path: `Store.list_presets`/`add_preset`/`delete_preset`/
+`get_config_overrides`/`put_config_override`, `PresetRow`, and
+`ConflictError` (FR11).
 """
 
 from __future__ import annotations
@@ -20,7 +22,7 @@ import json
 import os
 import sqlite3
 from asyncio import Lock, to_thread
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -42,6 +44,12 @@ def _resolve_db_path() -> Path:
     return Path(platformdirs.user_data_dir("zij")) / "zij.db"
 
 
+class ConflictError(Exception):
+    """Raised on a `UNIQUE(kind, name)` clash in `config_presets` (e.g. a
+    duplicate preset name). Maps to `409 conflict` (api.md presets); the HTTP
+    mapping itself is out of scope here (store.py stays transport-agnostic)."""
+
+
 class LandCacheRow(BaseModel):
     """Mirrors the `land_cache` DDL columns (storage.md). `bbox` and
     `geojson` are carried as plain Python values on the model; `store.py`
@@ -59,6 +67,26 @@ class LandCacheRow(BaseModel):
     @field_validator("osm_base", "fetched_at")
     @classmethod
     def _validate_utc_aware(cls, value: datetime | None) -> datetime | None:
+        return _reject_naive_datetime(value)
+
+
+class PresetRow(BaseModel):
+    """Mirrors the `config_presets` DDL columns for a `kind='region_preset'`
+    row (storage.md). `payload_json` is unpacked into `bbox`/`label` on the
+    model; `store.py` owns the TEXT-column JSON (de)serialization
+    internally."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: int
+    name: str
+    bbox: tuple[float, float, float, float]
+    label: str
+    created_at: datetime
+
+    @field_validator("created_at")
+    @classmethod
+    def _validate_utc_aware(cls, value: datetime) -> datetime:
         return _reject_naive_datetime(value)
 
 
@@ -207,3 +235,105 @@ class Store:
             return None
         (snapshot_json,) = row
         return LayerSnapshot.model_validate_json(snapshot_json)
+
+    async def list_presets(self) -> list[PresetRow]:
+        """List every `kind='region_preset'` row (FR11)."""
+        async with self._lock:
+            return await to_thread(self._list_presets_sync)
+
+    def _list_presets_sync(self) -> list[PresetRow]:
+        assert self._conn is not None, "Store.init() must be called first"
+        cursor = self._conn.execute(
+            "SELECT id, name, payload_json, created_at FROM config_presets "
+            "WHERE kind = 'region_preset'"
+        )
+        rows = cursor.fetchall()
+        presets = []
+        for row_id, name, payload_json, created_at in rows:
+            payload = json.loads(payload_json)
+            presets.append(
+                PresetRow(
+                    id=row_id,
+                    name=name,
+                    bbox=tuple(payload["bbox"]),
+                    label=payload["label"],
+                    created_at=datetime.fromisoformat(created_at),
+                )
+            )
+        return presets
+
+    async def add_preset(
+        self, name: str, bbox: tuple[float, float, float, float], label: str
+    ) -> int:
+        """Insert a `kind='region_preset'` row; raise `ConflictError` on a
+        `UNIQUE(kind, name)` clash (FR11, api.md `409`)."""
+        async with self._lock:
+            return await to_thread(self._add_preset_sync, name, bbox, label)
+
+    def _add_preset_sync(
+        self, name: str, bbox: tuple[float, float, float, float], label: str
+    ) -> int:
+        assert self._conn is not None, "Store.init() must be called first"
+        now = datetime.now(tz=UTC).isoformat().replace("+00:00", "Z")
+        payload_json = json.dumps({"bbox": list(bbox), "label": label})
+        try:
+            cursor = self._conn.execute(
+                "INSERT INTO config_presets "
+                "(kind, name, payload_json, created_at, updated_at) "
+                "VALUES ('region_preset', ?, ?, ?, ?)",
+                (name, payload_json, now, now),
+            )
+        except sqlite3.IntegrityError as exc:
+            raise ConflictError(f"preset {name!r} already exists") from exc
+        self._conn.commit()
+        assert cursor.lastrowid is not None
+        return cursor.lastrowid
+
+    async def delete_preset(self, preset_id: int) -> None:
+        """Delete a `kind='region_preset'` row by id. A missing id is a
+        no-op (FR11)."""
+        async with self._lock:
+            await to_thread(self._delete_preset_sync, preset_id)
+
+    def _delete_preset_sync(self, preset_id: int) -> None:
+        assert self._conn is not None, "Store.init() must be called first"
+        self._conn.execute(
+            "DELETE FROM config_presets WHERE id = ? AND kind = 'region_preset'",
+            (preset_id,),
+        )
+        self._conn.commit()
+
+    async def get_config_overrides(self) -> dict[str, Any]:
+        """Every `kind='config_override'` row, keyed by `name` (config.md
+        precedence: the highest-precedence config layer)."""
+        async with self._lock:
+            return await to_thread(self._get_config_overrides_sync)
+
+    def _get_config_overrides_sync(self) -> dict[str, Any]:
+        assert self._conn is not None, "Store.init() must be called first"
+        cursor = self._conn.execute(
+            "SELECT name, payload_json FROM config_presets WHERE kind = 'config_override'"
+        )
+        return {
+            name: json.loads(payload_json) for name, payload_json in cursor.fetchall()
+        }
+
+    async def put_config_override(self, name: str, payload: dict[str, Any]) -> None:
+        """Upsert a `kind='config_override'` row on `UNIQUE(kind, name)`."""
+        async with self._lock:
+            await to_thread(self._put_config_override_sync, name, payload)
+
+    def _put_config_override_sync(self, name: str, payload: dict[str, Any]) -> None:
+        assert self._conn is not None, "Store.init() must be called first"
+        now = datetime.now(tz=UTC).isoformat().replace("+00:00", "Z")
+        self._conn.execute(
+            """
+            INSERT INTO config_presets (kind, name, payload_json, created_at, updated_at)
+            VALUES ('config_override', ?, ?, ?, ?)
+            ON CONFLICT(kind, name) DO UPDATE SET
+                payload_json=excluded.payload_json,
+                updated_at=excluded.updated_at
+            """,
+            (name, json.dumps(payload), now, now),
+        )
+        self._conn.commit()
