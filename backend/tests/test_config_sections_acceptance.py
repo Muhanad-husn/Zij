@@ -20,14 +20,25 @@ plans/config/02-sections.md ("Acceptance criterion") and
 design/contracts/config.md ("[layers.marine]", "aisstream", "Integrity",
 "SSE / server", "Loading design") and design/contracts/api.md ("GET
 /api/config"). Committed RED before implementation (strict xfail, DEC-33):
-the bundled config.toml carries no [layers.marine]/[aisstream]/[integrity]/
+the bundled config.toml carried no [layers.marine]/[aisstream]/[integrity]/
 [server] sections yet, so the very first assertion below (`"marine" in
-cfg.layers`) fails, and `_check_required_secrets` does not yet gate the
-marine layer's secret either -- the test genuinely xfails rather than
-passing vacuously. Once the implementer builds the sections + the secret
-gate, every assertion in this single scenario must hold for the test to
-flip green; the marker is then removed by the test-author to finalize the
-contract (never loosened, never removed early).
+cfg.layers`) failed, and `_check_required_secrets` did not yet gate the
+marine layer's secret either -- the test genuinely xfailed rather than
+passing vacuously. The implementer has since built the sections + the secret
+gate to satisfy this exact contract -- every assertion in this single
+scenario now holds and the marker has been removed by the test-author to
+finalize the contract (never loosened, never removed early).
+
+Note on import hermeticity: `from backend.main import create_app` is
+deliberately NOT at module scope here. `backend/main.py` builds its
+module-level `app` eagerly via `_build_default_app()` -> `load_config()` at
+import time, which would run during pytest *collection* -- before the
+session-scoped conftest fixture (`backend/tests/conftest.py::
+_hermetic_opensky_secrets`) has set any secret baseline -- and raise
+`MissingSecretError` as a collection error that aborts the whole suite in a
+CI environment carrying zero ambient secrets. The import is therefore
+deferred into the test function body below, matching the lazy-import
+convention already used throughout `backend/tests/test_api.py`.
 
 Scope note (spec-drift candidate, NOT asserted here): api.md's `/api/config`
 example additionally shows top-level `stale_multiplier` and
@@ -54,7 +65,6 @@ from backend.config import (
     _check_required_secrets,
     load_config,
 )
-from backend.main import create_app
 
 # config.md "[layers.marine]" (lines 68-75).
 MARINE_DEFAULTS = {
@@ -106,8 +116,11 @@ def _set_hermetic_secrets(monkeypatch, *, aisstream_api_key: str) -> None:
     monkeypatch.delenv("ZIJ_CONFIG_PATH", raising=False)
 
 
-@pytest.mark.xfail(reason="config v1 sections not yet implemented", strict=True)
 def test_v1_sections_load_endpoint_shape_and_marine_secret_gate(tmp_path, monkeypatch):
+    # Deferred import (not module scope) -- see module docstring's "Note on
+    # import hermeticity".
+    from backend.main import create_app
+
     # === Given/When/Then: the bundled config.toml's v1 sections load with
     # their config.md defaults ===
     _set_hermetic_secrets(monkeypatch, aisstream_api_key="outer-test-aisstream-api-key")

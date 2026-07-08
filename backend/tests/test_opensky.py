@@ -104,7 +104,10 @@ async def test_token_manager_single_flight(monkeypatch):
     # --- Given: client credentials in env (NFR5: env only) ---
     monkeypatch.setenv("OPENSKY_CLIENT_ID", "test-opensky-client-id")
     monkeypatch.setenv("OPENSKY_CLIENT_SECRET", "test-opensky-client-secret")
-    monkeypatch.delenv("AISSTREAM_API_KEY", raising=False)
+    # Marine is enabled in the bundled config.toml (slice config-02, #42); a
+    # non-empty value keeps its secret gate from firing for an unrelated
+    # reason in this air-adapter-focused test.
+    monkeypatch.setenv("AISSTREAM_API_KEY", "test-aisstream-api-key")
     monkeypatch.delenv("AISHUB_USERNAME", raising=False)
     monkeypatch.delenv("ZIJ_CONFIG_PATH", raising=False)
 
@@ -141,8 +144,9 @@ async def test_token_manager_single_flight(monkeypatch):
             # and the single cached token is the one the mock returned (all
             # three racing callers converge on it) ---
             assert token_route.call_count == 1
-            assert adapter._token_manager._access_token == (
-                TOKEN_RESPONSE_1["access_token"]
+            assert (
+                adapter._token_manager._access_token
+                == (TOKEN_RESPONSE_1["access_token"])
             )
 
             # --- And: advance the clock to within token_refresh_margin_s of
@@ -150,15 +154,14 @@ async def test_token_manager_single_flight(monkeypatch):
             # refresh request ---
             frozen_time.tick(
                 delta=timedelta(
-                    seconds=TOKEN_RESPONSE_1["expires_in"]
-                    - token_refresh_margin_s
-                    + 1
+                    seconds=TOKEN_RESPONSE_1["expires_in"] - token_refresh_margin_s + 1
                 )
             )
             await adapter.start()
             assert token_route.call_count == 2
-            assert adapter._token_manager._access_token == (
-                TOKEN_RESPONSE_2["access_token"]
+            assert (
+                adapter._token_manager._access_token
+                == (TOKEN_RESPONSE_2["access_token"])
             )
 
             await adapter.stop()
@@ -387,7 +390,10 @@ async def test_fetch_hormuz_states(monkeypatch):
     # --- Given: client credentials in env (NFR5: env only) ---
     monkeypatch.setenv("OPENSKY_CLIENT_ID", "test-opensky-client-id")
     monkeypatch.setenv("OPENSKY_CLIENT_SECRET", "test-opensky-client-secret")
-    monkeypatch.delenv("AISSTREAM_API_KEY", raising=False)
+    # Marine is enabled in the bundled config.toml (slice config-02, #42); a
+    # non-empty value keeps its secret gate from firing for an unrelated
+    # reason in this air-adapter-focused test.
+    monkeypatch.setenv("AISSTREAM_API_KEY", "test-aisstream-api-key")
     monkeypatch.delenv("AISHUB_USERNAME", raising=False)
     monkeypatch.delenv("ZIJ_CONFIG_PATH", raising=False)
 
@@ -460,9 +466,7 @@ async def test_fetch_hormuz_states(monkeypatch):
     assert known.attrs["true_track_deg"] == 301.17
     assert known.attrs["altitude_m"] == 10050.78
     assert known.attrs["position_source"] == "ADS-B"  # spec map: 0 -> "ADS-B"
-    assert known.timestamp_source == datetime.fromtimestamp(
-        1783272380, tz=timezone.utc
-    )
+    assert known.timestamp_source == datetime.fromtimestamp(1783272380, tz=timezone.utc)
     assert known.position_age_s == pytest.approx(104.0)
 
     # --- And: the null-lat/lon state is dropped entirely ---
@@ -626,9 +630,7 @@ def test_parse_states_blank_and_none_callsign_yield_none_label():
     blank_vector = _make_state_vector(icao24="blank01", callsign="        ")
     none_vector = _make_state_vector(icao24="none01", callsign=None)
 
-    features, _ = adapter._parse_states(
-        {"states": [blank_vector, none_vector]}, now
-    )
+    features, _ = adapter._parse_states({"states": [blank_vector, none_vector]}, now)
 
     by_id = {f.source_id: f for f in features}
     assert by_id["blank01"].label is None
@@ -783,10 +785,14 @@ async def test_fetch_429_with_retry_after_header():
     cfg = _make_full_opensky_cfg()
     secrets = Secrets(opensky_client_id="x", opensky_client_secret="y")
     credits = CreditLedger(budget=cfg.daily_credit_budget)
-    region = Region(id="hormuz", label="Strait of Hormuz", bbox=(55.0, 25.0, 57.5, 27.5))
+    region = Region(
+        id="hormuz", label="Strait of Hormuz", bbox=(55.0, 25.0, 57.5, 27.5)
+    )
 
     async with respx.mock() as respx_mock:
-        respx_mock.post(TOKEN_URL).mock(return_value=Response(200, json=TOKEN_RESPONSE_1))
+        respx_mock.post(TOKEN_URL).mock(
+            return_value=Response(200, json=TOKEN_RESPONSE_1)
+        )
         respx_mock.get(STATES_URL).mock(
             return_value=Response(429, headers={"Retry-After": "12.5"})
         )
@@ -806,10 +812,14 @@ async def test_fetch_429_without_retry_after_header_leaves_retry_after_none():
     cfg = _make_full_opensky_cfg()
     secrets = Secrets(opensky_client_id="x", opensky_client_secret="y")
     credits = CreditLedger(budget=cfg.daily_credit_budget)
-    region = Region(id="hormuz", label="Strait of Hormuz", bbox=(55.0, 25.0, 57.5, 27.5))
+    region = Region(
+        id="hormuz", label="Strait of Hormuz", bbox=(55.0, 25.0, 57.5, 27.5)
+    )
 
     async with respx.mock() as respx_mock:
-        respx_mock.post(TOKEN_URL).mock(return_value=Response(200, json=TOKEN_RESPONSE_1))
+        respx_mock.post(TOKEN_URL).mock(
+            return_value=Response(200, json=TOKEN_RESPONSE_1)
+        )
         respx_mock.get(STATES_URL).mock(return_value=Response(429))
         adapter = OpenSkyAdapter(cfg, secrets, credits)
         with pytest.raises(RateLimitedError) as exc_info:
@@ -833,10 +843,14 @@ async def test_fetch_429_with_malformed_retry_after_header_yields_typed_error():
     cfg = _make_full_opensky_cfg()
     secrets = Secrets(opensky_client_id="x", opensky_client_secret="y")
     credits = CreditLedger(budget=cfg.daily_credit_budget)
-    region = Region(id="hormuz", label="Strait of Hormuz", bbox=(55.0, 25.0, 57.5, 27.5))
+    region = Region(
+        id="hormuz", label="Strait of Hormuz", bbox=(55.0, 25.0, 57.5, 27.5)
+    )
 
     async with respx.mock() as respx_mock:
-        respx_mock.post(TOKEN_URL).mock(return_value=Response(200, json=TOKEN_RESPONSE_1))
+        respx_mock.post(TOKEN_URL).mock(
+            return_value=Response(200, json=TOKEN_RESPONSE_1)
+        )
         respx_mock.get(STATES_URL).mock(
             return_value=Response(
                 429, headers={"Retry-After": "Wed, 21 Oct 2026 07:28:00 GMT"}
@@ -858,10 +872,14 @@ async def test_fetch_5xx_raises_upstream_error(status):
     cfg = _make_full_opensky_cfg()
     secrets = Secrets(opensky_client_id="x", opensky_client_secret="y")
     credits = CreditLedger(budget=cfg.daily_credit_budget)
-    region = Region(id="hormuz", label="Strait of Hormuz", bbox=(55.0, 25.0, 57.5, 27.5))
+    region = Region(
+        id="hormuz", label="Strait of Hormuz", bbox=(55.0, 25.0, 57.5, 27.5)
+    )
 
     async with respx.mock() as respx_mock:
-        respx_mock.post(TOKEN_URL).mock(return_value=Response(200, json=TOKEN_RESPONSE_1))
+        respx_mock.post(TOKEN_URL).mock(
+            return_value=Response(200, json=TOKEN_RESPONSE_1)
+        )
         respx_mock.get(STATES_URL).mock(return_value=Response(status))
         adapter = OpenSkyAdapter(cfg, secrets, credits)
         with pytest.raises(UpstreamError):
@@ -878,10 +896,14 @@ async def test_fetch_timeout_raises_upstream_error():
     cfg = _make_full_opensky_cfg()
     secrets = Secrets(opensky_client_id="x", opensky_client_secret="y")
     credits = CreditLedger(budget=cfg.daily_credit_budget)
-    region = Region(id="hormuz", label="Strait of Hormuz", bbox=(55.0, 25.0, 57.5, 27.5))
+    region = Region(
+        id="hormuz", label="Strait of Hormuz", bbox=(55.0, 25.0, 57.5, 27.5)
+    )
 
     async with respx.mock() as respx_mock:
-        respx_mock.post(TOKEN_URL).mock(return_value=Response(200, json=TOKEN_RESPONSE_1))
+        respx_mock.post(TOKEN_URL).mock(
+            return_value=Response(200, json=TOKEN_RESPONSE_1)
+        )
         respx_mock.get(STATES_URL).mock(side_effect=httpx.TimeoutException("timed out"))
         adapter = OpenSkyAdapter(cfg, secrets, credits)
         with pytest.raises(UpstreamError):
@@ -898,10 +920,14 @@ async def test_fetch_transport_error_raises_upstream_error():
     cfg = _make_full_opensky_cfg()
     secrets = Secrets(opensky_client_id="x", opensky_client_secret="y")
     credits = CreditLedger(budget=cfg.daily_credit_budget)
-    region = Region(id="hormuz", label="Strait of Hormuz", bbox=(55.0, 25.0, 57.5, 27.5))
+    region = Region(
+        id="hormuz", label="Strait of Hormuz", bbox=(55.0, 25.0, 57.5, 27.5)
+    )
 
     async with respx.mock() as respx_mock:
-        respx_mock.post(TOKEN_URL).mock(return_value=Response(200, json=TOKEN_RESPONSE_1))
+        respx_mock.post(TOKEN_URL).mock(
+            return_value=Response(200, json=TOKEN_RESPONSE_1)
+        )
         respx_mock.get(STATES_URL).mock(side_effect=httpx.ConnectError("refused"))
         adapter = OpenSkyAdapter(cfg, secrets, credits)
         with pytest.raises(UpstreamError):
@@ -919,10 +945,14 @@ async def test_fetch_malformed_json_raises_parse_error():
     cfg = _make_full_opensky_cfg()
     secrets = Secrets(opensky_client_id="x", opensky_client_secret="y")
     credits = CreditLedger(budget=cfg.daily_credit_budget)
-    region = Region(id="hormuz", label="Strait of Hormuz", bbox=(55.0, 25.0, 57.5, 27.5))
+    region = Region(
+        id="hormuz", label="Strait of Hormuz", bbox=(55.0, 25.0, 57.5, 27.5)
+    )
 
     async with respx.mock() as respx_mock:
-        respx_mock.post(TOKEN_URL).mock(return_value=Response(200, json=TOKEN_RESPONSE_1))
+        respx_mock.post(TOKEN_URL).mock(
+            return_value=Response(200, json=TOKEN_RESPONSE_1)
+        )
         respx_mock.get(STATES_URL).mock(
             return_value=Response(200, text="not valid json{")
         )
@@ -942,10 +972,14 @@ async def test_fetch_missing_states_key_raises_parse_error():
     cfg = _make_full_opensky_cfg()
     secrets = Secrets(opensky_client_id="x", opensky_client_secret="y")
     credits = CreditLedger(budget=cfg.daily_credit_budget)
-    region = Region(id="hormuz", label="Strait of Hormuz", bbox=(55.0, 25.0, 57.5, 27.5))
+    region = Region(
+        id="hormuz", label="Strait of Hormuz", bbox=(55.0, 25.0, 57.5, 27.5)
+    )
 
     async with respx.mock() as respx_mock:
-        respx_mock.post(TOKEN_URL).mock(return_value=Response(200, json=TOKEN_RESPONSE_1))
+        respx_mock.post(TOKEN_URL).mock(
+            return_value=Response(200, json=TOKEN_RESPONSE_1)
+        )
         respx_mock.get(STATES_URL).mock(return_value=Response(200, json={"nope": True}))
         adapter = OpenSkyAdapter(cfg, secrets, credits)
         with pytest.raises(ParseError):
@@ -964,10 +998,14 @@ async def test_fetch_401_403_raises_autherror_and_invalidates_token(status):
     cfg = _make_full_opensky_cfg()
     secrets = Secrets(opensky_client_id="x", opensky_client_secret="y")
     credits = CreditLedger(budget=cfg.daily_credit_budget)
-    region = Region(id="hormuz", label="Strait of Hormuz", bbox=(55.0, 25.0, 57.5, 27.5))
+    region = Region(
+        id="hormuz", label="Strait of Hormuz", bbox=(55.0, 25.0, 57.5, 27.5)
+    )
 
     async with respx.mock() as respx_mock:
-        respx_mock.post(TOKEN_URL).mock(return_value=Response(200, json=TOKEN_RESPONSE_1))
+        respx_mock.post(TOKEN_URL).mock(
+            return_value=Response(200, json=TOKEN_RESPONSE_1)
+        )
         respx_mock.get(STATES_URL).mock(return_value=Response(status))
         adapter = OpenSkyAdapter(cfg, secrets, credits)
         with pytest.raises(AuthError):
@@ -987,7 +1025,9 @@ async def test_fetch_rate_limit_remaining_header_overrides_ledger_estimate():
     cfg = _make_full_opensky_cfg()
     secrets = Secrets(opensky_client_id="x", opensky_client_secret="y")
     credits = CreditLedger(budget=cfg.daily_credit_budget)
-    region = Region(id="hormuz", label="Strait of Hormuz", bbox=(55.0, 25.0, 57.5, 27.5))
+    region = Region(
+        id="hormuz", label="Strait of Hormuz", bbox=(55.0, 25.0, 57.5, 27.5)
+    )
 
     now = datetime(2026, 7, 5, 12, 0, 0, tzinfo=timezone.utc)
     with freeze_time(now):
@@ -1025,7 +1065,9 @@ async def test_fetch_credentials_never_appear_in_raw_payload_or_model_dump():
         opensky_client_id="nfr5-client-id", opensky_client_secret=secret_marker
     )
     credits = CreditLedger(budget=cfg.daily_credit_budget)
-    region = Region(id="hormuz", label="Strait of Hormuz", bbox=(55.0, 25.0, 57.5, 27.5))
+    region = Region(
+        id="hormuz", label="Strait of Hormuz", bbox=(55.0, 25.0, 57.5, 27.5)
+    )
 
     now = datetime(2026, 7, 5, 12, 0, 0, tzinfo=timezone.utc)
     vector = _make_state_vector(time_position=int(now.timestamp()))
