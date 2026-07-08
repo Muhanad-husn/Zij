@@ -1,0 +1,32 @@
+============================= test session starts =============================
+platform win32 -- Python 3.13.14, pytest-9.1.1, pluggy-1.6.0 -- D:\Zij\.venv\Scripts\python.exe
+cachedir: .pytest_cache
+rootdir: D:\Zij
+configfile: pyproject.toml
+plugins: anyio-4.14.1, asyncio-1.4.0, respx-0.23.1
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 10 items
+
+backend/tests/test_scheduler.py::test_scheduler_core_runtime_coalescing_cadence_independence_and_disable PASSED [ 10%]
+backend/tests/test_scheduler_unit.py::test_effective_cadence_uses_the_floor_when_floor_dominates PASSED [ 20%]
+backend/tests/test_scheduler_unit.py::test_effective_cadence_uses_cadence_when_cadence_dominates PASSED [ 30%]
+backend/tests/test_scheduler_unit.py::test_wake_set_triggers_immediate_fetch_then_wake_is_cleared PASSED [ 40%]
+backend/tests/test_scheduler_unit.py::test_poll_loop_ticks_on_cadence_timeout_when_wake_never_set PASSED [ 50%]
+backend/tests/test_scheduler_unit.py::test_do_fetch_shares_one_future_for_a_second_concurrent_caller PASSED [ 60%]
+backend/tests/test_scheduler_unit.py::test_do_fetch_exception_is_shared_with_joiner_then_inflight_resets PASSED [ 70%]
+backend/tests/test_scheduler_unit.py::test_disabled_layer_parks_on_wake_only_with_no_timeout_and_no_fetch PASSED [ 80%]
+backend/tests/test_scheduler_unit.py::test_run_starts_one_poll_loop_task_per_adapter_and_shuts_down_cleanly PASSED [ 90%]
+backend/tests/test_scheduler_unit.py::test_one_layers_raising_adapter_does_not_crash_run_or_the_other_layer PASSED [100%]Future exception was never retrieved
+future: <Future finished exception=UpstreamError('simulated adapter failure')>
+Traceback (most recent call last):
+  File "D:\Zij\backend\scheduler.py", line 89, in _poll_loop
+    await self._do_fetch(domain)
+  File "D:\Zij\backend\scheduler.py", line 122, in _do_fetch
+    result = await self._adapters[domain].fetch(self._region)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Zij\backend\tests\test_scheduler_unit.py", line 390, in fetch
+    raise UpstreamError("simulated adapter failure")
+backend.sources.base.UpstreamError: simulated adapter failure
+
+
+============================= 10 passed in 15.56s =============================

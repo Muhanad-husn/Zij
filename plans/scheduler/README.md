@@ -10,7 +10,7 @@ Consolidated from triage's 9-slice proposal to 4 (founder decision 2026-07-06, 8
 
 | Slice | Slug | Behaviour | Blocked-by | Skeleton |
 |---|---|---|---|---|
-| 01 | core-runtime | TaskGroup, per-layer poll loop (cadence+floor+`_wake`), single-flight coalescing (FR6) | — (v0 `base`/`models`) | ⭐ |
+| 01 ✅ PR [#64](https://github.com/Muhanad-husn/Zij/pull/64) | core-runtime | TaskGroup, per-layer poll loop (cadence+floor+`_wake`), single-flight coalescing (FR6), FR10 isolation | — (v0 `base`/`models`) | ⭐ |
 | 02 | status-write-path | 7-state FSM (sole writer) + write path order integrity→registry→SSE→fallback | 01, integrity/01, store/02 | |
 | 03 | backoff-stale | backoff per error class + event-driven stale timer | 02 | |
 | 04 | region-toggle | region-switch sequence + enable/disable (FR5) | 02, store/03, sources-marine/02 | |
