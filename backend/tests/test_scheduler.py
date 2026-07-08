@@ -306,9 +306,11 @@ async def test_scheduler_core_runtime_coalescing_cadence_independence_and_disabl
     counts_land_slow = await _run_and_count(land_cadence_s=10, window_s=2.5)
 
     # Air's own tick count is essentially unaffected by land's cadence
-    # change (generous tolerance for real-clock scheduling jitter).
+    # change (small tolerance for real-clock scheduling jitter only --
+    # measured jitter in CI is 0; abs=1 still allows a single tick of slop
+    # without masking a genuine cross-talk regression).
     assert counts_land_fast[Domain.AIR] == pytest.approx(
-        counts_land_slow[Domain.AIR], abs=3
+        counts_land_slow[Domain.AIR], abs=1
     )
     # Sanity: the cadence change we made DID take effect on land itself --
     # otherwise the assertion above would pass vacuously against a scheduler
