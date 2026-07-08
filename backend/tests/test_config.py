@@ -43,10 +43,15 @@ PREDEFINED_REGIONS = {
 }
 
 
-def _set_valid_opensky_secrets(monkeypatch, client_id="unit-id", client_secret="unit-secret"):
+def _set_valid_opensky_secrets(
+    monkeypatch, client_id="unit-id", client_secret="unit-secret"
+):
     monkeypatch.setenv("OPENSKY_CLIENT_ID", client_id)
     monkeypatch.setenv("OPENSKY_CLIENT_SECRET", client_secret)
-    monkeypatch.delenv("AISSTREAM_API_KEY", raising=False)
+    # Marine is enabled in the bundled config.toml (slice config-02, #42); a
+    # non-empty value keeps its own secret gate from firing for an unrelated
+    # reason in these air/opensky-focused unit tests.
+    monkeypatch.setenv("AISSTREAM_API_KEY", "unit-aisstream-api-key")
     monkeypatch.delenv("AISHUB_USERNAME", raising=False)
     monkeypatch.delenv("ZIJ_CONFIG_PATH", raising=False)
 
@@ -64,7 +69,11 @@ def test_missing_opensky_client_id_raises_named_error_when_air_enabled(monkeypat
     # missing.
     monkeypatch.setenv("OPENSKY_CLIENT_ID", "")
     monkeypatch.setenv("OPENSKY_CLIENT_SECRET", "unit-secret")
-    monkeypatch.delenv("AISSTREAM_API_KEY", raising=False)
+    # Marine is enabled in the bundled config.toml (slice config-02, #42); a
+    # non-empty value here isolates this test to the air/OPENSKY_CLIENT_ID
+    # failure it targets, independent of _check_required_secrets's internal
+    # check ordering.
+    monkeypatch.setenv("AISSTREAM_API_KEY", "unit-aisstream-api-key")
     monkeypatch.delenv("AISHUB_USERNAME", raising=False)
     monkeypatch.delenv("ZIJ_CONFIG_PATH", raising=False)
 
@@ -80,7 +89,11 @@ def test_missing_opensky_client_id_raises_named_error_when_air_enabled(monkeypat
 def test_missing_opensky_client_secret_raises_named_error_when_air_enabled(monkeypatch):
     monkeypatch.setenv("OPENSKY_CLIENT_ID", "unit-id")
     monkeypatch.setenv("OPENSKY_CLIENT_SECRET", "")
-    monkeypatch.delenv("AISSTREAM_API_KEY", raising=False)
+    # Marine is enabled in the bundled config.toml (slice config-02, #42); a
+    # non-empty value here isolates this test to the air/
+    # OPENSKY_CLIENT_SECRET failure it targets, independent of
+    # _check_required_secrets's internal check ordering.
+    monkeypatch.setenv("AISSTREAM_API_KEY", "unit-aisstream-api-key")
     monkeypatch.delenv("AISHUB_USERNAME", raising=False)
     monkeypatch.delenv("ZIJ_CONFIG_PATH", raising=False)
 
@@ -133,24 +146,18 @@ def test_disabled_air_layer_needs_no_secret(monkeypatch):
 
 
 def test_effective_cadence_s_applies_the_floor_when_cadence_below_floor():
-    layer = LayerCfg(
-        cadence_s=10, cadence_floor_s=60, custom_bbox_cap_sq_deg=100
-    )
+    layer = LayerCfg(cadence_s=10, cadence_floor_s=60, custom_bbox_cap_sq_deg=100)
     assert effective_cadence_s(layer) == 60
 
 
 def test_effective_cadence_s_returns_cadence_when_above_floor():
-    layer = LayerCfg(
-        cadence_s=600, cadence_floor_s=60, custom_bbox_cap_sq_deg=100
-    )
+    layer = LayerCfg(cadence_s=600, cadence_floor_s=60, custom_bbox_cap_sq_deg=100)
     assert effective_cadence_s(layer) == 600
 
 
 def test_effective_cadence_s_never_returns_below_floor_at_the_boundary():
     # cadence_s exactly equal to the floor -- still the floor, not below it.
-    layer = LayerCfg(
-        cadence_s=60, cadence_floor_s=60, custom_bbox_cap_sq_deg=100
-    )
+    layer = LayerCfg(cadence_s=60, cadence_floor_s=60, custom_bbox_cap_sq_deg=100)
     assert effective_cadence_s(layer) == 60
 
 
@@ -169,7 +176,10 @@ def test_stale_after_s_is_cadence_times_stale_multiplier():
 
 def test_stale_after_s_is_independent_per_layer():
     air = LayerCfg(
-        cadence_s=600, cadence_floor_s=60, stale_multiplier=2, custom_bbox_cap_sq_deg=100
+        cadence_s=600,
+        cadence_floor_s=60,
+        stale_multiplier=2,
+        custom_bbox_cap_sq_deg=100,
     )
     land = LayerCfg(
         cadence_s=86400,
@@ -252,6 +262,10 @@ def test_bundled_toml_value_overrides_code_default_for_same_key(tmp_path):
 
 def test_secrets_field_names_never_appear_as_keys_in_appconfig(monkeypatch):
     _set_valid_opensky_secrets(monkeypatch, "unit-id-abcd", "unit-secret-wxyz")
+    # Slice config-02 (#42): aisstream_api_key is also a Secrets field now
+    # that marine is enabled -- extend this structural guard to cover it too,
+    # not just the OpenSky pair.
+    monkeypatch.setenv("AISSTREAM_API_KEY", "unit-aisstream-api-key-mnop")
 
     cfg, secrets = load_config()
 
@@ -259,6 +273,7 @@ def test_secrets_field_names_never_appear_as_keys_in_appconfig(monkeypatch):
     # if load_config stopped reading them at all).
     assert secrets.opensky_client_id == "unit-id-abcd"
     assert secrets.opensky_client_secret == "unit-secret-wxyz"
+    assert secrets.aisstream_api_key == "unit-aisstream-api-key-mnop"
 
     dumped = cfg.model_dump()
 
@@ -278,6 +293,7 @@ def test_secrets_field_names_never_appear_as_keys_in_appconfig(monkeypatch):
     # check distinct from the outer test's "value not in JSON string" check.
     assert "opensky_client_id" not in all_keys
     assert "opensky_client_secret" not in all_keys
+    assert "aisstream_api_key" not in all_keys
     assert not any("secret" in key for key in all_keys)
     # And AppConfig's own model fields never include a Secrets field.
     assert set(Secrets.model_fields).isdisjoint(set(AppConfig.model_fields))
@@ -356,3 +372,101 @@ def test_estimate_credits_matches_config_md_for_all_predefined_regions():
 def test_estimate_credits_tier_boundaries(area, expected_credits):
     bbox = (0.0, 0.0, area, 1.0)
     assert estimate_credits(bbox) == expected_credits
+
+
+# ===========================================================================
+# Inner unit tests for config slice 02 (issue #42): v1 config sections --
+# marine, aisstream, integrity, server. The outer acceptance test
+# (test_config_sections_acceptance.py) drives the full load_config() ->
+# GET /api/config -> secret-gate scenario end to end; these target the
+# lower-level collaborators (the bare _load_bundled_toml/_deep_merge/
+# AppConfig.model_validate pipeline, independent of Secrets/create_app) and
+# mirror the existing air missing-secret/disabled-layer units above for the
+# new marine gate, per plans/config/02-sections.md's inner-loop list.
+# ===========================================================================
+
+
+def test_v1_sections_parse_from_bundled_toml_via_deep_merge_pipeline():
+    """The four new sections parse with their config.md default values
+    through the bare parsing pipeline (_load_bundled_toml + _deep_merge +
+    AppConfig.model_validate) -- no Secrets, no HTTP, no env at all. This is
+    a lower-level check than the outer test's `load_config()` (which also
+    threads Secrets and drives `_check_required_secrets`): it isolates
+    "does the bundled TOML parse into the right model shape" from "does the
+    secret gate behave correctly".
+    """
+    bundled = _load_bundled_toml()
+    merged = _deep_merge(_DEFAULTS, bundled)
+    cfg = AppConfig.model_validate(merged)
+
+    marine = cfg.layers["marine"]
+    assert marine.enabled is True
+    assert marine.cadence_s == 60
+    assert marine.cadence_floor_s == 60
+    assert marine.stale_multiplier == 2
+    assert marine.deemphasize_after_s == 1800
+    assert marine.drop_after_s == 7200
+    assert marine.custom_bbox_cap_sq_deg == 40
+
+    assert cfg.aisstream["ws_url"] == "wss://stream.aisstream.io/v0/stream"
+    assert cfg.aisstream["reconnect_base_s"] == 2
+    assert cfg.aisstream["reconnect_max_s"] == 60
+
+    assert cfg.integrity["landmask_path"] == ""
+    assert cfg.integrity["max_speed_kn_marine"] == 120
+    assert cfg.integrity["max_speed_kn_air"] == 990
+
+    assert cfg.server["sse_ping_s"] == 15
+    assert cfg.server["static_dir"] == "frontend/dist"
+
+
+def test_missing_aisstream_api_key_raises_named_error_when_marine_enabled(monkeypatch):
+    # Empty-string, not delenv -- see the identical rationale on the OpenSky
+    # missing-secret tests above (a local dev `.env` may carry a real
+    # AISSTREAM_API_KEY; an explicit empty-string env var wins over the
+    # dotenv fallback and is still falsy).
+    monkeypatch.setenv("OPENSKY_CLIENT_ID", "unit-id")
+    monkeypatch.setenv("OPENSKY_CLIENT_SECRET", "unit-secret")
+    monkeypatch.setenv("AISSTREAM_API_KEY", "")
+    monkeypatch.delenv("AISHUB_USERNAME", raising=False)
+    monkeypatch.delenv("ZIJ_CONFIG_PATH", raising=False)
+
+    with pytest.raises(MissingSecretError) as exc_info:
+        load_config()
+
+    assert exc_info.value.env_var == "AISSTREAM_API_KEY"
+    assert exc_info.value.layer == "marine"
+    assert "AISSTREAM_API_KEY" in str(exc_info.value)
+    assert "marine" in str(exc_info.value)
+
+
+def test_disabled_marine_layer_needs_no_secret(monkeypatch):
+    # FR5: a disabled layer's secret is not required. Build the LayerCfg
+    # directly rather than routing through the bundled TOML (which enables
+    # marine), so this test targets `_check_required_secrets`'s "disabled
+    # skips the check" branch for marine in isolation -- mirrors
+    # test_disabled_air_layer_needs_no_secret above.
+    from backend.config import _check_required_secrets
+
+    monkeypatch.setenv("AISSTREAM_API_KEY", "")
+
+    cfg = AppConfig(
+        regions=[],
+        layers={
+            "marine": LayerCfg(
+                enabled=False,
+                cadence_s=60,
+                cadence_floor_s=60,
+                custom_bbox_cap_sq_deg=40,
+            )
+        },
+        overpass={},
+        opensky={},
+        aisstream={},
+        integrity={},
+        server={},
+    )
+    secrets = Secrets()
+
+    # Must not raise -- the disabled layer's secret requirement is skipped.
+    _check_required_secrets(cfg, secrets)

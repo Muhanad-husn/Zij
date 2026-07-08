@@ -34,6 +34,15 @@ per-test throughout `test_config.py`/`test_config_acceptance.py`/
 `load_config()`), just supplying a session-wide default so tests that forgot
 to (or don't otherwise care about the specific values) still get a hermetic,
 non-empty pair.
+
+Extended for config slice 02 (issue #42, `test_config_sections_acceptance.py`):
+once the bundled `config.toml` gains an *enabled* `[layers.marine]` section,
+`_check_required_secrets` gates `AISSTREAM_API_KEY` too, so any test calling
+`load_config()` without first setting that var would start failing the same
+way the OpenSky pair did in issue #17 -- so a fake baseline for it is added
+here in the same spot, for the same reason. Until the marine section exists
+in the bundled TOML this baseline is dormant (no test's `load_config()` call
+reaches the marine branch of `_check_required_secrets` yet).
 """
 
 from collections.abc import Iterator
@@ -48,22 +57,24 @@ import pytest
 # which wins over this baseline; see module docstring above).
 BASELINE_OPENSKY_CLIENT_ID = "test-opensky-client-id"
 BASELINE_OPENSKY_CLIENT_SECRET = "test-opensky-client-secret"
+BASELINE_AISSTREAM_API_KEY = "test-aisstream-api-key"
 
 
 @pytest.fixture(scope="session", autouse=True)
 def _hermetic_opensky_secrets() -> Iterator[None]:
     """Autouse, session-scoped: guarantees `OPENSKY_CLIENT_ID`/
-    `OPENSKY_CLIENT_SECRET` are non-empty for the whole test session, so
-    `load_config()` never fails fast with `MissingSecretError` purely for
-    lack of an ambient `.env`/shell secret (CI has neither). Uses
-    `pytest.MonkeyPatch.context()` (the pytest-documented pattern for
-    session-scoped monkeypatching) rather than the function-scoped
-    `monkeypatch` fixture, so this can be `autouse` at session scope; a
-    function-scoped `monkeypatch.setenv(...)` inside any individual test
-    still overrides these values for that test only, per pytest's fixture
-    teardown ordering.
+    `OPENSKY_CLIENT_SECRET`/`AISSTREAM_API_KEY` are non-empty for the whole
+    test session, so `load_config()` never fails fast with
+    `MissingSecretError` purely for lack of an ambient `.env`/shell secret
+    (CI has neither). Uses `pytest.MonkeyPatch.context()` (the
+    pytest-documented pattern for session-scoped monkeypatching) rather than
+    the function-scoped `monkeypatch` fixture, so this can be `autouse` at
+    session scope; a function-scoped `monkeypatch.setenv(...)` inside any
+    individual test still overrides these values for that test only, per
+    pytest's fixture teardown ordering.
     """
     with pytest.MonkeyPatch.context() as session_mp:
         session_mp.setenv("OPENSKY_CLIENT_ID", BASELINE_OPENSKY_CLIENT_ID)
         session_mp.setenv("OPENSKY_CLIENT_SECRET", BASELINE_OPENSKY_CLIENT_SECRET)
+        session_mp.setenv("AISSTREAM_API_KEY", BASELINE_AISSTREAM_API_KEY)
         yield

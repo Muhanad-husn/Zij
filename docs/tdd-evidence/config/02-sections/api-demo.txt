@@ -1,0 +1,43 @@
+D:\zij-wt\config-42\.venv\Lib\site-packages\fastapi\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+  from starlette.testclient import TestClient as TestClient  # noqa
+=== 1. GET /api/config (marine section now present, three-domain shape) ===
+HTTP 200
+layers present: ['air', 'land', 'marine']
+marine layer block:
+{
+  "enabled": true,
+  "cadence_s": 60,
+  "cadence_floor_s": 60,
+  "stale_multiplier": 2,
+  "custom_bbox_cap_sq_deg": 40.0,
+  "deemphasize_after_s": 1800,
+  "drop_after_s": 7200,
+  "simplify_tolerance_deg": null,
+  "max_rendered_features": null
+}
+land layer block (simplify + max features):
+{
+  "enabled": true,
+  "cadence_s": 86400,
+  "cadence_floor_s": 3600,
+  "stale_multiplier": 2,
+  "custom_bbox_cap_sq_deg": 40.0,
+  "deemphasize_after_s": null,
+  "drop_after_s": null,
+  "simplify_tolerance_deg": 0.0005,
+  "max_rendered_features": 5000
+}
+
+=== 2. NFR5 — no secret value or field-name leaks into /api/config body ===
+  OPENSKY_CLIENT_ID value absent from body: OK
+  OPENSKY_CLIENT_SECRET value absent from body: OK
+  AISSTREAM_API_KEY value absent from body: OK
+  field-name 'opensky_client_id' absent from body: OK
+  field-name 'opensky_client_secret' absent from body: OK
+  field-name 'aisstream_api_key' absent from body: OK
+
+=== 3. Marine secret fail-fast gate (FR5): marine enabled + AISSTREAM_API_KEY empty ===
+  raised MissingSecretError(env_var='AISSTREAM_API_KEY', layer='marine')
+  message: missing required secret 'AISSTREAM_API_KEY' for enabled layer 'marine'
+
+DONE — /api/config serves the marine section, leaks no secrets, and the marine gate fails fast.
