@@ -93,12 +93,43 @@ empty snapshot: the exact feature count (2, not 0/1/3), the live vessel's
 overwritten position/enriched name/SOG/COG/511-sentinel-heading, the prior
 fix in `_prev_pos`, and the STALE/dropped partition across three distinct
 vessels are all asserted against concrete values pinned to the recorded
-fixture.
+fixture. The implementer has since made it genuinely pass; the xfail marker
+has been removed to finalize the contract.
+
+Below the outer test are inner unit tests (DEC-34) covering plan items
+("Inner loop -- initial unit test list",
+plans/sources-marine/01-aisstream-core.md) the outer test deliberately does
+not exercise, or exercises only incidentally:
+  - the bbox `[w,s,e,n]` -> aisstream `[[s,w],[n,e]]` corner transform in the
+    subscribe payload -- the outer test's `_FakeAisStreamConnection` records
+    `.sent` but the outer test never inspects it, so the transform itself is
+    unpinned there.
+  - `PositionReport` -> `_Entry` mapping for a NORMAL (non-511) heading --
+    the outer test's live vessel is only ever sampled after its second,
+    overwriting `PositionReport` (heading=511->None), so a real numeric
+    heading passing through `attrs["heading_deg"]` unchanged is never
+    actually pinned by the outer test; paired here with the 511 sentinel
+    case as the two-way branch of the same mapping.
+  - `ShipStaticData` enrichment NOT moving position/`last_heard` -- the
+    outer fixture's static message happens to carry the same lat/lon as the
+    live vessel's preceding `PositionReport`, so the outer test cannot
+    distinguish "position held" from "position coincidentally re-set to the
+    same value"; also pins the "no entry yet -> no-op" branch (spec:
+    "Does not create an entry on its own").
+  - `snapshot()` fresh-copy / no-I/O behavior -- the outer test only ever
+    calls `snapshot()` once, after a full mocked-websocket round trip, so it
+    cannot show two calls return distinct `Feature` objects, or that
+    `snapshot()` needs no live connection at all.
+
+The `_prev_pos` overwrite copy and the STALE (>30 min) / dropped (>2 h)
+aging partition are both already pinned by the outer test against concrete
+fixture values across three distinct MMSIs, so they are not duplicated here.
 """
 
 from __future__ import annotations
 
 import asyncio
+import json
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -175,10 +206,6 @@ def _load_fixture_lines() -> list[str]:
     return lines
 
 
-@pytest.mark.xfail(
-    reason="aisstream adapter (backend.sources.aisstream) not yet implemented",
-    strict=True,
-)
 async def test_aisstream_processes_position_and_static_then_snapshot(monkeypatch):
     # --- Given: client credentials in env (NFR5: env only); the recorded
     # aisstream messages fed through a mocked websocket ---
@@ -275,3 +302,231 @@ async def test_aisstream_processes_position_and_static_then_snapshot(monkeypatch
     # (aisstream.md: "age > cfg.drop_after_s -> excluded from the
     # snapshot") ---
     assert MMSI_DROPPED not in by_mmsi
+
+
+def _make_aisstream_cfg(**overrides):
+    """Minimal `AisStreamCfg` for inner unit tests that only exercise
+    message-handling / snapshot logic, not a live connection (test-author's
+    plumbing choice -- the required field set is spec-fixed, the values here
+    are arbitrary placeholders)."""
+    from backend.sources.aisstream import AisStreamCfg
+
+    defaults = dict(
+        ws_url="wss://stream.aisstream.io/v0/stream",
+        cadence_s=60,
+        cadence_floor_s=60,
+        custom_bbox_cap_sq_deg=40.0,
+    )
+    defaults.update(overrides)
+    return AisStreamCfg(**defaults)
+
+
+def _position_report_line(
+    mmsi: int,
+    lat: float,
+    lon: float,
+    time_utc: str,
+    *,
+    sog: float = 0.0,
+    cog: float = 0.0,
+    heading: int = 0,
+    nav_status: int = 0,
+    ship_name: str = "",
+) -> str:
+    """A raw (undecoded) PositionReport frame, mirroring the recorded
+    fixture's wire shape."""
+    return json.dumps(
+        {
+            "MessageType": "PositionReport",
+            "MetaData": {
+                "MMSI": mmsi,
+                "ShipName": ship_name,
+                "latitude": lat,
+                "longitude": lon,
+                "time_utc": time_utc,
+            },
+            "Message": {
+                "PositionReport": {
+                    "Latitude": lat,
+                    "Longitude": lon,
+                    "Cog": cog,
+                    "Sog": sog,
+                    "TrueHeading": heading,
+                    "NavigationalStatus": nav_status,
+                }
+            },
+        }
+    )
+
+
+def _ship_static_data_line(
+    mmsi: int,
+    *,
+    lat: float = 0.0,
+    lon: float = 0.0,
+    name: str = "TEST VESSEL",
+    call_sign: str = "T3ST1",
+    ship_type: int = 70,
+) -> str:
+    """A raw (undecoded) ShipStaticData frame. `MetaData.latitude/longitude`
+    is deliberately settable independently of any prior PositionReport, to
+    prove enrichment never moves the entry's actual feature position."""
+    return json.dumps(
+        {
+            "MessageType": "ShipStaticData",
+            "MetaData": {
+                "MMSI": mmsi,
+                "ShipName": name,
+                "latitude": lat,
+                "longitude": lon,
+                "time_utc": "2026-07-09 10:05:00.000000 +0000 UTC",
+            },
+            "Message": {
+                "ShipStaticData": {
+                    "Name": name,
+                    "CallSign": call_sign,
+                    "Type": ship_type,
+                }
+            },
+        }
+    )
+
+
+async def test_subscribe_payload_bbox_corner_transform():
+    """Inner unit (plan item 1): `region.bbox` `[w,s,e,n]` is transformed to
+    aisstream's own `[[s,w],[n,e]]` corner order in the subscribe payload
+    (aisstream.md "Websocket lifecycle"). Deliberately asymmetric bbox
+    values (10,20,30,40) so a transposed axis or swapped south/north would
+    be caught -- a naive passthrough of `[w,s,e,n]` would leave
+    `BoundingBoxes` as `[[10,20],[30,40]]`, not `[[20,10],[40,30]]`. The
+    outer test's fake connection records `.sent` but the outer test itself
+    never inspects it, so this transform is otherwise unpinned anywhere."""
+    from backend.config import Secrets
+    from backend.sources.aisstream import AisStreamAdapter
+    from backend.sources.base import Region
+
+    cfg = _make_aisstream_cfg()
+    secrets = Secrets(aisstream_api_key="unit-test-api-key")
+    adapter = AisStreamAdapter(cfg, secrets)
+    await adapter.set_region(
+        Region(id="test", label="Test", bbox=(10.0, 20.0, 30.0, 40.0))
+    )
+
+    payload = adapter._build_subscribe_payload()
+
+    assert payload["BoundingBoxes"] == [[[20.0, 10.0], [40.0, 30.0]]]
+    assert payload["APIKey"] == "unit-test-api-key"
+    assert payload["FilterMessageTypes"] == ["PositionReport", "ShipStaticData"]
+
+
+def test_position_report_heading_511_sentinel_vs_normal_passthrough():
+    """Inner unit (plan item 2): `TrueHeading`'s 511 "not available" sentinel
+    maps to `heading_deg=None`; any other numeric heading passes through
+    unchanged (aisstream.md "Message handling"). The outer test only ever
+    samples the live vessel's SECOND `PositionReport` (heading=511), so a
+    normal heading value surviving into `attrs` unchanged is not otherwise
+    pinned anywhere."""
+    from backend.config import Secrets
+    from backend.sources.aisstream import AisStreamAdapter
+
+    cfg = _make_aisstream_cfg()
+    secrets = Secrets(aisstream_api_key="unit-test-api-key")
+
+    normal = AisStreamAdapter(cfg, secrets)
+    normal._handle_message(
+        _position_report_line(
+            111222333, 10.0, 20.0, "2026-07-09 10:00:00.000000 +0000 UTC", heading=87
+        )
+    )
+    assert normal._table["111222333"].feature.attrs["heading_deg"] == 87
+
+    sentinel = AisStreamAdapter(cfg, secrets)
+    sentinel._handle_message(
+        _position_report_line(
+            111222333, 10.0, 20.0, "2026-07-09 10:00:00.000000 +0000 UTC", heading=511
+        )
+    )
+    assert sentinel._table["111222333"].feature.attrs["heading_deg"] is None
+
+
+def test_ship_static_data_enriches_without_moving_position_or_last_heard():
+    """Inner unit (plan item 3): a `ShipStaticData` message enriches
+    name/callsign/ship_type and refreshes `label`, but does NOT move the
+    entry's `lat`/`lon` or `last_heard` (aisstream.md: static "does not
+    create an entry on its own" and is not itself "a position fix") -- and,
+    for an MMSI never seen in a `PositionReport`, is a pure no-op. The outer
+    fixture's static message happens to carry the SAME lat/lon as the
+    preceding `PositionReport`, so it cannot distinguish "position held"
+    from "coincidentally re-set to the same value"; this test uses a
+    deliberately DIFFERENT `MetaData` lat/lon on the static message to catch
+    that."""
+    from backend.config import Secrets
+    from backend.sources.aisstream import AisStreamAdapter
+
+    cfg = _make_aisstream_cfg()
+    secrets = Secrets(aisstream_api_key="unit-test-api-key")
+    adapter = AisStreamAdapter(cfg, secrets)
+
+    with freeze_time("2026-07-09T10:00:00+00:00"):
+        adapter._handle_message(
+            _position_report_line(
+                366111222, 10.0, 20.0, "2026-07-09 10:00:00.000000 +0000 UTC"
+            )
+        )
+    entry_before = adapter._table["366111222"]
+    last_heard_before = entry_before.last_heard
+    lat_before, lon_before = entry_before.feature.lat, entry_before.feature.lon
+
+    with freeze_time("2026-07-09T10:05:00+00:00"):
+        adapter._handle_message(_ship_static_data_line(366111222, lat=99.0, lon=88.0))
+
+    entry_after = adapter._table["366111222"]
+    assert entry_after.feature.lat == pytest.approx(lat_before)
+    assert entry_after.feature.lon == pytest.approx(lon_before)
+    assert entry_after.last_heard == last_heard_before
+    assert entry_after.name == "TEST VESSEL"
+    assert entry_after.callsign == "T3ST1"
+    assert entry_after.feature.attrs["ship_type"] == 70
+    assert entry_after.feature.label == "TEST VESSEL"
+
+    # --- And: a ShipStaticData for an MMSI never seen in a PositionReport
+    # is a pure no-op -- does not create an entry ---
+    adapter._handle_message(_ship_static_data_line(999888777, lat=1.0, lon=1.0))
+    assert "999888777" not in adapter._table
+
+
+def test_snapshot_returns_fresh_copies_without_a_live_connection():
+    """Inner unit (plan item 6): `snapshot()` needs no live websocket at all
+    (adapter never `start()`-ed) and returns a genuinely fresh `Feature`
+    object on every call, not a cached/shared reference (aisstream.md
+    "snapshot()": "features are new objects (point-in-time copy)"). The
+    outer test only ever calls `snapshot()` once, after a full
+    mocked-socket round trip, so neither "no connection needed" nor "fresh
+    object identity across calls" is pinned there."""
+    from backend.config import Secrets
+    from backend.models import Domain
+    from backend.sources.aisstream import AisStreamAdapter
+
+    cfg = _make_aisstream_cfg()
+    secrets = Secrets(aisstream_api_key="unit-test-api-key")
+    adapter = AisStreamAdapter(cfg, secrets)
+
+    # No start()/connect at all -- snapshot() on a brand-new adapter is a
+    # pure read of an empty table: no I/O, no raise.
+    empty = adapter.snapshot()
+    assert empty.meta.layer == Domain.MARINE
+    assert empty.features == []
+
+    adapter._handle_message(
+        _position_report_line(
+            366111222, 10.0, 20.0, "2026-07-09 10:00:00.000000 +0000 UTC"
+        )
+    )
+
+    with freeze_time("2026-07-09T10:01:00+00:00"):
+        first = adapter.snapshot()
+        second = adapter.snapshot()
+
+    # Same MMSI, but each snapshot() call must hand back its own object.
+    assert first.features[0] is not second.features[0]
+    assert first.features[0] == second.features[0]
