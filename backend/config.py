@@ -1,26 +1,44 @@
 """Configuration loader (contract: design/contracts/config.md; spec:
 design/specs/config-module.md).
 
-Merges code defaults with the bundled `config.toml` (ADR-6 precedence layers
-1-2). The user-TOML, `ZIJ_`-env-tunable, and `config_presets` (DB) precedence
-layers, and the full `ConfigService` (region presets + `validate_bbox`), are
-out of scope for this slice (plans/config/01-config-loader.md "Out of
-scope") and land in later slices once `store.py` exists.
+Merges the full ADR-6 precedence chain, lowest -> highest: code defaults <
+bundled `config.toml` < user `config.toml` (`ZIJ_CONFIG_PATH`, else
+`platformdirs.user_config_dir("zij")/config.toml`) < `ZIJ_`-prefixed env
+tunables < an optional caller-supplied `overrides` dict mirroring
+`Store.get_config_overrides()`'s `{name: payload}` shape (config.md
+"Precedence"). The reserved `overrides["active_region"]` entry
+(`{"region_id": ...}`) is not merged into the config dict -- it resolves
+`AppConfig.active_region_id`, falling back to `regions[0].id` when absent or
+naming an unknown region (ARCHITECTURE §4.1).
 
 Secrets are loaded separately, from env/`.env` only (NFR5), and are never
 folded into `AppConfig` -- so they can never leak into `GET /api/config`'s
-serialized body (api.md).
+serialized body (api.md), even when a TOML layer happens to set a
+secret-shaped key (e.g. `[opensky] client_id = ...`).
 """
 
 from __future__ import annotations
 
+import os
 import tomllib
 from copy import deepcopy
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
+import platformdirs
 from pydantic import BaseModel
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# config.md "Precedence" #5 -- the reserved override name for the persisted
+# last-active-region row; never deep-merged into the AppConfig-shaped dict.
+_ACTIVE_REGION_OVERRIDE_KEY = "active_region"
+
+# The env var that names the user-TOML path (layer 3) is a loader control
+# knob, not a `ZIJ_`-prefixed tunable (layer 4) -- excluded from env-tunable
+# parsing below even though it shares the `ZIJ_` prefix.
+_CONFIG_PATH_ENV_VAR = "ZIJ_CONFIG_PATH"
+_ENV_TUNABLE_PREFIX = "ZIJ_"
+_ENV_TUNABLE_DELIMITER = "__"
 
 _BUNDLED_CONFIG_PATH = Path(__file__).with_name("config.toml")
 
@@ -96,6 +114,12 @@ class AppConfig(BaseModel):
     aisstream: dict[str, Any]
     integrity: dict[str, Any]
     server: dict[str, Any]
+    # Resolved separately from the reserved `overrides["active_region"]`
+    # entry after the merge/validate above -- never itself part of the
+    # deep-merged config dict (config.md "Precedence" #5; ARCHITECTURE
+    # §4.1). The default here is a placeholder always replaced by
+    # `load_config` before the value is returned.
+    active_region_id: str = ""
 
 
 class MissingSecretError(RuntimeError):
@@ -133,6 +157,72 @@ def _load_bundled_toml(path: Path = _BUNDLED_CONFIG_PATH) -> dict[str, Any]:
         return tomllib.load(fh)
 
 
+def _resolve_user_config_path() -> Path:
+    """`ZIJ_CONFIG_PATH` if set, else `platformdirs.user_config_dir("zij")/
+    config.toml` (config.md "Precedence" #3)."""
+    override = os.environ.get(_CONFIG_PATH_ENV_VAR)
+    if override:
+        return Path(override)
+    return Path(platformdirs.user_config_dir("zij")) / "config.toml"
+
+
+def _load_user_toml() -> dict[str, Any]:
+    """Parse the user `config.toml` (layer 3). A missing file is not an
+    error -- that layer simply contributes nothing (config-module.md)."""
+    path = _resolve_user_config_path()
+    if not path.is_file():
+        return {}
+    with path.open("rb") as fh:
+        return tomllib.load(fh)
+
+
+def _load_env_tunables() -> dict[str, Any]:
+    """Parse `ZIJ_`-prefixed, `__`-nested-delimited env vars into a nested
+    dict (layer 4), e.g. `ZIJ_LAYERS__AIR__CADENCE_S` ->
+    `{"layers": {"air": {"cadence_s": "<value>"}}}` (config.md "Precedence"
+    #4, pydantic-settings nested-delimiter convention). Values are left as
+    raw strings; `AppConfig.model_validate` coerces them to the right type
+    (int/float/bool) during validation, same as any other layer.
+    `ZIJ_CONFIG_PATH` itself is a loader control knob, not a tunable, and is
+    excluded."""
+    result: dict[str, Any] = {}
+    for env_name, raw_value in os.environ.items():
+        if env_name == _CONFIG_PATH_ENV_VAR:
+            continue
+        if not env_name.startswith(_ENV_TUNABLE_PREFIX):
+            continue
+        remainder = env_name[len(_ENV_TUNABLE_PREFIX) :]
+        parts = [
+            part.lower() for part in remainder.split(_ENV_TUNABLE_DELIMITER) if part
+        ]
+        if not parts:
+            continue
+        node = result
+        for part in parts[:-1]:
+            node = node.setdefault(part, {})
+        node[parts[-1]] = raw_value
+    return result
+
+
+def _resolve_active_region_id(
+    regions: list[RegionCfg], overrides: Mapping[str, Any] | None
+) -> str:
+    """Restore the persisted `active_region` override (config.md
+    "Precedence" #5), falling back to the configured default (`regions[0]
+    .id`) when the override is absent or names a region that isn't one of
+    the predefined regions (ARCHITECTURE §4.1)."""
+    default_id = regions[0].id if regions else ""
+    if not overrides:
+        return default_id
+    active_region_override = overrides.get(_ACTIVE_REGION_OVERRIDE_KEY)
+    if not isinstance(active_region_override, Mapping):
+        return default_id
+    region_id = active_region_override.get("region_id")
+    if region_id in {region.id for region in regions}:
+        return region_id
+    return default_id
+
+
 def _check_required_secrets(cfg: AppConfig, secrets: Secrets) -> None:
     """Fail fast (named error) when an enabled layer's required secret is
     missing. Air (OpenSky) and marine (aisstream) are gated here; aishub is
@@ -150,15 +240,38 @@ def _check_required_secrets(cfg: AppConfig, secrets: Secrets) -> None:
             raise MissingSecretError("AISSTREAM_API_KEY", "marine")
 
 
-def load_config() -> tuple[AppConfig, Secrets]:
-    """Merge code defaults with the bundled `config.toml` (ADR-6 precedence
-    layers 1-2) into an `AppConfig`, and load `Secrets` from env/`.env` only
-    (NFR5). Fails fast with `MissingSecretError` if an enabled layer's
-    required secret is absent (config.md).
+def load_config(
+    *, overrides: Mapping[str, Any] | None = None
+) -> tuple[AppConfig, Secrets]:
+    """Merge the full ADR-6 precedence chain -- code defaults < bundled
+    `config.toml` < user `config.toml` < `ZIJ_`-prefixed env tunables <
+    `overrides` (an optional injected `{name: payload}` dict mirroring
+    `Store.get_config_overrides()`, highest precedence) -- into an
+    `AppConfig`, and load `Secrets` from env/`.env` only (NFR5). Fails fast
+    with `MissingSecretError` if an enabled layer's required secret is
+    absent (config.md).
+
+    `overrides` defaults to `None`, matching every pre-existing no-arg call
+    site exactly (no DB layer, no active-region restore beyond the
+    configured default). The reserved `overrides["active_region"]` entry is
+    never deep-merged into the config dict -- it resolves
+    `AppConfig.active_region_id` separately (config.md "Precedence" #5).
     """
-    bundled = _load_bundled_toml()
-    merged = _deep_merge(_DEFAULTS, bundled)
+    merged = _deep_merge(_DEFAULTS, _load_bundled_toml())
+    merged = _deep_merge(merged, _load_user_toml())
+    merged = _deep_merge(merged, _load_env_tunables())
+    if overrides:
+        db_layer = {
+            key: value
+            for key, value in overrides.items()
+            if key != _ACTIVE_REGION_OVERRIDE_KEY
+        }
+        merged = _deep_merge(merged, db_layer)
+
     cfg = AppConfig.model_validate(merged)
+    active_region_id = _resolve_active_region_id(cfg.regions, overrides)
+    cfg = cfg.model_copy(update={"active_region_id": active_region_id})
+
     secrets = Secrets()
     _check_required_secrets(cfg, secrets)
     return cfg, secrets

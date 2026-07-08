@@ -102,8 +102,6 @@ session-scoped secret baseline fixture has run, and abort the whole suite in
 a secret-free CI environment.
 """
 
-import pytest
-
 # config.md "[layers.air]" (bundled default) / "Predefined regions".
 BUNDLED_AIR_CADENCE_S = 600
 BUNDLED_AIR_CADENCE_FLOOR_S = 60
@@ -141,11 +139,6 @@ def _set_hermetic_secrets(monkeypatch) -> None:
     monkeypatch.delenv("AISHUB_USERNAME", raising=False)
 
 
-@pytest.mark.xfail(
-    reason="config precedence chain (user-TOML/ZIJ_-env/DB-override layers) "
-    "+ active-region restore not yet implemented",
-    strict=True,
-)
 def test_precedence_chain_and_active_region_restore(tmp_path, monkeypatch):
     _set_hermetic_secrets(monkeypatch)
 
