@@ -18,8 +18,9 @@ frontend/dist/
 *.sqlite*
 data/
 
-# Local agent-org override (Phase 3: spec-authoring mode toggle, if file-based)
+# Local agent-org overrides and maintainer-toggled flag files (Phase 3 / )
 .claude/settings.local.json
+.claude/spec-mode
 
 # TDD harness (Phase 4): regenerable PR body + raw local test artifacts.
 # NOTE: keep committed evidence under docs/tdd-evidence/** — do NOT ignore that.
