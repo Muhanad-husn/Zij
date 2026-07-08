@@ -1,10 +1,10 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
-  "//": "Phase 3 hard gates. Scripts live in .claude/hooks/ (PowerShell, DEC-20). Invoked via explicit 'pwsh -NoProfile -File' so execution does not depend on the host's default shell or the 'shell' hook field (DEC-24).",
+  "//": "Phase 3 hard gates (double-wired per DEC-37). Scripts live in .claude/hooks/ (PowerShell, DEC-20). Invoked via explicit 'pwsh -NoProfile -File' so execution does not depend on the host's default shell or the 'shell' hook field (DEC-24). No 'if:' permission-rule filters anywhere (DEC-16): each script parses stdin and decides. The Bash and Edit|Write global layers are safe for the orchestrator because git-guard.ps1 and deny.ps1 pass through when stdin carries no agent_type.",
   "hooks": {
     "PreToolUse": [
       {
-        "//": "Global Bash leg (DEC-35): no-commit-on-main ONLY. Merge/push/branch-delete blocks are subagent-scoped (each role's frontmatter, git-guard -Scope subagent + block-merge) so the orchestrator's approval-gated merge and cleanup paths stay open.",
+        "//": "Global Bash leg. git-guard: no-commit-on-main for everyone + the full subagents-never-merge set when stdin has agent_type (DEC-37). tests-green: self-detects 'git commit' and blocks a red suite (no if: filter, so compound commands can't dodge it).",
         "matcher": "Bash",
         "hooks": [
           {
@@ -12,16 +12,14 @@
             "command": "pwsh -NoProfile -File ${CLAUDE_PROJECT_DIR}/.claude/hooks/git-guard.ps1"
           },
           {
-            "//": "no commit on a red suite — runs the suite only on a commit attempt.",
             "type": "command",
-            "if": "Bash(git commit *)",
             "command": "pwsh -NoProfile -File ${CLAUDE_PROJECT_DIR}/.claude/hooks/tests-green.ps1"
           }
         ]
       },
       {
-        "//": "subagents-never-merge (GitHub plugin merge tool, DEC-7). Global block; the orchestrator merges via 'gh pr merge' in Bash (after founder approval), not this tool.",
-        "matcher": "mcp__plugin_github_github__(merge_pull_request|.*merge.*)",
+        "//": "GitHub-plugin write gate (DEC-7/DEC-37). Blocks the plugin merge tool for everyone and plugin direct-writes targeting main. The orchestrator merges via 'gh pr merge' in Bash after approval, not this tool.",
+        "matcher": "mcp__plugin_github_github__.*(merge|create_or_update_file|push_files|delete_file).*",
         "hooks": [
           {
             "type": "command",
@@ -30,12 +28,28 @@
         ]
       },
       {
-        "//": "spec-freeze: design/ is frozen during implementation. Comment this entry out to run a spec-authoring pass (see docs/agentic-build.md).",
+        "//": "spec-freeze: design/ is frozen during implementation; lift with the .claude/spec-mode flag file (DEC-37). path-guard (deny.ps1) global backstop: enforces role write-scopes when stdin carries agent_type, passes the orchestrator through (DEC-37).",
         "matcher": "Edit|Write",
         "hooks": [
           {
             "type": "command",
             "command": "pwsh -NoProfile -File ${CLAUDE_PROJECT_DIR}/.claude/hooks/spec-freeze.ps1"
+          },
+          {
+            "type": "command",
+            "command": "pwsh -NoProfile -File ${CLAUDE_PROJECT_DIR}/.claude/hooks/deny.ps1"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "//": "Formatter (ruff format) on edited Python files. Never blocks (DEC-37).",
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "pwsh -NoProfile -File ${CLAUDE_PROJECT_DIR}/.claude/hooks/format.ps1"
           }
         ]
       }

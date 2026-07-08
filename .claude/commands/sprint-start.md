@@ -16,6 +16,13 @@ the outer test or `design/`.
    are already closed. **Skip anything labeled `blocked` or `needs-context`** and say
    why. State which issue you chose and its linked `plans/<feature>/NN-*.md`.
 
+   **Kickoff brief (mandatory, before the branch is cut).** Brief the founder in two
+   registers so no session runs dark. *Plain-language part* (no jargon): what
+   capability the product gains and why it matters. *Technical part* (real names and
+   mechanics): the issue number/title, the slice, the files it will touch, the shape
+   of the acceptance test, and "done when …" in one line. Do not cut the branch until
+   this brief is delivered.
+
 2. **Cut the branch.** Create a feature branch off `main` for the slice (e.g.
    `feat/<issue>-<slug>`). All work happens here; never on `main`.
 
@@ -70,10 +77,15 @@ the outer test or `design/`.
    approval-gated step (step 9). If a **subagent** attempts a merge, the block-merge
    gate stops it.
 
-8. **Hand off for approval.** Report the prepared PR URL and the review outcome to
-   the founder, with one status (DONE / DONE_WITH_CONCERNS / BLOCKED /
-   NEEDS_CONTEXT). If the slice shipped with caveats, apply `done-with-concerns` to
-   the issue/PR. **Pause here and ask for merge approval — do not infer it.**
+8. **Wrap-up brief + hand off for approval (mandatory, dual-register).** Report the
+   prepared PR URL and the review outcome with one status (DONE / DONE_WITH_CONCERNS /
+   BLOCKED / NEEDS_CONTEXT). Brief the founder in two registers: *plain-language part*
+   — what the product can now do, framed as observable behavior; *technical part* —
+   what was actually built (the outer test now green, files changed, notable design
+   choices, review findings), and whether the plan held or diverged (spec drift
+   raised, slice narrowed, follow-up filed). If the slice shipped with caveats, apply
+   `done-with-concerns` to the issue/PR. **Pause here and ask for merge approval — do
+   not infer it.**
 
 9. **Merge and clean up (on approval only).** On the founder's explicit "approved",
    run the merge yourself from the main session (`gh pr merge`), then run

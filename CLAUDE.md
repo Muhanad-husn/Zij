@@ -73,16 +73,21 @@ No implementation commit ever precedes its slice's red outer test.
 Specs are **frozen during implementation**. A spec is never patched in place
 mid-build. If implementation reveals the spec is wrong, the implementer stops and
 raises a **`spec-drift` issue**; the founder adjudicates; the spec-author fixes it
-in a separate, deliberate pass with spec-authoring mode enabled. Drift routes to
-an issue, never to an in-place edit.
+in a separate, deliberate pass with spec-authoring mode enabled — the orchestrator
+toggles it on approval by creating the gitignored `.claude/spec-mode` flag file, and
+deletes it when the pass ends. Drift routes to an issue, never to an in-place edit.
 
 ## The two hard gates
 
-1. **Subagents never merge.** Subagent-scoped hooks block `git merge`, pushes to
-   `main`, `gh pr merge`, branch deletion, and the GitHub plugin's merge tool; a
-   global hook blocks direct commits on `main` for everyone. The orchestrator's
-   own merge and cleanup path stays open and runs only on founder approval.
-   Server-side branch protection backstops this where the plan allows it.
+1. **Subagents never merge.** Hooks block, for subagents, `git merge`, pushes to
+   `main`, `gh pr merge`, branch deletion; and for everyone, the GitHub plugin's
+   merge tool and plugin direct-writes to `main`. These are double-wired (DEC-37):
+   each subagent's frontmatter *and* a global backstop that keys on `agent_type`, so
+   a stale frontmatter snapshot cannot silently disable them while the orchestrator
+   (which carries no `agent_type`) still passes. A global hook also blocks direct
+   commits on `main` for everyone. The orchestrator's own merge and cleanup path
+   stays open and runs only on founder approval. Server-side branch protection
+   backstops this where the plan allows it.
 2. **No commit on a red suite.** A hook runs the test command before every commit
    and blocks it if the suite is red.
 
