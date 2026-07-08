@@ -68,3 +68,4 @@ And   put then get of the active_region config_override round-trips {"region_id"
 ## Status / progress log
 
 - 2026-07-06 planned (sprint v1). Blocked-by: none new (extends v0 store).
+- 2026-07-09 built. Outer test red at `87480e8` (strict-xfail), green at `6e390f8`; 2 inner units added; suite 120 passed, ruff clean. Two-stage review PASS. PR [#67](https://github.com/Muhanad-husn/Zij/pull/67) into `main` (`Closes #41`) — awaiting founder merge approval.

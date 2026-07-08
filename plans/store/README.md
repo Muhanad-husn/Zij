@@ -16,8 +16,8 @@ persisted active-region config override).
 | # | Slice | Goal (one line) | Blocked-by | Status | PR |
 |---|-------|-----------------|-----------|--------|----|
 | 01 | [land-cache](01-land-cache.md) | `land_cache` round-trips a region's GeoJSON + `osm_base` + `fetched_at` | — | ☑ built | [#27](https://github.com/Muhanad-husn/Zij/pull/27) |
-| 02 | [fallback-snapshots](02-fallback-snapshots.md) | one restart-resilience snapshot per mobile layer (air/marine), upsert-one-row (FR8) | — (new) | ▹ planned (v1) | — |
-| 03 | [config-presets](03-config-presets.md) | region presets + config overrides incl. persisted `active_region` (FR11) | — (new) | ▹ planned (v1) | — |
+| 02 | [fallback-snapshots](02-fallback-snapshots.md) | one restart-resilience snapshot per mobile layer (air/marine), upsert-one-row (FR8) | — (new) | ☑ built | [#66](https://github.com/Muhanad-husn/Zij/pull/66) |
+| 03 | [config-presets](03-config-presets.md) | region presets + config overrides incl. persisted `active_region` (FR11) | — (new) | ⧗ PR open | [#67](https://github.com/Muhanad-husn/Zij/pull/67) |
 
 ## Out of scope (whole feature)
 
