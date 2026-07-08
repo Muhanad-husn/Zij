@@ -80,24 +80,27 @@ avoid over-constraining underspecified branches):
 - A cache row whose `region_id` does NOT match the active region (must
   still map to `error`, per "cached-fallback beats error": "and its
   region_id matches the active region") -- only the matching-region and
-  no-cache-at-all cases are asserted here, per the plan's explicit
-  acceptance criterion.
+  no-cache-at-all cases are asserted in this outer test, per the plan's
+  explicit acceptance criterion. Now covered by an inner unit test added at
+  marker-removal time (below,
+  `test_fetch_failure_with_region_mismatched_cache_yields_error_not_cached_fallback`),
+  once the implementer's region-match gate existed to exercise.
 - Backoff per error class and the event-driven stale timer (slice 03,
   explicitly out of scope per the plan).
 
-It is authored and committed RED before any implementation of this surface
-exists (strict xfail, DEC-33): `backend.scheduler.Scheduler` does not yet
+It was authored and committed RED before any implementation of this surface
+existed (strict xfail, DEC-33): `backend.scheduler.Scheduler` did not yet
 accept `registry`/`integrity`/`store`/`events`, nor expose `current_status`,
-so every test below fails against the current constructor/surface and
-xfails cleanly under the tests-green gate.
+so every test below failed against the then-current constructor/surface and
+xfailed cleanly under the tests-green gate. The implementer has since made
+it genuinely pass; the xfail marker has been removed to finalize the
+contract.
 """
 
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, Mock
-
-import pytest
 
 from backend.config import AppConfig, LayerCfg
 from backend.integrity import PrevPos
@@ -113,10 +116,6 @@ from backend.sources.base import PollAdapter, Region, UpstreamError
 
 HORMUZ_REGION = Region(
     id="hormuz", label="Strait of Hormuz", bbox=(55.0, 25.0, 57.5, 27.5)
-)
-
-XFAIL_REASON = (
-    "scheduler write path / status ownership not yet implemented (slice 02, #49)"
 )
 
 
@@ -271,7 +270,6 @@ async def _refresh_tolerating_adapter_errors(scheduler, domain: Domain) -> None:
         pass
 
 
-@pytest.mark.xfail(reason=XFAIL_REASON, strict=True)
 async def test_fresh_fetch_yields_live_ordered_write_path_and_persisted_air_fallback_without_raw_payload():
     from backend.scheduler import Scheduler
 
@@ -340,7 +338,6 @@ async def test_fresh_fetch_yields_live_ordered_write_path_and_persisted_air_fall
     assert "raw_payload" not in persisted_snap.model_dump_json()
 
 
-@pytest.mark.xfail(reason=XFAIL_REASON, strict=True)
 async def test_aged_source_timestamp_yields_stale_status():
     from backend.scheduler import Scheduler
 
@@ -376,7 +373,6 @@ async def test_aged_source_timestamp_yields_stale_status():
     assert scheduler.current_status(Domain.AIR) == LayerStatus.STALE
 
 
-@pytest.mark.xfail(reason=XFAIL_REASON, strict=True)
 async def test_fetch_failure_with_warm_region_matched_cache_yields_cached_fallback_not_error():
     from backend.scheduler import Scheduler
 
@@ -422,7 +418,63 @@ async def test_fetch_failure_with_warm_region_matched_cache_yields_cached_fallba
     store.put_fallback.assert_not_called()
 
 
-@pytest.mark.xfail(reason=XFAIL_REASON, strict=True)
+async def test_fetch_failure_with_region_mismatched_cache_yields_error_not_cached_fallback():
+    """Inner unit test (deferred from the outer test's docstring, added at
+    marker-removal time): scheduler.md "cached-fallback beats error" reads
+    "...and its region_id matches the active region" -- a warm cache row
+    exists (`store.get_fallback` returns non-None), but its
+    `meta.region_id` is a DIFFERENT region than the one this scheduler is
+    active for. This must still map to `error`, not `cached-fallback`; a
+    stub that maps "any non-None cache row" to `cached-fallback` (ignoring
+    region_id entirely) would pass the sibling matching-region test above
+    but wrongly pass this row through too -- this test is what actually
+    proves the region-match gate exists and is consulted, not just that
+    `get_fallback` returned something."""
+    from backend.scheduler import Scheduler
+
+    stale_other_region_row = LayerSnapshot(
+        meta=_adapter_meta(
+            timestamp_source=datetime.now(timezone.utc), feature_count=0, cadence_s=10
+        ),
+        features=[],
+    )
+    stale_other_region_row.meta.region_id = "some-other-region"
+    adapter = ScriptedAdapter(Domain.AIR, [UpstreamError("upstream 503")])
+    call_order, registry, integrity, integrity_prev_calls, events, store = (
+        _build_collaborators(get_fallback_return=stale_other_region_row)
+    )
+    cfg = _make_cfg(cadence_s=10)
+    scheduler = Scheduler(
+        cfg,
+        {Domain.AIR: adapter},
+        HORMUZ_REGION,
+        registry=registry,
+        integrity=integrity,
+        store=store,
+        events=events,
+    )
+
+    # ---------------------------------------------------------------
+    # When: a fetch fails and a warm cache row exists, but its region_id
+    # ("some-other-region") does NOT match the scheduler's active region
+    # (HORMUZ_REGION.id == "hormuz").
+    # ---------------------------------------------------------------
+    await _refresh_tolerating_adapter_errors(scheduler, Domain.AIR)
+
+    # ---------------------------------------------------------------
+    # Then: the layer status is `error` (NOT `cached-fallback`) -- a
+    # region-mismatched cache row does not count as a warm fallback.
+    # ---------------------------------------------------------------
+    assert scheduler.current_status(Domain.AIR) == LayerStatus.ERROR
+
+    # And: the cache was actually consulted (the mismatch, not a missing
+    # lookup, is what drove the `error` outcome).
+    store.get_fallback.assert_awaited()
+
+    # And: still no successful-write-path steps ran on this failed fetch.
+    store.put_fallback.assert_not_called()
+
+
 async def test_fetch_failure_with_no_cache_yields_error():
     from backend.scheduler import Scheduler
 
@@ -461,7 +513,6 @@ async def test_fetch_failure_with_no_cache_yields_error():
     store.put_fallback.assert_not_called()
 
 
-@pytest.mark.xfail(reason=XFAIL_REASON, strict=True)
 async def test_air_prev_derived_from_outgoing_registry_snapshot_before_replacement():
     from backend.scheduler import Scheduler
 
