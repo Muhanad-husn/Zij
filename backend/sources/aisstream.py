@@ -73,14 +73,38 @@ class _Entry:
 
 def _parse_aisstream_time_utc(value: str) -> datetime:
     """Parse aisstream's non-ISO `MetaData.time_utc` -- Go's
-    `time.Time.String()` format: `"YYYY-MM-DD HH:MM:SS.ffffff +0000 UTC"` --
-    into a UTC-aware datetime."""
+    `time.Time.String()` format: `"YYYY-MM-DD HH:MM:SS[.fraction] +0000 UTC"`
+    -- into a UTC-aware datetime.
+
+    Go's `time.Time.String()` prints a *variable-length* fractional-seconds
+    component with trailing zeros trimmed: no `.` at all when the time lands
+    exactly on the second, and anywhere from 1 to 9 digits (nanosecond
+    precision) otherwise. Python's `%f` directive only accepts 1-6 digits,
+    so the fraction is parsed out manually and normalized to exactly 6
+    digits (padded or truncated) before handing off to `strptime`.
+    """
     # Strip the trailing " UTC" zone name; the offset "+0000" plus "%z"
     # already pins the timezone, and datetime.strptime doesn't accept a
     # literal "UTC" token after the numeric offset.
     text = value.strip()
     if text.endswith(" UTC"):
         text = text[: -len(" UTC")]
+
+    # Split off the trailing " +0000" offset, then the optional
+    # ".fraction" from the "YYYY-MM-DD HH:MM:SS[.fraction]" datetime part,
+    # e.g. "2026-07-09 11:58:00.123456789 +0000" -> datetime part
+    # "2026-07-09 11:58:00.123456789" + offset "+0000".
+    datetime_part, sep, offset = text.rpartition(" ")
+    seconds_part, dot, fraction = datetime_part.partition(".")
+    if dot:
+        # Pad short fractions (e.g. 3 digits) and truncate long ones (up to
+        # 9 nanosecond digits) to exactly the 6 digits %f requires.
+        fraction = (fraction + "000000")[:6]
+        datetime_part = f"{seconds_part}.{fraction}"
+    else:
+        datetime_part = f"{seconds_part}.000000"
+    text = f"{datetime_part} {offset}" if sep else datetime_part
+
     parsed = datetime.strptime(text, "%Y-%m-%d %H:%M:%S.%f %z")
     return parsed.astimezone(timezone.utc)
 
@@ -284,7 +308,11 @@ class AisStreamAdapter(StreamAdapter):
                 status = FeatureStatus.STALE
 
             feature = entry.feature.model_copy(
-                update={"position_age_s": position_age_s, "status": status}
+                update={
+                    "position_age_s": position_age_s,
+                    "status": status,
+                    "attrs": dict(entry.feature.attrs),
+                }
             )
             features.append(feature)
 

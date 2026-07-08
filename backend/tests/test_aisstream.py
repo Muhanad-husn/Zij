@@ -530,3 +530,79 @@ def test_snapshot_returns_fresh_copies_without_a_live_connection():
     # Same MMSI, but each snapshot() call must hand back its own object.
     assert first.features[0] is not second.features[0]
     assert first.features[0] == second.features[0]
+
+
+def test_parse_aisstream_time_utc_variable_length_fraction():
+    """Regression (reviewer finding, review pass on #47): Go's
+    `time.Time.String()` prints a *variable-length* fractional-seconds
+    component (0-9 digits, trailing zeros trimmed), not always 6. Before the
+    fix, `_parse_aisstream_time_utc` only handled the exact 6-digit form the
+    original fixture happened to use; the 0-digit ("no fraction at all") and
+    9-digit (nanosecond) forms raised `ValueError` at `strptime`. This pins
+    the pad/truncate-to-6-digits normalization across the whole legal range:
+    no fraction, a short (3-digit) fraction, and a full 9-digit nanosecond
+    fraction that must be truncated, not rejected."""
+    from backend.sources.aisstream import _parse_aisstream_time_utc
+
+    # No "." at all -- the time landed exactly on the second.
+    no_fraction = _parse_aisstream_time_utc("2026-07-09 11:58:00 +0000 UTC")
+    assert no_fraction == datetime(2026, 7, 9, 11, 58, 0, 0, tzinfo=timezone.utc)
+    assert no_fraction.tzinfo is not None
+    assert no_fraction.utcoffset() == timezone.utc.utcoffset(None)
+
+    # 3-digit fraction -- padded up to 6 digits (123 -> 123000 microseconds),
+    # not left/right-justified any other way.
+    mid = _parse_aisstream_time_utc("2026-07-09 11:58:00.123 +0000 UTC")
+    assert mid.microsecond == 123000
+    assert mid.tzinfo is not None
+
+    # 9-digit nanosecond fraction -- truncated to microsecond precision
+    # (123456789 -> 123456), not rejected by strptime's 1-6 digit `%f`.
+    nano = _parse_aisstream_time_utc("2026-07-09 11:58:00.123456789 +0000 UTC")
+    assert nano.microsecond == 123456
+    assert nano.tzinfo is not None
+    assert nano.utcoffset() == timezone.utc.utcoffset(None)
+
+
+def test_snapshot_feature_attrs_is_a_distinct_dict_per_snapshot():
+    """Regression (reviewer finding, review pass on #47): before the fix,
+    `snapshot()`'s `model_copy(update={"attrs": ...})` still handed back the
+    SAME `attrs` dict object the stored `_table` entry's `Feature` held (a
+    shallow `model_copy` without an explicit fresh `attrs` copy shares
+    mutable field values by reference), so a caller mutating a returned
+    snapshot's `attrs` would corrupt the adapter's own internal state. This
+    drives a real PositionReport through `_handle_message` (same helper the
+    other inner unit tests use) to build genuine table state, then proves
+    the snapshotted feature's `attrs` is a distinct object from -- and
+    mutating it does not affect -- the stored entry's `attrs`."""
+    from backend.config import Secrets
+    from backend.sources.aisstream import AisStreamAdapter
+
+    cfg = _make_aisstream_cfg()
+    secrets = Secrets(aisstream_api_key="unit-test-api-key")
+    adapter = AisStreamAdapter(cfg, secrets)
+
+    adapter._handle_message(
+        _position_report_line(
+            366111222,
+            10.0,
+            20.0,
+            "2026-07-09 10:00:00.000000 +0000 UTC",
+            sog=5.0,
+            cog=45.0,
+        )
+    )
+
+    snapshot = adapter.snapshot()
+    assert len(snapshot.features) == 1
+    snap_feature = snapshot.features[0]
+    entry = adapter._table["366111222"]
+
+    assert snap_feature.attrs is not entry.feature.attrs
+    assert snap_feature.attrs == entry.feature.attrs
+
+    snap_feature.attrs["sog_kn"] = 999.0
+    snap_feature.attrs["injected"] = "should not leak"
+
+    assert entry.feature.attrs["sog_kn"] == pytest.approx(5.0)
+    assert "injected" not in entry.feature.attrs
