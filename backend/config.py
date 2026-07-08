@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 import platformdirs
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # config.md "Precedence" #5 -- the reserved override name for the persisted
@@ -118,8 +118,13 @@ class AppConfig(BaseModel):
     # entry after the merge/validate above -- never itself part of the
     # deep-merged config dict (config.md "Precedence" #5; ARCHITECTURE
     # §4.1). The default here is a placeholder always replaced by
-    # `load_config` before the value is returned.
-    active_region_id: str = ""
+    # `load_config` before the value is returned. `exclude=True`: this is
+    # a resolved internal value read as a Python attribute (startup,
+    # scheduler), not part of any wire contract -- GET /api/config's
+    # frozen shape (api.md) does not include it, so it must never leak
+    # through model_dump()/model_dump_json() (a future dedicated endpoint
+    # surfaces it instead, api.md:105-106).
+    active_region_id: str = Field(default="", exclude=True)
 
 
 class MissingSecretError(RuntimeError):
