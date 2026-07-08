@@ -14,13 +14,13 @@ This is the behavioral contract (DEC-1), transcribed verbatim from
 plans/store/02-fallback-snapshots.md ("Acceptance criterion" + inner unit
 list: round-trip identity, raw_payload exclusion, UTC-aware
 region_id/fetched_at re-hydration, upsert-replace to exactly one row per
-layer, CHECK(layer IN ('air','marine')) rejects 'land'). It is authored and
-committed red by the test-author before any implementation exists, guarded
-by a strict xfail (DEC-33): `Store.put_fallback`/`Store.get_fallback` do not
-exist yet, so the call below raises `AttributeError`, xfail catches it, the
-suite reports `xfailed`, and the red commit is allowed to land under the
-tests-green gate. Once the implementer greens this behavior, the test-author
-returns to remove the xfail marker (not before) and finalizes the contract.
+layer, CHECK(layer IN ('air','marine')) rejects 'land'). It was authored and
+committed red by the test-author before any implementation existed, guarded
+by a strict xfail (DEC-33): `Store.put_fallback`/`Store.get_fallback` did not
+exist, so the call below raised `AttributeError`, xfail caught it, the suite
+reported `xfailed`, and the red commit was allowed to land under the
+tests-green gate. The implementer has since made it genuinely pass; the
+xfail marker has been removed to finalize the contract.
 
 Scope is held strictly to the fallback_snapshots round-trip for the "air"
 layer plus the "marine" None-path and the "land" CHECK-constraint rejection
@@ -154,10 +154,6 @@ def _make_air_snapshot_v2():
     return LayerSnapshot(meta=meta, features=[feature_a, feature_b])
 
 
-@pytest.mark.xfail(
-    reason="Store.put_fallback/Store.get_fallback not yet implemented",
-    strict=True,
-)
 async def test_fallback_snapshot_round_trips_upserts_and_enforces_layer_check(
     tmp_path, monkeypatch
 ):
