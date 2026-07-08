@@ -1,0 +1,31 @@
+============================= test session starts =============================
+platform win32 -- Python 3.13.11, pytest-9.1.1, pluggy-1.6.0 -- D:\zij-wt\marine-47\.venv\Scripts\python.exe
+cachedir: .pytest_cache
+rootdir: D:\zij-wt\marine-47
+configfile: pyproject.toml
+plugins: anyio-4.14.1, asyncio-1.4.0, respx-0.23.1
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 20 items
+
+backend/tests/test_integrity.py::test_apply_flags_spoof_suspect_on_land_and_implausible_kinematics PASSED [  5%]
+backend/tests/test_integrity_unit.py::test_on_land_marine_coordinate_flagged_at_sea_coordinate_clean PASSED [ 10%]
+backend/tests/test_integrity_unit.py::test_haversine_matches_hand_computed_meridian_distance PASSED [ 15%]
+backend/tests/test_integrity_unit.py::test_haversine_matches_hand_computed_equatorial_distance PASSED [ 20%]
+backend/tests/test_integrity_unit.py::test_implied_speed_matches_hand_computed_value_for_known_pair PASSED [ 25%]
+backend/tests/test_integrity_unit.py::test_dt_zero_same_timestamp_pair_skipped_no_flag_no_exception PASSED [ 30%]
+backend/tests/test_integrity_unit.py::test_dt_negative_out_of_order_pair_skipped_no_flag_no_exception PASSED [ 35%]
+backend/tests/test_integrity_unit.py::test_marine_speed_just_under_threshold_not_flagged PASSED [ 40%]
+backend/tests/test_integrity_unit.py::test_marine_speed_just_over_threshold_flagged PASSED [ 45%]
+backend/tests/test_integrity_unit.py::test_air_speed_just_under_threshold_not_flagged PASSED [ 50%]
+backend/tests/test_integrity_unit.py::test_air_speed_just_over_threshold_flagged PASSED [ 55%]
+backend/tests/test_integrity_unit.py::test_mid_range_speed_flagged_for_marine_but_not_for_air PASSED [ 60%]
+backend/tests/test_integrity_unit.py::test_null_current_timestamp_source_skips_kinematics_but_landmask_still_applies PASSED [ 65%]
+backend/tests/test_integrity_unit.py::test_null_prev_timestamp_source_skips_kinematics_without_error PASSED [ 70%]
+backend/tests/test_integrity_unit.py::test_apply_is_pure_identical_inputs_yield_identical_flags PASSED [ 75%]
+backend/tests/test_integrity_unit.py::test_apply_has_no_cross_call_state_leak_on_reused_instance PASSED [ 80%]
+backend/tests/test_integrity_unit.py::test_missing_landmask_path_raises_landmask_error_with_path_in_message PASSED [ 85%]
+backend/tests/test_integrity_unit.py::test_corrupt_json_landmask_raises_landmask_error_with_path_in_message PASSED [ 90%]
+backend/tests/test_integrity_unit.py::test_wrong_shape_landmask_raises_landmask_error_with_path_in_message PASSED [ 95%]
+backend/tests/test_integrity_unit.py::test_empty_feature_collection_landmask_raises_landmask_error PASSED [100%]
+
+============================= 20 passed in 0.51s ==============================
