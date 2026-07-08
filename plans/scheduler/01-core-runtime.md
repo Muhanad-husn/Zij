@@ -5,7 +5,7 @@
 - **Issue:** #45
 - **Branch:** feat/scheduler/01-core-runtime
 - **Project directory:** `backend`
-- **Status:** ▹ planned (sprint v1)
+- **Status:** ✅ green — PR prepared (sprint v1)
 - **Walking skeleton?** yes ⭐
 
 > **Zij roles (DEC-1):** **test-author** commits the outer acceptance test **red** before
@@ -56,10 +56,21 @@ And   a disabled layer's poll loop issues zero adapter.fetch calls until re-enab
 
 ## Definition of done
 
-- [ ] Outer test authored **RED before implementation** (DEC-1), seen red, now GREEN.
-- [ ] Inner units covered; `uv run pytest`, `uv run ruff` green; refactor on green.
-- [ ] Evidence: pytest transcript (call-count assertions prove single-flight). CI green; PR via `safe-pr`.
+- [x] Outer test authored **RED before implementation** (DEC-1), seen red, now GREEN.
+- [x] Inner units covered; `uv run pytest`, `uv run ruff` green; refactor on green.
+- [x] Evidence: pytest transcript (call-count assertions prove single-flight). CI green; PR via `safe-pr`.
 
 ## Status / progress log
 
 - 2026-07-06 planned (sprint v1). Blocked-by: none new.
+- 2026-07-08 built via the harness. Outer acceptance test committed red (strict-xfail,
+  `3b904c8`); implementer greened the concurrency spine (coalescing/cadence/disable); inner
+  units + green commit (`dd6e0a9`). Suite 113 passed.
+- 2026-07-08 review loop-back: reviewer flagged missing per-layer failure isolation (FR10),
+  which the frozen spec assigns to the Task model (this slice). Fixed behavior-first — red FR10
+  test + exception-path unit + tightened cadence tolerance (`0ca3c5d`), isolation added and
+  greened (`bae0b5f`). Re-review DONE / READY. Suite 115 passed, ruff clean.
+- Known minor (accept-and-track for slice 02): `_do_fetch`'s no-joiner failure path leaves an
+  unretrieved coalescing `Future`, so asyncio logs `Future exception was never retrieved` to
+  stderr. Cosmetic; no test impact. Slice 02 reworks `_do_fetch` for the write path and will
+  sweep this seam.
