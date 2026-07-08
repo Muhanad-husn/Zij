@@ -1,0 +1,8 @@
+add_preset -> id=1
+list_presets -> [('Gulf Box', (52.0, 26.0, 55.0, 28.0), 'Gulf Box')]
+duplicate (kind,name) -> ConflictError: preset 'Gulf Box' already exists (maps to HTTP 409)
+delete_preset(1) -> list_presets now []
+put/get active_region -> {'region_id': 'gulf-of-oman'}
+upsert active_region -> {'region_id': 'hormuz'} (rows=1)
+OK
+exit=0
