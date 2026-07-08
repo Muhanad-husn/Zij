@@ -69,3 +69,8 @@ Then  startup succeeds (disabled layers need no secret)
 ## Status / progress log
 
 - 2026-07-06 planned (sprint v1). Blocked-by: none new (extends v0 config).
+- 2026-07-09 PR #69 prepared into `main` (commits: red `cca5f25` → green `2396fa7` → evidence `a458bd5`).
+  Outer acceptance test green; 121 passed hermetically; ruff clean. Two-stage review PASS (ship).
+  Follow-ups (non-blocking): file a `spec-drift` on api.md's `/api/config` top-level
+  `stale_multiplier`/`custom_bbox_caps` example; consider a "no module-scope `backend.main`
+  import in tests" convention check. Awaiting founder merge approval.
