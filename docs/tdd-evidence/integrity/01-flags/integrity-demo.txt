@@ -1,0 +1,8 @@
+=== Integrity.apply results ===
+  MMSI-1   marine (26.25,56.25) -> ['spoof_suspect_on_land']
+  ICAO-1   air    (26.25,56.25) -> (clean)
+  MMSI-2   marine (25.5,55.0) -> ['implausible_kinematics']
+  MMSI-3   marine (25.5,55.0) -> (clean)
+
+All boundary assertions held.
+exit: 0
