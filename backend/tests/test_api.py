@@ -1492,10 +1492,6 @@ async def test_events_on_connect_replays_only_enabled_layers(tmp_path, monkeypat
         assert second["event"] == "layer_status"
 
 
-@pytest.mark.xfail(
-    reason="api-core/04 caveats+raw+presets endpoints not yet implemented",
-    strict=True,
-)
 def test_caveats_raw_and_presets(tmp_path, monkeypatch):
     """Locked outer acceptance test for api-core slice 04 (issue #56):
     `GET /api/layers/{domain}/caveats`, `GET /api/features/{domain}/{source_id}/raw`,
@@ -1578,13 +1574,15 @@ def test_caveats_raw_and_presets(tmp_path, monkeypatch):
         a fake in-request-only response body cannot fool this test.
 
     Committed RED before implementation (strict xfail, DEC-33): none of the
-    three routes exist yet in `backend/main.py` (`create_app` itself already
-    accepts `registry=`/`store=` from slices #53/#18, so the injection calls
-    below do not raise -- the test fails on the first `caveats_resp.status_code
+    three routes existed yet in `backend/main.py` (`create_app` itself already
+    accepted `registry=`/`store=` from slices #53/#18, so the injection calls
+    below did not raise -- the test failed on the first `caveats_resp.status_code
     == 200` assertion, a 404 from the unmatched catch-all, not an import
-    error), so this xfails cleanly under the tests-green gate. Do not remove
-    the marker until the implementer has built these routes and this test
-    genuinely passes; the assertions above are never to be weakened.
+    error), so it xfailed cleanly under the tests-green gate. The implementer
+    has since built these three routes in `backend/main.py` to satisfy this
+    exact seam -- the test now genuinely passes and the marker has been
+    removed to finalize the contract. The assertions above are never
+    weakened.
     """
     # --- Given: known secrets (NFR5 env-only; marine + air both enabled in
     # the bundled config.toml) ---
