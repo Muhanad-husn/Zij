@@ -114,8 +114,14 @@ for consistency).
 
 Authored and committed red by the test-author before any implementation
 existed (strict xfail, DEC-33): `Scheduler.activate_region` and the
-`stream` constructor kwarg do not exist yet, so this fails on
-`AttributeError`/`TypeError` and xfails cleanly under the tests-green gate.
+`stream` constructor kwarg did not exist yet, so this failed on
+`AttributeError`/`TypeError` and xfailed cleanly under the tests-green
+gate. The implementer has since made it pass; the xfail marker is removed
+to finalize the contract (DEC-1/DEC-34). See
+`test_scheduler_region_toggle_unit.py` for the inner-unit pass added in the
+same close-out commit (marine fallback region-match gate, land cache
+freshness gate, stream enable/disable) -- the gaps this outer test itself
+does not pin.
 """
 
 from __future__ import annotations
@@ -124,8 +130,6 @@ import asyncio
 import contextlib
 from datetime import datetime, timezone
 from typing import Any
-
-import pytest
 
 from backend.config import AppConfig, LayerCfg
 from backend.events import EventBus
@@ -270,13 +274,6 @@ async def _running_scheduler(scheduler):
             await task
 
 
-@pytest.mark.xfail(
-    reason=(
-        "scheduler.activate_region region-switch + stream-aware enable/"
-        "disable not yet implemented"
-    ),
-    strict=True,
-)
 async def test_activate_region_cancels_stale_fetch_clears_registry_gates_fallback_and_disable_stops_polling():
     from backend.scheduler import Scheduler
 
