@@ -68,3 +68,4 @@ Then  a "Connection failed — Retry" action is shown
 ## Status / progress log
 
 - 2026-07-06 planned (sprint v1). Blocked-by: api-core/01.
+- 2026-07-09 built (behavior-first). Outer test red `4efe5a2` (`test.fail`) → implementer greened → test-author fixed racy stub (real streaming server) + added quiet `/api/events` stub to sibling specs + inner units + removed marker `bd24ff3`. Reviewer PASS both stages, zero findings ≥80. 64 Vitest / 3 e2e / 194 backend green. **PR #84** into `main` (evidence `694ab90`). Awaiting founder merge approval.

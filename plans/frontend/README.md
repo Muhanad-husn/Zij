@@ -11,7 +11,7 @@ Consolidated from triage's 10-slice proposal to 6 (founder decision 2026-07-06, 
 
 | Slice | Slug | Behaviour | Blocked-by | Skeleton |
 |---|---|---|---|---|
-| 01 | sse-client | `EventSource('/api/events')` wrapper → store dispatch + connection banner | api-core/01 | ⭐ |
+| 01 | sse-client | `EventSource('/api/events')` wrapper → store dispatch + connection banner | api-core/01 | ⭐ ✅ PR #84 |
 | 02 | badges | 7-status badges, both UTC timestamps, count, per-badge buttons (FR7) | 01 | |
 | 03 | region-selector | predefined dropdown + custom bbox (draw/coords) + estimate + activate (FR1) | 01, api-core/02 | |
 | 04 | toggles-refresh | per-domain toggle + per-badge/global refresh, loading via SSE (FR5/FR6) | 02, api-core/03 | |
