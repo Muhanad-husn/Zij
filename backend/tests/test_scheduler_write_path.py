@@ -95,12 +95,29 @@ so every test below failed against the then-current constructor/surface and
 xfailed cleanly under the tests-green gate. The implementer has since made
 it genuinely pass; the xfail marker has been removed to finalize the
 contract.
+
+**Post-merge regression test added** (`test_cancelled_fetch_skips_failure_write_path_and_leaves_status_untouched`):
+the reviewer flagged that `_do_fetch`'s original `except BaseException` also
+caught `asyncio.CancelledError` and ran the failure write-path
+(`_handle_fetch_failure`, i.e. `store.get_fallback` + a `_status` mutation)
+ahead of re-raising -- masking cancellation behind a possible store error
+and wrongly flipping status on mere cancellation (app shutdown, a sibling
+layer's `TaskGroup` tearing down). The implementer fixed this at commit
+`e037784` with an explicit `except asyncio.CancelledError: raise` that
+short-circuits first. This test locks that fix: it drives a fetch
+deterministically in flight behind a gate, cancels it, and asserts
+`store.get_fallback` was never called and `current_status` is left exactly
+at its pre-cancellation value -- both of which the pre-fix handler
+violated.
 """
 
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, Mock
+
+import pytest
 
 from backend.config import AppConfig, LayerCfg
 from backend.integrity import PrevPos
@@ -157,6 +174,32 @@ class ScriptedAdapter(PollAdapter):
         if isinstance(result, BaseException):
             raise result
         return result
+
+
+class GatedAdapter(PollAdapter):
+    """A PollAdapter double whose `fetch` blocks indefinitely on a
+    caller-controlled `asyncio.Event` gate that this test never sets --
+    mirrors slice-01's `FakeAdapter` gate pattern (backend/tests/
+    test_scheduler.py) -- so a fetch can be driven deterministically
+    in-flight and then cancelled, without racing real upstream I/O or a
+    real-clock cancellation window."""
+
+    source = "fake"
+
+    def __init__(self, domain: Domain, gate: asyncio.Event) -> None:
+        self.domain = domain
+        self.gate = gate
+        # Set the instant a fetch call begins (before it blocks on `gate`)
+        # so the test can await "a fetch is now in flight" precisely.
+        self.fetch_started = asyncio.Event()
+
+    async def fetch(self, region: Region) -> LayerSnapshot:
+        self.fetch_started.set()
+        await self.gate.wait()
+        raise AssertionError(
+            "gate is never released in this test; fetch must be cancelled "
+            "while still awaiting it"
+        )
 
 
 def _make_cfg(*, cadence_s: int = 10) -> AppConfig:
@@ -560,3 +603,87 @@ async def test_air_prev_derived_from_outgoing_registry_snapshot_before_replaceme
     assert integrity_prev_calls[1] == {
         "A1": PrevPos(lat=10.0, lon=20.0, timestamp_source=t1)
     }
+
+
+async def test_cancelled_fetch_skips_failure_write_path_and_leaves_status_untouched():
+    """Regression (issue #49, reviewer-flagged; fixed at commit `e037784`).
+
+    `_do_fetch`'s cancellation branch must short-circuit to a clean re-raise
+    of `asyncio.CancelledError` BEFORE any failure write-path work runs.
+    Before the fix, `except BaseException` also caught `CancelledError` and
+    ran `_handle_fetch_failure` (a `store.get_fallback` call plus a
+    `_status[domain]` mutation to `ERROR`/`CACHED_FALLBACK`) ahead of
+    re-raising -- a `store` error there could mask the original
+    cancellation, and merely cancelling an in-flight fetch (app shutdown, a
+    sibling layer's `TaskGroup` tearing down) would wrongly flip a layer's
+    status away from `loading`.
+
+    This test would FAIL against that pre-fix handler: `store.get_fallback`
+    is wired to raise `AssertionError` if called at all, and
+    `current_status` is asserted unchanged from its pre-cancellation value
+    -- both of which the old code violated on this exact code path.
+    """
+    from backend.scheduler import Scheduler
+
+    gate = asyncio.Event()  # never set: the fetch blocks until cancelled
+    adapter = GatedAdapter(Domain.AIR, gate)
+    call_order, registry, integrity, integrity_prev_calls, events, store = (
+        _build_collaborators()
+    )
+
+    def _get_fallback_must_not_be_called(*args, **kwargs):
+        raise AssertionError(
+            "store.get_fallback must NOT be called on a cancelled fetch -- "
+            "cancellation must short-circuit before the failure write-path"
+        )
+
+    store.get_fallback = AsyncMock(side_effect=_get_fallback_must_not_be_called)
+
+    cfg = _make_cfg(cadence_s=10)
+    scheduler = Scheduler(
+        cfg,
+        {Domain.AIR: adapter},
+        HORMUZ_REGION,
+        registry=registry,
+        integrity=integrity,
+        store=store,
+        events=events,
+    )
+
+    # Pre-cancellation baseline: a freshly constructed layer starts LOADING
+    # (scheduler.md "Status ownership"), and no write-path step has run yet.
+    assert scheduler.current_status(Domain.AIR) == LayerStatus.LOADING
+
+    # ---------------------------------------------------------------
+    # When: a fetch is driven deterministically in flight (blocked on
+    # `gate`, which this test never sets), then cancelled mid-flight.
+    # ---------------------------------------------------------------
+    refresh_task = asyncio.ensure_future(scheduler.refresh(Domain.AIR))
+    await asyncio.wait_for(adapter.fetch_started.wait(), timeout=3.0)
+
+    refresh_task.cancel()
+
+    # And: the cancellation is genuinely observed here, not swallowed
+    # anywhere on its way back out of `_do_fetch`/`refresh`.
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(refresh_task, timeout=3.0)
+
+    # ---------------------------------------------------------------
+    # Then: the failure write-path never ran. `store.get_fallback` was
+    # never called (it would have raised `AssertionError` above, which
+    # `asyncio.wait_for` would have propagated as something other than
+    # `CancelledError` and failed the `pytest.raises` above already) --
+    # asserted again explicitly here for a direct, unambiguous signal.
+    # ---------------------------------------------------------------
+    store.get_fallback.assert_not_awaited()
+
+    # And: the status was never mutated to a failure status -- still
+    # exactly the pre-cancellation `LOADING`, not `ERROR`/`CACHED_FALLBACK`.
+    assert scheduler.current_status(Domain.AIR) == LayerStatus.LOADING
+
+    # And: none of the successful write-path steps ran either -- there was
+    # no snapshot to run them on.
+    integrity.apply.assert_not_called()
+    assert Domain.AIR not in registry
+    events.publish_snapshot.assert_not_called()
+    store.put_fallback.assert_not_called()
