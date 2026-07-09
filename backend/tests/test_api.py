@@ -1373,6 +1373,15 @@ async def test_events_full_state_on_connect_then_live_layer_status(
         # --- And: id: is monotonic across the connection ---
         assert status_id > snapshot_id
 
+        # Sanity: the connection registered exactly one subscriber while open.
+        assert events.subscriber_count == 1
+
+    # --- And: closing the connection runs `_sse_stream`'s
+    # `finally: events.unsubscribe(queue)` end-to-end -- no leaked subscriber
+    # queue after disconnect (api.md "## SSE": server tracks no per-client
+    # cursor; a dropped client leaves no residue). ---
+    assert events.subscriber_count == 0
+
 
 async def test_events_on_connect_replays_only_enabled_layers(tmp_path, monkeypatch):
     """A layer present in the registry but DISABLED in config is not replayed

@@ -40,6 +40,14 @@ class EventBus:
         self._queue_maxsize = queue_maxsize
         self._subscribers: set[asyncio.Queue[dict[str, Any]]] = set()
 
+    @property
+    def subscriber_count(self) -> int:
+        """Number of currently-subscribed clients. Lets a caller/test confirm
+        the `subscribe()`/`unsubscribe()` lifecycle balances (e.g. that a
+        disconnected SSE client's queue is dropped) without reaching into the
+        private subscriber set."""
+        return len(self._subscribers)
+
     def subscribe(self) -> "asyncio.Queue[dict[str, Any]]":
         queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue(
             maxsize=self._queue_maxsize

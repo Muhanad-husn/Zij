@@ -60,10 +60,21 @@ And   each event frame carries event:, data: (valid JSON), and id:
 
 ## Definition of done
 
-- [ ] Outer test authored **RED before implementation** (DEC-1), seen red, now GREEN.
-- [ ] Inner units covered; `uv run pytest`, `uv run ruff` green; refactor on green.
-- [ ] Evidence: pytest transcript of the streamed frames (full-state-then-incremental). CI green; PR via `safe-pr`.
+- [x] Outer test authored **RED before implementation** (DEC-1), seen red, now GREEN.
+- [x] Inner units covered; `uv run pytest`, `uv run ruff` green; refactor on green.
+- [x] Evidence: pytest transcript of the streamed frames (full-state-then-incremental). CI green; PR via `safe-pr`.
 
 ## Status / progress log
 
 - 2026-07-06 planned (sprint v1). Blocked-by: scheduler/02, store/02.
+- 2026-07-09 built (#53). Blockers #49 (scheduler/02) + #40 (store/02) merged.
+  Outer test committed red via strict-xfail (`16a637d`), greened (`89d3e43`):
+  `GET /api/events` (sse-starlette) full-state-on-connect + `EventBus` fan-out
+  + `create_app`/lifespan wiring. Outer test drives a real ephemeral-port
+  uvicorn server (httpx `ASGITransport` can't stream an infinite SSE response).
+  Inner units in `test_events_unit.py` (fan-out, slow-client isolation,
+  region_changed shape, subscriber lifecycle) + an enabled-only-replay and a
+  disconnect-cleanup integration assertion. 187 tests green. Two-stage review
+  PASS (done-with-concerns findings addressed pre-PR). Scheduler lifespan
+  wiring deferred (this slice drives EventBus/Registry directly, per the outer
+  test's disclosed scope).

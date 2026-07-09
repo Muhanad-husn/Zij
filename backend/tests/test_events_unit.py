@@ -83,12 +83,15 @@ async def test_region_changed_wire_shape():
     assert isinstance(item["data"]["bbox"], list)
 
 
-async def test_unsubscribe_stops_delivery():
+async def test_unsubscribe_stops_delivery_and_balances_count():
     from backend.events import EventBus
 
     bus = EventBus()
+    assert bus.subscriber_count == 0
     queue = bus.subscribe()
+    assert bus.subscriber_count == 1
     bus.unsubscribe(queue)
+    assert bus.subscriber_count == 0
 
     bus.publish_layer_status(_layer_status_meta())
 
