@@ -19,6 +19,7 @@ adds the `fallback_snapshots` path: `Store.put_fallback`/`get_fallback`
 from __future__ import annotations
 
 import json
+import logging
 import os
 import sqlite3
 from asyncio import Lock, to_thread
@@ -32,6 +33,8 @@ from pydantic import BaseModel, ConfigDict, field_validator
 from backend.models import LayerSnapshot, _reject_naive_datetime
 
 _SCHEMA_PATH = Path(__file__).with_name("schema.sql")
+
+_logger = logging.getLogger(__name__)
 
 
 def _resolve_db_path() -> Path:
@@ -110,9 +113,48 @@ class Store:
     def _init_sync(self) -> None:
         if self._conn is None:
             self._db_path.parent.mkdir(parents=True, exist_ok=True)
-            self._conn = sqlite3.connect(str(self._db_path), check_same_thread=False)
+            self._conn = self._open_healthy_connection()
         schema_sql = _SCHEMA_PATH.read_text()
         self._conn.executescript(schema_sql)
+
+    def _open_healthy_connection(self) -> sqlite3.Connection:
+        """Open `self._db_path`, verifying it is not corrupt (storage.md
+        "Corruption recovery"). A `sqlite3.DatabaseError` on connect/query, or
+        a non-'ok' `PRAGMA integrity_check`, is treated as corruption: the
+        file (and any WAL sidecars) is deleted and a fresh connection is
+        opened so the caller can recreate the schema from scratch. A
+        healthy existing DB is left intact (no-op recovery)."""
+        conn: sqlite3.Connection | None = None
+        healthy = False
+        try:
+            conn = sqlite3.connect(str(self._db_path), check_same_thread=False)
+            result = conn.execute("PRAGMA integrity_check").fetchone()
+            healthy = result is not None and result[0] == "ok"
+        except sqlite3.DatabaseError:
+            healthy = False
+
+        if healthy:
+            assert conn is not None
+            return conn
+
+        if conn is not None:
+            try:
+                conn.close()
+            except sqlite3.Error:
+                pass
+
+        _logger.warning(
+            "Corrupt/malformed SQLite database detected at %s -- deleting "
+            "and recreating from schema.sql (every table is a rebuildable "
+            "cache or low-value preset; no authoritative data is lost)",
+            self._db_path,
+        )
+        for suffix in ("", "-wal", "-shm"):
+            sidecar = Path(f"{self._db_path}{suffix}")
+            if sidecar.exists():
+                sidecar.unlink()
+
+        return sqlite3.connect(str(self._db_path), check_same_thread=False)
 
     async def close(self) -> None:
         async with self._lock:
