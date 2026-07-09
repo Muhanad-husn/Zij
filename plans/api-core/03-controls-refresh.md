@@ -70,3 +70,8 @@ Then  a layer_status SSE event conveys the error/rate-limited/cached-fallback st
 ## Status / progress log
 
 - 2026-07-06 planned (sprint v1). Blocked-by: scheduler/04, api-core/01. Absorbs #38.
+- 2026-07-09 SHIPPED (PR #96, branch `api-55`). Outer test `7935181` red → final green `be7a556`
+  (239 tests, secret-free). Added toggle/per-layer-refresh routes + rewired `/api/refresh` to
+  `scheduler.refresh_all` + new `Scheduler.refresh_all` + #38 SSE-on-failure publish in
+  `_handle_fetch_failure`. Both review stages PASS, zero blocking findings. Known out-of-scope gap:
+  `POST /api/layers/marine/refresh` is a 202 no-op today (marine not in `_adapters`). Closes #55, #38.
