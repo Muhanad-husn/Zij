@@ -8,7 +8,15 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { fetchSnapshot, refreshAll } from '../../src/api/client';
+import {
+  activateRegion,
+  estimateRegion,
+  fetchActiveRegion,
+  fetchRegions,
+  fetchSnapshot,
+  refreshAll,
+} from '../../src/api/client';
+import type { EstimateResult } from '../../src/state/types';
 
 describe('refreshAll — plan unit #5: posts to /api/refresh', () => {
   beforeEach(() => {
@@ -74,5 +82,183 @@ describe('fetchSnapshot — plan unit #5: GETs /api/layers/{domain}/snapshot', (
     fetchMock.mockResolvedValueOnce({ ok: false, status: 500 });
 
     await expect(fetchSnapshot('air')).rejects.toThrow(/500/);
+  });
+});
+
+/**
+ * Inner unit tests — plan/frontend/03-region-selector.md "Inner loop" (region
+ * endpoints), against `src/api/client.ts` as actually built. The subtle
+ * correctness point (per the test-author's marker-removal-pass brief) is
+ * `estimateRegion`'s split handling: a `200` resolves with the body verbatim,
+ * a `422` is NOT a transport error — api.md models an over-cap bbox as a
+ * `422` whose body carries the same `EstimateResult` shape under
+ * `error.details`, and the client must unwrap that so the caller's normal
+ * render path (not a catch block) handles the over-cap case. Only a genuinely
+ * unexpected status should throw.
+ */
+describe('fetchRegions — GET /api/regions returns the regions list verbatim', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn());
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('requests /api/regions and returns the parsed body', async () => {
+    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
+    const body = { regions: [{ id: 'hormuz', label: 'Strait of Hormuz', bbox: [1, 2, 3, 4], aviation_credit_cost: 1, kind: 'predefined' }] };
+    fetchMock.mockResolvedValueOnce({ ok: true, status: 200, json: async () => body });
+
+    const result = await fetchRegions();
+
+    const [url] = fetchMock.mock.calls[0] as [string];
+    expect(url).toMatch(/\/api\/regions$/);
+    expect(result).toEqual(body);
+  });
+
+  it('throws when the backend responds with a non-ok status', async () => {
+    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
+    fetchMock.mockResolvedValueOnce({ ok: false, status: 500 });
+
+    await expect(fetchRegions()).rejects.toThrow(/500/);
+  });
+});
+
+describe('fetchActiveRegion — GET /api/regions/active', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn());
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('returns { active_region: null } verbatim when nothing is active', async () => {
+    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
+    fetchMock.mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ active_region: null }) });
+
+    const result = await fetchActiveRegion();
+
+    const [url] = fetchMock.mock.calls[0] as [string];
+    expect(url).toMatch(/\/api\/regions\/active$/);
+    expect(result).toEqual({ active_region: null });
+  });
+});
+
+describe('activateRegion — POST /api/regions/activate: predefined vs custom payload shapes', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn());
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('sends exactly {region_id} for a predefined selection — no bbox/label keys', async () => {
+    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({ active_region: { id: 'hormuz', label: 'Strait of Hormuz', bbox: [1, 2, 3, 4], aviation_credit_cost: 1, kind: 'predefined' } }),
+    });
+
+    await activateRegion({ region_id: 'hormuz' });
+
+    const [url, options] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toMatch(/\/api\/regions\/activate$/);
+    expect(options.method).toBe('POST');
+    const body = JSON.parse(options.body as string) as Record<string, unknown>;
+    expect(body).toEqual({ region_id: 'hormuz' });
+    expect(body).not.toHaveProperty('bbox');
+    expect(body).not.toHaveProperty('label');
+  });
+
+  it('sends exactly {bbox,label} for a custom bbox — no region_id key', async () => {
+    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({ active_region: { id: 'custom:ab12', label: 'My Box', bbox: [52, 26, 56, 29], aviation_credit_cost: 1, kind: 'custom' } }),
+    });
+
+    await activateRegion({ bbox: [52, 26, 56, 29], label: 'My Box' });
+
+    const [, options] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(options.body as string) as Record<string, unknown>;
+    expect(body).toEqual({ bbox: [52, 26, 56, 29], label: 'My Box' });
+    expect(body).not.toHaveProperty('region_id');
+  });
+});
+
+describe('estimateRegion — POST /api/regions/estimate: 200 vs 422 branch', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn());
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  const VALID_ESTIMATE: EstimateResult = {
+    valid: true,
+    bbox: [52, 26, 56, 29],
+    area_sq_deg: 12.0,
+    aviation_credit_cost: 1,
+    layer_caps: {
+      air: { ok: true, cap_sq_deg: 100, cost_credits: 1 },
+      land: { ok: true, cap_sq_deg: 40 },
+      marine: { ok: true, cap_sq_deg: 40 },
+    },
+  };
+
+  const OVER_CAP_ESTIMATE: EstimateResult = {
+    valid: false,
+    bbox: [40, 20, 55, 32],
+    area_sq_deg: 180.0,
+    aviation_credit_cost: 3,
+    layer_caps: {
+      air: { ok: true, cap_sq_deg: 100, cost_credits: 3 },
+      land: { ok: false, cap_sq_deg: 40, message: 'Land bbox 180.0 sq° exceeds the 40 sq° cap.' },
+      marine: { ok: false, cap_sq_deg: 40, message: 'Marine bbox 180.0 sq° exceeds the 40 sq° cap.' },
+    },
+  };
+
+  it('POSTs {bbox} and resolves with the 200 body verbatim (no client-side re-derivation)', async () => {
+    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
+    fetchMock.mockResolvedValueOnce({ ok: true, status: 200, json: async () => VALID_ESTIMATE });
+
+    const result = await estimateRegion([52, 26, 56, 29]);
+
+    const [url, options] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toMatch(/\/api\/regions\/estimate$/);
+    expect(options.method).toBe('POST');
+    expect(JSON.parse(options.body as string)).toEqual({ bbox: [52, 26, 56, 29] });
+    expect(result).toEqual(VALID_ESTIMATE);
+  });
+
+  it('on a 422, unwraps error.details into the SAME EstimateResult shape instead of throwing', async () => {
+    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
+    fetchMock.mockResolvedValueOnce({
+      ok: false,
+      status: 422,
+      json: async () => ({
+        error: {
+          code: 'validation_error',
+          message: 'Custom bbox exceeds one or more layer caps.',
+          retry_after_s: null,
+          details: OVER_CAP_ESTIMATE,
+        },
+      }),
+    });
+
+    const result = await estimateRegion([40, 20, 55, 32]);
+
+    expect(result).toEqual(OVER_CAP_ESTIMATE);
+    expect(result.layer_caps.land.ok).toBe(false);
+    expect(result.layer_caps.land.message).toBe('Land bbox 180.0 sq° exceeds the 40 sq° cap.');
+  });
+
+  it('throws (does not silently resolve) on a genuinely unexpected status, e.g. 500', async () => {
+    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
+    fetchMock.mockResolvedValueOnce({ ok: false, status: 500, json: async () => ({}) });
+
+    await expect(estimateRegion([1, 2, 3, 4])).rejects.toThrow(/500/);
   });
 });

@@ -13,15 +13,16 @@
  *   Then  POST /api/regions/activate {bbox,label} is issued and the map
  *         clears on region_changed
  *
- * `test.fail()` is this web slice's analog to a strict pytest xfail (DEC-33
+ * `test.fail()` was this web slice's analog to a strict pytest xfail (DEC-33
  * — see `layers-refresh.spec.ts`/`badges.spec.ts`/`sse-client.spec.ts` for
  * the precedent this repo standardized on): with no `ui/regionSelector.ts`
- * yet, every clause below fails, `test.fail()` makes that an EXPECTED
- * failure so the suite reports green and this red commit lands under the
- * no-commit-on-red gate. The implementer greens every clause; the
- * test-author then confirms each assertion passes for real and removes the
- * `test.fail()` marker in a final pass (mirroring every prior frontend
- * slice's marker-removal commit).
+ * yet, every clause below failed, `test.fail()` made that an EXPECTED
+ * failure so the suite reported green and the red commit landed under the
+ * no-commit-on-red gate. The implementer has since greened every clause; the
+ * test-author confirmed each assertion passes for real and removed the
+ * `test.fail()` marker in this final pass (mirroring every prior frontend
+ * slice's marker-removal commit) — this is now a normal `test()` and the
+ * locked contract stands finalized.
  *
  * SCOPE NOTE (no marine map layer): `design/specs/frontend.md` §2 has no
  * marine map-layer builder yet (deferred to slice 06 per the plan's "Out of
@@ -396,7 +397,7 @@ async function stubRest(page: Page): Promise<Recorded> {
   return recorded;
 }
 
-test.fail(
+test(
   'region selector: predefined activation shows credit cost inline, an over-cap custom bbox blocks Confirm with the cap-naming message, a valid custom bbox activates and region_changed clears the map',
   async ({ page }) => {
     const fixture = startEventsFixtureServer();
@@ -570,8 +571,23 @@ test.fail(
       await expect.poll(() => readSourceFeatureCount('land'), { timeout: 5_000 }).toBe(0);
 
       // --- Clause: no uncaught console error / page error at any point -------
+      // Founder-adjudicated narrowing (spec-drift discussion, DEC-1 "not the
+      // test-author's to loosen" — this IS the test-author, and this is a
+      // deliberate, approved revision, not a silent weakening): Chromium
+      // itself emits a "Failed to load resource: the server responded with a
+      // status of ___" console entry for ANY fetch()/XHR that completes with
+      // a non-2xx status, regardless of whether page JS handles the response
+      // (it does here — `estimateRegion()` checks `res.status === 422` and
+      // returns `error.details`, no unhandled rejection). This scenario
+      // deliberately exercises the api.md-mandated 422 over-cap estimate
+      // response, so that browser-level diagnostic is expected noise, not an
+      // application bug — filtered out here while genuine app-level
+      // console.error calls are still caught.
       expect(pageErrors, `page errors: ${JSON.stringify(pageErrors)}`).toHaveLength(0);
-      expect(consoleErrors, `console errors: ${JSON.stringify(consoleErrors)}`).toHaveLength(0);
+      const appConsoleErrors = consoleErrors.filter(
+        (t) => !/Failed to load resource: the server responded with a status of/i.test(t),
+      );
+      expect(appConsoleErrors, `app console errors: ${JSON.stringify(appConsoleErrors)}`).toHaveLength(0);
     } finally {
       await fixture.shutdown();
     }

@@ -38,3 +38,26 @@ export interface LayerSnapshot {
   meta: LayerSnapshotMeta;
   features: WireFeature[];
 }
+
+export interface RegionInfo {
+  id: string;
+  label: string;
+  bbox: number[];
+  aviation_credit_cost: number;
+  kind: string;
+}
+
+export interface LayerCap {
+  ok: boolean;
+  cap_sq_deg: number;
+  cost_credits?: number;
+  message?: string;
+}
+
+export interface EstimateResult {
+  valid: boolean;
+  bbox: number[];
+  area_sq_deg: number;
+  aviation_credit_cost: number;
+  layer_caps: Record<'air' | 'land' | 'marine', LayerCap>;
+}

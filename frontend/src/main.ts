@@ -3,10 +3,11 @@ import './styles/tokens.css';
 import './styles/layout.css';
 import { initMap } from './map/map';
 import { fetchSnapshot, refreshAll } from './api/client';
-import { initAviationLayer, updateAviationLayer } from './map/layers/aviation';
-import { initLandLayer, updateLandLayer } from './map/layers/land';
+import { initAviationLayer, updateAviationLayer, clearAviationLayer } from './map/layers/aviation';
+import { initLandLayer, updateLandLayer, clearLandLayer } from './map/layers/land';
 import { mountBadge } from './ui/badges';
 import { mountConnectionBanner } from './ui/controls';
+import { mountRegionSelector } from './ui/regionSelector';
 import { loadLayers, type LayerLoadTask } from './app/loadLayers';
 import { Store } from './state/store';
 import { SseClient } from './sse/client';
@@ -33,6 +34,22 @@ const marineBadge = mountBadge(badgesContainer, 'marine');
 const landBadge = mountBadge(badgesContainer, 'land');
 
 const store = new Store();
+
+const regionSelectorContainer = document.getElementById('region-selector');
+if (!regionSelectorContainer) {
+  throw new Error('Zij: #region-selector container not found');
+}
+mountRegionSelector(regionSelectorContainer, store);
+
+// Region switch (spec §6): "all layer panes clear immediately" — the store's
+// own state is cleared by `applyRegionChanged` (see state/store.ts), but the
+// MapLibre GeoJSON sources are a separate piece of state the store doesn't
+// own; clear them here. No-op if the sources haven't been added yet (map not
+// yet loaded / layer never initialized) — see `clear*Layer`'s own guard.
+store.on('region:changed', () => {
+  clearAviationLayer(map);
+  clearLandLayer(map);
+});
 
 // Air/land map sources+layers can only be added once the base style has
 // fired `style.load` (map/map.ts uses the same event for `window.__zijMap`

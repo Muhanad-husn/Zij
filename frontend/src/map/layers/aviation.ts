@@ -47,3 +47,11 @@ export function updateAviationLayer(map: MapLibreMap, snapshot: LayerSnapshot): 
   const source = map.getSource(AIR_SOURCE_ID) as GeoJSONSource | undefined;
   source?.setData(wireToGeoJson(snapshot.features));
 }
+
+/** Clears the `air` source to zero features (spec §6: "all layer panes clear
+ * immediately" on `region_changed`). No-op if the source hasn't been added
+ * yet (map not loaded / layer never initialized). */
+export function clearAviationLayer(map: MapLibreMap): void {
+  const source = map.getSource(AIR_SOURCE_ID) as GeoJSONSource | undefined;
+  source?.setData({ type: 'FeatureCollection', features: [] });
+}
