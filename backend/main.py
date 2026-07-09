@@ -17,6 +17,9 @@ before the frontend is built.
 
 from __future__ import annotations
 
+import asyncio
+import itertools
+import json
 import logging
 import time
 from contextlib import asynccontextmanager
@@ -27,8 +30,10 @@ from typing import Any
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
+from sse_starlette.sse import EventSourceResponse
 
 from backend.config import AppConfig, Secrets, load_config
+from backend.events import EventBus
 from backend.models import (
     Domain,
     Feature,
@@ -37,6 +42,7 @@ from backend.models import (
     LayerSnapshotMeta,
     LayerStatus,
 )
+from backend.registry import Registry
 from backend.sources.base import (
     AdapterError,
     AuthError,
@@ -96,7 +102,9 @@ def _adapter_error_to_http(exc: AdapterError) -> HTTPException:
         )
         return HTTPException(status_code=429, detail=body, headers=headers)
     if isinstance(exc, AuthError):
-        body = _error_envelope("auth_error", str(exc) or "upstream authentication error")
+        body = _error_envelope(
+            "auth_error", str(exc) or "upstream authentication error"
+        )
         return HTTPException(status_code=401, detail=body)
     if isinstance(exc, (UpstreamError, ParseError)):
         body = _error_envelope("upstream_error", str(exc) or "upstream error")
@@ -163,14 +171,16 @@ def create_app(
     air_adapter: OpenSkyAdapter | None = None,
     land_adapter: OverpassAdapter | None = None,
     store: Store | None = None,
+    registry: Registry | None = None,
+    events: EventBus | None = None,
 ) -> FastAPI:
     """Build the Zij FastAPI app.
 
     `secrets` is never referenced in any response body -- only `config` is
     ever serialized (NFR5) -- but is used to build the default `air_adapter`
-    when one isn't injected. `air_adapter`/`land_adapter`/`store` are each
-    optional and default to a real collaborator built from `config`/
-    `secrets` when omitted, so the real uvicorn entrypoint
+    when one isn't injected. `air_adapter`/`land_adapter`/`store`/`registry`/
+    `events` are each optional and default to a fresh/real collaborator built
+    from `config`/`secrets` when omitted, so the real uvicorn entrypoint
     (`_build_default_app`) keeps working unchanged.
     """
     if air_adapter is None:
@@ -181,17 +191,25 @@ def create_app(
         )
         air_adapter = OpenSkyAdapter(opensky_cfg, secrets, credits)
     if land_adapter is None:
-        overpass_cfg = OverpassCfg(**config.overpass, **config.layers["land"].model_dump())
+        overpass_cfg = OverpassCfg(
+            **config.overpass, **config.layers["land"].model_dump()
+        )
         land_adapter = OverpassAdapter(overpass_cfg)
     if store is None:
         store = Store()
+    if registry is None:
+        registry = Registry()
+    if events is None:
+        events = EventBus()
 
     land_cfg = config.layers["land"]
     land_cadence_s = land_cfg.cadence_s
     land_stale_after_s = land_cfg.cadence_s * land_cfg.stale_multiplier
 
     hormuz_cfg = next(region for region in config.regions if region.id == "hormuz")
-    hormuz_region = Region(id=hormuz_cfg.id, label=hormuz_cfg.label, bbox=hormuz_cfg.bbox)
+    hormuz_region = Region(
+        id=hormuz_cfg.id, label=hormuz_cfg.label, bbox=hormuz_cfg.bbox
+    )
 
     @asynccontextmanager
     async def _lifespan(_app: FastAPI):
@@ -237,7 +255,8 @@ def create_app(
         del request
         _LOG.exception("unhandled exception in request handler", exc_info=exc)
         return JSONResponse(
-            status_code=500, content=_error_envelope("internal", "internal server error")
+            status_code=500,
+            content=_error_envelope("internal", "internal server error"),
         )
 
     @app.get("/api/health")
@@ -309,6 +328,49 @@ def create_app(
             _LOG.warning("POST /api/refresh: land layer refetch failed", exc_info=True)
         return {"queued": ["air", "land"]}
 
+    # Monotonic per-connection-independent counter for the SSE `id:` field
+    # (api.md "## SSE": "Each event has ... a monotonic id:") -- shared
+    # across the app so ids only ever increase, which is what makes
+    # `Last-Event-ID` a meaningful (if advisory) cursor.
+    _sse_event_id = itertools.count(1)
+
+    async def _sse_stream(request: Request):
+        """Full-state-on-connect (ADR-12): replay one `snapshot` per
+        **enabled** layer present in `registry` (raw_payload already
+        excluded via `Feature.raw_payload`'s `exclude=True`), then stream
+        incrementals from this connection's subscriber queue until the
+        client disconnects."""
+        queue = events.subscribe()
+        try:
+            for domain, snapshot in list(registry.items()):
+                layer_cfg = config.layers.get(domain.value)
+                if layer_cfg is None or not layer_cfg.enabled:
+                    continue
+                yield {
+                    "event": "snapshot",
+                    "id": str(next(_sse_event_id)),
+                    "data": json.dumps(snapshot.model_dump(mode="json")),
+                }
+            while True:
+                if await request.is_disconnected():
+                    break
+                try:
+                    item = await asyncio.wait_for(queue.get(), timeout=1.0)
+                except asyncio.TimeoutError:
+                    continue
+                yield {
+                    "event": item["event"],
+                    "id": str(next(_sse_event_id)),
+                    "data": json.dumps(item["data"]),
+                }
+        finally:
+            events.unsubscribe(queue)
+
+    @app.get("/api/events")
+    async def sse_events(request: Request) -> EventSourceResponse:
+        ping_s = config.server.get("sse_ping_s", 15)
+        return EventSourceResponse(_sse_stream(request), ping=ping_s)
+
     @app.get("/api/{rest:path}")
     async def api_catch_all(rest: str) -> None:
         del rest
@@ -333,7 +395,9 @@ def _build_default_app() -> FastAPI:
     (e.g. before `frontend/dist` exists), so that fallback stays defensive.
     """
     config, secrets = load_config()
-    static_dir = _FRONTEND_DIST if _FRONTEND_DIST.is_dir() else Path(__file__).resolve().parent
+    static_dir = (
+        _FRONTEND_DIST if _FRONTEND_DIST.is_dir() else Path(__file__).resolve().parent
+    )
     return create_app(static_dir=static_dir, config=config, secrets=secrets)
 
 

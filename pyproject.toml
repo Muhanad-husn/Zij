@@ -13,6 +13,7 @@ dependencies = [
     "pydantic>=2.13.4",
     "pydantic-settings>=2.14.2",
     "shapely>=2.1.2",
+    "sse-starlette>=2.1.0",
     "uvicorn>=0.50.0",
     "websockets>=16.0",
 ]
