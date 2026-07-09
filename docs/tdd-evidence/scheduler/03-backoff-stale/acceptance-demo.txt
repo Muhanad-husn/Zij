@@ -1,0 +1,29 @@
+============================= test session starts =============================
+platform win32 -- Python 3.13.14, pytest-9.1.1, pluggy-1.6.0 -- D:\zij-wt\scheduler-50\.venv\Scripts\python.exe
+cachedir: .pytest_cache
+rootdir: D:\zij-wt\scheduler-50
+configfile: pyproject.toml
+plugins: anyio-4.14.1, asyncio-1.4.0, respx-0.23.1
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 17 items
+
+backend/tests/test_scheduler_backoff_stale.py::test_scheduler_backoff_per_error_class_and_event_driven_stale_timer PASSED [  5%]
+backend/tests/test_scheduler_backoff_stale_unit.py::test_backoff_params_land_reads_overpass_config_over_defaults PASSED [ 11%]
+backend/tests/test_scheduler_backoff_stale_unit.py::test_backoff_params_air_default_matches_opensky_spec_when_config_omits_knobs PASSED [ 17%]
+backend/tests/test_scheduler_backoff_stale_unit.py::test_handle_fetch_failure_rate_limited_sets_status_and_publishes_retry_after_event PASSED [ 23%]
+backend/tests/test_scheduler_backoff_stale_unit.py::test_handle_fetch_failure_rate_limited_with_no_retry_after_publishes_none PASSED [ 29%]
+backend/tests/test_scheduler_backoff_stale_unit.py::test_poll_loop_rate_limited_without_retry_after_defers_by_config_backoff_default PASSED [ 35%]
+backend/tests/test_scheduler_backoff_stale_unit.py::test_poll_loop_upstream_error_backoff_delays_grow_exponentially PASSED [ 41%]
+backend/tests/test_scheduler_backoff_stale_unit.py::test_upstream_backoff_attempt_counter_resets_after_a_success PASSED [ 47%]
+backend/tests/test_scheduler_backoff_stale_unit.py::test_upstream_backoff_capped_at_the_layers_own_cadence_not_exceeding_it PASSED [ 52%]
+backend/tests/test_scheduler_backoff_stale_unit.py::test_handle_fetch_failure_auth_error_with_no_cache_yields_error PASSED [ 58%]
+backend/tests/test_scheduler_backoff_stale_unit.py::test_handle_fetch_failure_parse_error_with_warm_region_matched_cache_yields_cached_fallback PASSED [ 64%]
+backend/tests/test_scheduler_backoff_stale_unit.py::test_poll_loop_auth_error_causes_no_accelerated_retry_just_normal_cadence PASSED [ 70%]
+backend/tests/test_scheduler_backoff_stale_unit.py::test_handle_fetch_failure_retains_last_good_snapshot_in_registry PASSED [ 76%]
+backend/tests/test_scheduler_backoff_stale_unit.py::test_arm_stale_timer_fires_and_flips_live_to_stale_with_event_and_no_fetch PASSED [ 82%]
+backend/tests/test_scheduler_backoff_stale_unit.py::test_arm_stale_timer_is_a_no_op_for_a_non_live_snapshot PASSED [ 88%]
+backend/tests/test_scheduler_backoff_stale_unit.py::test_arm_stale_timer_cancels_the_prior_handle_when_rearmed PASSED [ 94%]
+backend/tests/test_scheduler_backoff_stale_unit.py::test_a_newer_successful_fetch_reschedules_the_stale_timer_so_the_old_deadline_never_fires PASSED [100%]
+
+============================= 17 passed in 15.28s =============================
+exit=0
