@@ -1,0 +1,24 @@
+============================= test session starts =============================
+platform win32 -- Python 3.13.14, pytest-9.1.1, pluggy-1.6.0 -- D:\zij-wt\scheduler-52\.venv\Scripts\python.exe
+cachedir: .pytest_cache
+rootdir: D:\zij-wt\scheduler-52
+configfile: pyproject.toml
+plugins: anyio-4.14.1, asyncio-1.4.0, respx-0.23.1
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 12 items
+
+backend/tests/test_scheduler_region_toggle.py::test_activate_region_cancels_stale_fetch_clears_registry_gates_fallback_and_disable_stops_polling PASSED [  8%]
+backend/tests/test_scheduler_region_toggle_unit.py::test_activate_region_marine_fallback_mismatched_region_not_used PASSED [ 16%]
+backend/tests/test_scheduler_region_toggle_unit.py::test_activate_region_marine_fallback_matched_region_used PASSED [ 25%]
+backend/tests/test_scheduler_region_toggle_unit.py::test_activate_region_fresh_land_cache_repopulates_without_fetch PASSED [ 33%]
+backend/tests/test_scheduler_region_toggle_unit.py::test_activate_region_stale_land_cache_not_repopulated PASSED [ 41%]
+backend/tests/test_scheduler_region_toggle_unit.py::test_set_enabled_marine_false_stops_stream_and_issues_no_restart PASSED [ 50%]
+backend/tests/test_scheduler_region_toggle_unit.py::test_set_enabled_marine_true_starts_stream_and_reports_loading PASSED [ 58%]
+backend/tests/test_scheduler_region_toggle_unit.py::test_activate_region_marine_no_repopulation_resets_stale_status_to_loading PASSED [ 66%]
+backend/tests/test_scheduler_region_toggle_unit.py::test_activate_region_marine_no_fallback_row_resets_stale_status_to_loading PASSED [ 75%]
+backend/tests/test_scheduler_region_toggle_unit.py::test_activate_region_land_no_repopulation_resets_stale_status_to_loading PASSED [ 83%]
+backend/tests/test_scheduler_region_toggle_unit.py::test_activate_region_land_stale_cache_resets_stale_status_to_loading PASSED [ 91%]
+backend/tests/test_scheduler_region_toggle_unit.py::test_set_enabled_marine_true_publishes_authoritative_loading_status PASSED [100%]
+
+============================= 12 passed in 2.93s ==============================
+exit=0
