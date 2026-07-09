@@ -56,3 +56,43 @@
 .zij-badge__label {
   color: var(--zij-text-muted);
 }
+
+/* Connection-lost banner (spec §3/§7): a slim, non-blocking strip overlaying
+   the top bar full-width — never a full-viewport overlay (the map must stay
+   interactive on last-known state while `lost`). Visibility is toggled via
+   inline `display` in controls.ts, not by a class here. */
+.zij-connection-banner {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 20;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 6px 16px;
+  background: var(--status-loading);
+  color: var(--zij-ink);
+  font-family: var(--font-ui);
+  font-size: 0.85rem;
+  /* Non-blocking (spec §3): the strip overlays the top bar visually but must
+     not swallow clicks meant for topbar controls underneath it. Only the
+     Retry button itself (the one interactive element the banner owns)
+     re-enables pointer events. */
+  pointer-events: none;
+}
+
+.zij-connection-banner__text {
+  font-weight: 600;
+}
+
+.zij-connection-banner button {
+  font-family: var(--font-ui);
+  background: var(--zij-ink);
+  color: var(--zij-text);
+  border: none;
+  border-radius: 4px;
+  padding: 4px 10px;
+  cursor: pointer;
+  pointer-events: auto;
+}

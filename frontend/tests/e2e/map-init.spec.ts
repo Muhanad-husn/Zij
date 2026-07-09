@@ -42,9 +42,24 @@
  * issues on load succeed quietly. This test still asserts nothing about the
  * air/land layers themselves (that's `layers-refresh.spec.ts`'s job) — it
  * stays a pure map-boot test. All five original clauses below are unchanged.
+ *
+ * RECONCILIATION (slice frontend/01-sse-client, issue #57): the app now
+ * unconditionally opens `EventSource('/api/events')` on load (spec §3 — the
+ * live-update spine). This test has no live FastAPI backend, so an unstubbed
+ * `/api/events` errors through Vite's preview proxy, logging a
+ * `console.error` that would trip this test's "zero console errors" clause
+ * even though the map itself boots cleanly — the same class of issue the
+ * snapshot-endpoint reconciliation above already documents. This test
+ * doesn't exercise SSE at all (that is `sse-client.spec.ts`'s job), so
+ * `tests/e2e/helpers/quietSseStub.ts` is used below to answer `/api/events`
+ * quietly and keep it open for the test's duration — no assertion here
+ * depends on the connection state. See that helper's own comment for why a
+ * `page.route().fulfill()` stub can't safely stand in here (it would leave
+ * the EventSource retrying forever in the background).
  */
 
 import { test, expect } from '@playwright/test';
+import { startQuietSseStub } from './helpers/quietSseStub';
 
 /** Minimal valid empty LayerSnapshot per design/contracts/feature-schema.md
  * §"LayerSnapshot & metadata". Only used to keep the app's on-load snapshot
@@ -100,23 +115,32 @@ test(
     const consoleErrors: string[] = [];
     const pageErrors: string[] = [];
 
-    // Registered BEFORE navigation so nothing fired during initial load is missed.
-    page.on('console', (msg) => {
-      if (msg.type() === 'error') {
-        consoleErrors.push(msg.text());
-      }
-    });
-    page.on('pageerror', (err) => {
-      pageErrors.push(err.message);
-    });
+    // RECONCILIATION (frontend/01-sse-client, #57) — see file-header comment.
+    // A quiet, permanently-open /api/events stub; this test doesn't exercise
+    // SSE and asserts nothing about the connection banner. See
+    // tests/e2e/helpers/quietSseStub.ts for why this must be a real,
+    // held-open server rather than a page.route().fulfill() stub.
+    const sseStub = await startQuietSseStub();
 
-    // Route interception MUST be registered before goto — see RECONCILIATION
-    // note above the imports.
-    await stubApi(page);
+    try {
+      // Registered BEFORE navigation so nothing fired during initial load is missed.
+      page.on('console', (msg) => {
+        if (msg.type() === 'error') {
+          consoleErrors.push(msg.text());
+        }
+      });
+      page.on('pageerror', (err) => {
+        pageErrors.push(err.message);
+      });
 
-    await page.goto('/');
+      // Route interception MUST be registered before goto — see RECONCILIATION
+      // note above the imports.
+      await stubApi(page);
+      await sseStub.attachTo(page);
 
-    // --- Clause: canvas mounts ---------------------------------------------
+      await page.goto('/');
+
+      // --- Clause: canvas mounts ---------------------------------------------
     const canvas = page.locator('.maplibregl-canvas');
     await expect(canvas).toBeVisible();
 
@@ -181,5 +205,8 @@ test(
     // --- Clause: no uncaught console error / page error during load --------
     expect(pageErrors, `page errors: ${JSON.stringify(pageErrors)}`).toHaveLength(0);
     expect(consoleErrors, `console errors: ${JSON.stringify(consoleErrors)}`).toHaveLength(0);
+    } finally {
+      await sseStub.close();
+    }
   }
 );

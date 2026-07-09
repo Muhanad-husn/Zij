@@ -100,7 +100,18 @@ export function initMap(container: HTMLElement): MapLibreMap {
     console.warn('[zij] map error:', e.error?.message ?? e);
   });
 
-  map.on('load', () => {
+  // `style.load` (fired once the style spec + sources/sprite/glyphs config
+  // has been processed, per MapLibre's internal `Style._loaded`) is used
+  // rather than the full `load` event (which additionally waits for the
+  // *tiles* needed for the first visually complete render, i.e. a real
+  // network round trip to the vector tile provider). `getCenter()` /
+  // `getPaintProperty()` / the attribution control are all style-level
+  // state, not tile-level, so `style.load` already reflects their final
+  // values — and add/remove source/layer calls are valid as soon as
+  // `style.load` has fired (MapLibre's `_checkLoaded()` guard). Gating this
+  // seam on tile-fetch completion would make it needlessly network-latency
+  // bound for every consumer of `window.__zijMap`.
+  map.on('style.load', () => {
     window.__zijMap = map;
   });
 

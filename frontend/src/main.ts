@@ -6,13 +6,18 @@ import { fetchSnapshot, refreshAll } from './api/client';
 import { initAviationLayer, updateAviationLayer } from './map/layers/aviation';
 import { initLandLayer, updateLandLayer } from './map/layers/land';
 import { mountBadge } from './ui/badges';
+import { mountConnectionBanner } from './ui/controls';
 import { loadLayers, type LayerLoadTask } from './app/loadLayers';
-import type { LayerSnapshot } from './state/types';
+import { Store } from './state/store';
+import { SseClient } from './sse/client';
+import type { LayerSnapshot, LayerSnapshotMeta } from './state/types';
 
-// Entry point (spec §1): bootstrap the map, then (this slice) fetch the air +
-// land snapshots, render their layers, mount the freshness/count badges, and
-// wire the global "Refresh all" control. Store/SSE arrive in later slices —
-// v0 is REST-only (poll-once refresh, no push).
+// Entry point (spec §1): bootstrap store -> map -> SSE client -> UI mount.
+// The store is the single source of truth for layer state + connection
+// state (spec §9); the SSE client is the live-update spine (spec §3),
+// dispatching `snapshot`/`layer_status`/`region_changed` into the store's
+// mutators. Renderers subscribe to store events (§9 "renderers subscribe,
+// never poll") rather than owning their own fetch/poll loop.
 const container = document.getElementById('map');
 if (!container) {
   throw new Error('Zij: #map container not found');
@@ -26,28 +31,97 @@ if (!badgesContainer) {
 const airBadge = mountBadge(badgesContainer, 'air');
 const landBadge = mountBadge(badgesContainer, 'land');
 
+const store = new Store();
+
+// Air/land map sources+layers can only be added once the base style has
+// fired `style.load` (map/map.ts uses the same event for `window.__zijMap`
+// — see its comment for why `style.load`, not the tile-fetch-bound `load`,
+// is the right readiness signal here). A `snapshot` event
+// (full-state-on-connect) may arrive before that — buffer it and flush once
+// the map is ready. `*Initialized` guards `initXLayer` (addSource, which
+// throws if called twice) so it is safe to call the render path from more
+// than one source (SSE push, the initial REST fetch below, and any manual
+// refresh) without ever double-initializing.
+let mapLoaded = false;
+let airLayerInitialized = false;
+let landLayerInitialized = false;
+let pendingAirSnapshot: LayerSnapshot | null = null;
+let pendingLandSnapshot: LayerSnapshot | null = null;
+
+function renderAirSnapshot(snapshot: LayerSnapshot): void {
+  airBadge.update(snapshot.meta);
+  if (!mapLoaded) {
+    pendingAirSnapshot = snapshot;
+    return;
+  }
+  if (!airLayerInitialized) {
+    initAviationLayer(map, snapshot);
+    airLayerInitialized = true;
+  } else {
+    updateAviationLayer(map, snapshot);
+  }
+}
+
+function renderLandSnapshot(snapshot: LayerSnapshot): void {
+  landBadge.update(snapshot.meta);
+  if (!mapLoaded) {
+    pendingLandSnapshot = snapshot;
+    return;
+  }
+  if (!landLayerInitialized) {
+    initLandLayer(map, snapshot);
+    landLayerInitialized = true;
+  } else {
+    updateLandLayer(map, snapshot);
+  }
+}
+
+// Mutators are the only writers (spec §9); renderers + badges are pure
+// subscribers to the store's `snapshot:*`/`status:*` events.
+store.on('snapshot:air', (payload) => renderAirSnapshot(payload as LayerSnapshot));
+store.on('snapshot:land', (payload) => renderLandSnapshot(payload as LayerSnapshot));
+store.on('status:air', (payload) => airBadge.update(payload as LayerSnapshotMeta));
+store.on('status:land', (payload) => landBadge.update(payload as LayerSnapshotMeta));
+
+// Exactly one EventSource for the app's lifetime (spec §3) — the Retry
+// action (below) re-runs `connect()`, which is the one sanctioned exception
+// (the prior connection has already failed fatally by the time Retry shows).
+const sseClient = new SseClient(store);
+mountConnectionBanner(document.body, store, () => {
+  sseClient.connect();
+});
+
 // Failure isolation (spec FR10, issue #20): each domain's fetch+render is an
 // independent `LayerLoadTask` run through `loadLayers`, so one domain
 // rejecting never blocks the other from rendering (see `app/loadLayers.ts`).
-map.on('load', () => {
+// This REST fetch runs alongside the SSE push above (not instead of it): it
+// is what serves a cold start whose SSE snapshot hasn't arrived yet, and it
+// is reconciled through the same `renderAirSnapshot`/`renderLandSnapshot`
+// idempotent paths, so whichever of SSE-push or REST-fetch lands first wins
+// the initial render and the other is a harmless no-op `setData`.
+map.on('style.load', () => {
+  mapLoaded = true;
+  if (pendingAirSnapshot) {
+    const snapshot = pendingAirSnapshot;
+    pendingAirSnapshot = null;
+    renderAirSnapshot(snapshot);
+  }
+  if (pendingLandSnapshot) {
+    const snapshot = pendingLandSnapshot;
+    pendingLandSnapshot = null;
+    renderLandSnapshot(snapshot);
+  }
+
   const initialLoadTasks: LayerLoadTask[] = [
     {
       label: 'air',
       load: () => fetchSnapshot('air'),
-      render: (snapshot) => {
-        const airSnapshot = snapshot as LayerSnapshot;
-        initAviationLayer(map, airSnapshot);
-        airBadge.update(airSnapshot.meta);
-      },
+      render: (snapshot) => renderAirSnapshot(snapshot as LayerSnapshot),
     },
     {
       label: 'land',
       load: () => fetchSnapshot('land'),
-      render: (snapshot) => {
-        const landSnapshot = snapshot as LayerSnapshot;
-        initLandLayer(map, landSnapshot);
-        landBadge.update(landSnapshot.meta);
-      },
+      render: (snapshot) => renderLandSnapshot(snapshot as LayerSnapshot),
     },
   ];
   void loadLayers(initialLoadTasks);
@@ -57,24 +131,21 @@ const refreshButton = document.querySelector<HTMLButtonElement>('[data-testid="r
 refreshButton?.addEventListener('click', () => {
   void (async () => {
     await refreshAll();
+    // Fire-and-forget per spec §7 — the resulting status/snapshot rides SSE
+    // in production. This REST re-fetch stays as a poll-once fallback for
+    // environments with no live SSE stream (e.g. this app's own e2e harness);
+    // it is reconciled through the same idempotent render path as the SSE
+    // push, so the two never conflict.
     const refreshTasks: LayerLoadTask[] = [
       {
         label: 'air',
         load: () => fetchSnapshot('air'),
-        render: (snapshot) => {
-          const airSnapshot = snapshot as LayerSnapshot;
-          updateAviationLayer(map, airSnapshot);
-          airBadge.update(airSnapshot.meta);
-        },
+        render: (snapshot) => renderAirSnapshot(snapshot as LayerSnapshot),
       },
       {
         label: 'land',
         load: () => fetchSnapshot('land'),
-        render: (snapshot) => {
-          const landSnapshot = snapshot as LayerSnapshot;
-          updateLandLayer(map, landSnapshot);
-          landBadge.update(landSnapshot.meta);
-        },
+        render: (snapshot) => renderLandSnapshot(snapshot as LayerSnapshot),
       },
     ];
     await loadLayers(refreshTasks);
