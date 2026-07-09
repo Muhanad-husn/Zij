@@ -64,3 +64,4 @@ And   no secret is ever read from any TOML (env only)
 ## Status / progress log
 
 - 2026-07-06 planned (sprint v1). Blocked-by: config/02, store/03.
+- 2026-07-09 built ✅ — outer test red (`e8e4cd9`) → impl → review fix (`active_region_id` excluded from `/api/config`) → regression-locked. 165 tests green, ruff clean. Two-stage review PASS. PR [#76](https://github.com/Muhanad-husn/Zij/pull/76) prepared into `main` (Closes #46).
