@@ -68,3 +68,4 @@ Then  the air poll loop issues no further upstream fetches until re-enabled
 ## Status / progress log
 
 - 2026-07-06 planned (sprint v1). Blocked-by: scheduler/02, store/03, sources-marine/02.
+- 2026-07-09 built via `/sprint-start`. Outer test red `2ca0f99` → implementer greened → inner units + marker removal `f4c4bfb`. Two-stage review: Stage 1 PASS; Stage 2 found two status-tracking spec deviations (no-repopulation status not reset to `loading`; marine-enable event forwarded adapter's hardcoded `live`) — both fixed in-slice `1017a66` with regression-proven unit tests. 206 passed, ruff clean. Evidence `9b1469d`. **PR #85** into `main` (prepared; awaiting founder approval).
