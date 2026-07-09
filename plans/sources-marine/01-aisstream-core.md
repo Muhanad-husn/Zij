@@ -72,3 +72,8 @@ And   snapshot() performs no I/O and never raises
 
 - 2026-07-06 planned (sprint v1). Blocked-by: config/02 (marine/aisstream config sections).
   Needs the recorded `aisstream_messages.jsonl` fixture (capture-script companion to v0 fixtures).
+- 2026-07-09 built. Outer test red `782a3df` (strict-xfail) → green `4a7a1f7` → review fixes
+  `b4e207f` → evidence `9e7d9e3`. 151 tests green, ruff clean. Two-stage review PASS (stage-1)
+  / DONE_WITH_CONCERNS (stage-2, both actionable findings fixed). Follow-ups filed: #73
+  (spec-drift, `connected` timing) + #74 (`stop()` await, → slice 02). PR: #77 (Closes #47).
+  Status: DONE_WITH_CONCERNS (concerns resolved pre-PR; deferred items filed). Awaiting merge approval.
