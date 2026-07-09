@@ -47,11 +47,15 @@ removed below to finalize the contract. This assertion itself is never
 weakened.
 """
 
+import asyncio
+import contextlib
 import json
 from pathlib import Path
 
+import httpx
 import pytest
 import respx
+import uvicorn
 from fastapi.testclient import TestClient
 from httpx import Response
 
@@ -1107,3 +1111,382 @@ def test_retry_after_header_is_integer_delta_seconds():
     # The envelope body still carries the numeric retry_after_s.
     assert exc.detail["error"]["code"] == "rate_limited"
     assert exc.detail["error"]["retry_after_s"] == 42
+
+
+# ===========================================================================
+# api-core step (issue #53): GET /api/events -- SSE full-state-on-connect.
+#
+# Locked outer acceptance test (), transcribed from
+# plans/api-core/01-sse-endpoint.md ("Acceptance criterion") and
+# design/contracts/api.md ("## SSE", ADR-2/ADR-12). Committed RED first
+# (strict xfail, ): `create_app` does not yet accept `registry=`/
+# `events=`, `backend.events.EventBus` has no `publish_layer_status`, and
+# there is no `/api/events` route at all, so the body below fails today and
+# xfails cleanly under the tests-green gate.
+#
+# Design seam this test locks in for the developer (backend/main.py +
+# backend/events.py):
+#
+#   def create_app(*, static_dir, config, secrets,
+#                   air_adapter=None, land_adapter=None, store=None,
+#                   registry: Registry | None = None,
+#                   events: EventBus | None = None) -> FastAPI: ...
+#
+#   class EventBus:
+#       def publish_snapshot(self, snap: LayerSnapshot) -> None: ...       # already exists
+#       def publish_layer_status(self, meta: LayerSnapshotMeta) -> None: ...  # NEW this slice
+#
+# `registry`/`events` are optional keyword-only params (same "extend without
+# a rewrite" shape as step's `air_adapter`/`land_adapter`/`store`), so
+# every existing `create_app(...)` call in this file keeps working
+# unmodified. `GET /api/events` reads `registry` directly for the
+# on-connect replay and subscribes to `events` for incrementals -- it does
+# NOT go through a `Scheduler` in this test; the scheduler's own write path
+# (registry set -> `events.publish_snapshot`) is already locked by
+# backend/tests/test_scheduler_write_path.py, so this test drives the
+# EventBus/registry boundary directly, exactly as the plan's Gherkin does
+# ("When the scheduler subsequently publishes a layer_status change").
+# ===========================================================================
+
+
+@contextlib.asynccontextmanager
+async def _connect_sse(app):
+    """Serve `app` on a real ephemeral-port uvicorn server (in the caller's
+    event loop, so an injected `EventBus` and the connection's subscriber
+    queue share one loop) and yield an open streaming `GET /api/events`
+    response.
+
+    A real server is required because `GET /api/events` is an infinite SSE
+    stream that never returns by design, and `httpx.ASGITransport` runs the
+    ASGI app to completion (accumulating the whole body) before yielding any
+    Response -- so `client.stream(...)` would deadlock on it. Every wait is
+    bounded by `asyncio.wait_for` so a regression fails cleanly instead of
+    hanging the suite (and the tests-green commit hook)."""
+    server = uvicorn.Server(
+        uvicorn.Config(app, host="127.0.0.1", port=0, log_level="warning")
+    )
+    serve_task = asyncio.create_task(server.serve())
+    try:
+
+        async def _await_started() -> None:
+            while not server.started:  # noqa: ASYNC110 (bounded by wait_for below)
+                await asyncio.sleep(0.01)
+
+        await asyncio.wait_for(_await_started(), timeout=10.0)
+        port = server.servers[0].sockets[0].getsockname()[1]
+        async with httpx.AsyncClient(base_url=f"http://127.0.0.1:{port}") as client:
+            async with client.stream("GET", "/api/events") as response:
+                yield response
+    finally:
+        server.should_exit = True
+        await asyncio.wait_for(serve_task, timeout=10.0)
+
+
+async def _iter_sse_frames(response: httpx.Response):
+    """Parse a `text/event-stream` body into `{"event", "data", "id"}`-shaped
+    frame dicts, one per blank-line-terminated block, skipping sse-starlette's
+    `:`-prefixed ping/comment heartbeat lines (api.md "event: ping")."""
+    current: dict[str, str] = {}
+    async for raw_line in response.aiter_lines():
+        line = raw_line.rstrip("\n")
+        if line == "":
+            if current:
+                yield current
+                current = {}
+            continue
+        if line.startswith(":"):
+            continue  # ping/comment heartbeat -- frontend ignores, so do we
+        field, _, value = line.partition(":")
+        value = value[1:] if value.startswith(" ") else value
+        if field == "data" and "data" in current:
+            current["data"] += "\n" + value
+        else:
+            current[field] = value
+
+
+async def test_events_full_state_on_connect_then_live_layer_status(
+    tmp_path, monkeypatch
+):
+    """Given the app with a registry holding an enabled `air` snapshot (whose
+    feature carries a `raw_payload`, so its absence on the wire is a
+    meaningful assertion, not a tautology against a stub)
+
+    When  a client connects to GET /api/events
+    Then  it first receives one `snapshot` event, for the enabled `air`
+          layer only (marine/land are disabled via a config override below,
+          so "one snapshot per ENABLED layer" is unambiguous rather than
+          resting on an assumption about how many layers happen to be
+          seeded in the registry), with `raw_payload` excluded from the wire
+          body
+
+    When  the scheduler subsequently publishes a `layer_status` change (via
+          `EventBus.publish_layer_status`, standing in for the scheduler's
+          own write path locked by test_scheduler_write_path.py)
+    Then  the SAME connection (no reconnect -- the stream is read
+          continuously) receives a `layer_status` event carrying exactly the
+          published `LayerSnapshotMeta`, with an `id:` strictly greater than
+          the snapshot event's `id:` (monotonic across the connection)
+
+    And   both frames carry `event:`, `data:` (valid JSON), and `id:`.
+    """
+    # --- Given: known OpenSky secrets (air is enabled, NFR5 env-only) ---
+    monkeypatch.setenv("OPENSKY_CLIENT_ID", "sse-test-opensky-client-id")
+    monkeypatch.setenv("OPENSKY_CLIENT_SECRET", "sse-test-opensky-client-secret")
+    # Keep the conftest baseline `AISSTREAM_API_KEY` in place: marine is
+    # disabled via the `overrides` below and is not wired into `create_app`,
+    # but importing `backend.main` runs its module-level
+    # `app = _build_default_app()` -> `load_config()` with NO overrides (marine
+    # is enabled in the bundled config), which gates `AISSTREAM_API_KEY`.
+    # Deleting it here would fail that import when this test runs in isolation.
+    monkeypatch.delenv("AISHUB_USERNAME", raising=False)
+    monkeypatch.delenv("ZIJ_CONFIG_PATH", raising=False)
+
+    from datetime import datetime, timezone
+
+    from backend.config import load_config
+    from backend.events import EventBus
+    from backend.main import create_app
+    from backend.models import (
+        Domain,
+        Feature,
+        FeatureStatus,
+        GeometryType,
+        LayerSnapshot,
+        LayerSnapshotMeta,
+        LayerStatus,
+    )
+    from backend.registry import Registry
+    from backend.store import Store
+
+    # marine/land disabled (config override, config.md "Precedence" #4-ish
+    # caller `overrides`) so the on-connect replay is unambiguous: exactly
+    # one enabled layer (air), exactly one snapshot event expected.
+    cfg, secrets = load_config(
+        overrides={"layers": {"marine": {"enabled": False}, "land": {"enabled": False}}}
+    )
+    assert cfg.layers["air"].enabled is True
+    assert cfg.layers["marine"].enabled is False
+    assert cfg.layers["land"].enabled is False
+
+    fetched = datetime(2026, 7, 9, 12, 0, 0, tzinfo=timezone.utc)
+    air_feature = Feature(
+        domain=Domain.AIR,
+        source="opensky",
+        source_id="abc123",
+        label="ZIJ001",
+        lat=26.5,
+        lon=56.2,
+        geometry_type=GeometryType.POINT,
+        geometry=None,
+        timestamp_source=fetched,
+        timestamp_fetched=fetched,
+        position_age_s=0.0,
+        status=FeatureStatus.LIVE,
+        attrs={"callsign": "ZIJ001"},
+        # Deliberately non-empty so "raw_payload excluded from snapshot"
+        # below is a meaningful, non-vacuous assertion.
+        raw_payload={"icao24": "abc123", "secret_upstream_field": "never-on-wire"},
+    )
+    air_meta = LayerSnapshotMeta(
+        layer=Domain.AIR,
+        region_id="hormuz",
+        status=LayerStatus.LIVE,
+        timestamp_fetched=fetched,
+        timestamp_source=fetched,
+        cadence_s=600,
+        stale_after_s=1200,
+        feature_count=1,
+    )
+    air_snapshot = LayerSnapshot(meta=air_meta, features=[air_feature])
+
+    registry = Registry()
+    registry[Domain.AIR] = air_snapshot
+    events = EventBus()
+
+    static_dir = tmp_path / "dist"
+    static_dir.mkdir()
+    (static_dir / "index.html").write_text(
+        "<!doctype html><html><body>Zij</body></html>", encoding="utf-8"
+    )
+    store = Store(db_path=tmp_path / "events.db")
+
+    app = create_app(
+        static_dir=static_dir,
+        config=cfg,
+        secrets=secrets,
+        store=store,
+        registry=registry,
+        events=events,
+    )
+
+    async with _connect_sse(app) as response:
+        assert response.status_code == 200
+        assert response.headers["content-type"].startswith("text/event-stream")
+
+        frames = _iter_sse_frames(response)
+
+        # --- Then: full-state-on-connect -- one `snapshot` for the enabled
+        # `air` layer, before any incremental ---
+        snapshot_frame = await asyncio.wait_for(frames.__anext__(), timeout=5.0)
+        assert snapshot_frame["event"] == "snapshot"
+        assert set(snapshot_frame) >= {"event", "data", "id"}
+        snapshot_id = int(snapshot_frame["id"])
+
+        snapshot_data = json.loads(snapshot_frame["data"])  # valid JSON
+        assert snapshot_data["meta"]["layer"] == "air"
+        assert snapshot_data["meta"]["region_id"] == "hormuz"
+        assert snapshot_data["meta"]["feature_count"] == 1
+        # raw_payload excluded on the wire (api.md "raw_payload excluded").
+        assert "raw_payload" not in snapshot_frame["data"]
+        assert len(snapshot_data["features"]) == 1
+        assert "raw_payload" not in snapshot_data["features"][0]
+        assert snapshot_data["features"][0]["source_id"] == "abc123"
+
+        # --- When: the scheduler subsequently publishes a layer_status change
+        # via the EventBus (standing in for the real scheduler write path) ---
+        status_meta = LayerSnapshotMeta(
+            layer=Domain.AIR,
+            region_id="hormuz",
+            status=LayerStatus.RATE_LIMITED,
+            timestamp_fetched=fetched,
+            timestamp_source=fetched,
+            cadence_s=600,
+            stale_after_s=1200,
+            feature_count=1,
+            retry_after_s=42,
+            detail="OpenSky returned 429; retrying after 42s.",
+        )
+        events.publish_layer_status(status_meta)
+
+        # --- Then: the SAME connection receives the layer_status event,
+        # without reconnecting ---
+        status_frame = await asyncio.wait_for(frames.__anext__(), timeout=5.0)
+        assert status_frame["event"] == "layer_status"
+        assert set(status_frame) >= {"event", "data", "id"}
+        status_id = int(status_frame["id"])
+
+        status_data = json.loads(status_frame["data"])  # valid JSON
+        assert status_data == status_meta.model_dump(mode="json")
+        assert status_data["status"] == "rate-limited"
+        assert status_data["retry_after_s"] == 42
+
+        # --- And: id: is monotonic across the connection ---
+        assert status_id > snapshot_id
+
+        # Sanity: the connection registered exactly one subscriber while open.
+        assert events.subscriber_count == 1
+
+    # --- And: closing the connection runs `_sse_stream`'s
+    # `finally: events.unsubscribe(queue)` end-to-end -- no leaked subscriber
+    # queue after disconnect (api.md "## SSE": server tracks no per-client
+    # cursor; a dropped client leaves no residue). ---
+    assert events.subscriber_count == 0
+
+
+async def test_events_on_connect_replays_only_enabled_layers(tmp_path, monkeypatch):
+    """A layer present in the registry but DISABLED in config is not replayed
+    on connect (api.md "## SSE": one snapshot per ENABLED layer). Proven
+    deterministically: seed the registry with an enabled `air` snapshot AND a
+    disabled `marine` snapshot, connect, and assert the first frame is the
+    `air` snapshot and the very next frame is a subsequently-published
+    `layer_status` -- never a `marine` snapshot (which, had marine been
+    replayed, would arrive before it)."""
+    monkeypatch.setenv("OPENSKY_CLIENT_ID", "sse-test-opensky-client-id")
+    monkeypatch.setenv("OPENSKY_CLIENT_SECRET", "sse-test-opensky-client-secret")
+    monkeypatch.delenv("AISHUB_USERNAME", raising=False)
+    monkeypatch.delenv("ZIJ_CONFIG_PATH", raising=False)
+
+    from datetime import datetime, timezone
+
+    from backend.config import load_config
+    from backend.events import EventBus
+    from backend.main import create_app
+    from backend.models import (
+        Domain,
+        Feature,
+        FeatureStatus,
+        GeometryType,
+        LayerSnapshot,
+        LayerSnapshotMeta,
+        LayerStatus,
+    )
+    from backend.registry import Registry
+    from backend.store import Store
+
+    cfg, secrets = load_config(
+        overrides={"layers": {"marine": {"enabled": False}, "land": {"enabled": False}}}
+    )
+    fetched = datetime(2026, 7, 9, 12, 0, 0, tzinfo=timezone.utc)
+
+    def _snapshot(domain: Domain, source: str, source_id: str) -> LayerSnapshot:
+        feature = Feature(
+            domain=domain,
+            source=source,
+            source_id=source_id,
+            label=source_id,
+            lat=26.5,
+            lon=56.2,
+            geometry_type=GeometryType.POINT,
+            geometry=None,
+            timestamp_source=fetched,
+            timestamp_fetched=fetched,
+            position_age_s=0.0,
+            status=FeatureStatus.LIVE,
+            attrs={},
+        )
+        meta = LayerSnapshotMeta(
+            layer=domain,
+            region_id="hormuz",
+            status=LayerStatus.LIVE,
+            timestamp_fetched=fetched,
+            timestamp_source=fetched,
+            cadence_s=600,
+            stale_after_s=1200,
+            feature_count=1,
+        )
+        return LayerSnapshot(meta=meta, features=[feature])
+
+    registry = Registry()
+    registry[Domain.AIR] = _snapshot(Domain.AIR, "opensky", "air-1")
+    registry[Domain.MARINE] = _snapshot(Domain.MARINE, "aisstream", "marine-1")
+    events = EventBus()
+
+    static_dir = tmp_path / "dist"
+    static_dir.mkdir()
+    (static_dir / "index.html").write_text("<!doctype html>", encoding="utf-8")
+    store = Store(db_path=tmp_path / "events.db")
+
+    app = create_app(
+        static_dir=static_dir,
+        config=cfg,
+        secrets=secrets,
+        store=store,
+        registry=registry,
+        events=events,
+    )
+
+    async with _connect_sse(app) as response:
+        assert response.status_code == 200
+        frames = _iter_sse_frames(response)
+
+        first = await asyncio.wait_for(frames.__anext__(), timeout=5.0)
+        assert first["event"] == "snapshot"
+        assert json.loads(first["data"])["meta"]["layer"] == "air"
+
+        # A sentinel incremental: if disabled `marine` had been replayed, its
+        # snapshot would arrive HERE (before this layer_status), so the next
+        # frame being the layer_status proves marine was skipped on connect.
+        events.publish_layer_status(
+            LayerSnapshotMeta(
+                layer=Domain.AIR,
+                region_id="hormuz",
+                status=LayerStatus.LIVE,
+                timestamp_fetched=fetched,
+                timestamp_source=fetched,
+                cadence_s=600,
+                stale_after_s=1200,
+                feature_count=1,
+            )
+        )
+        second = await asyncio.wait_for(frames.__anext__(), timeout=5.0)
+        assert second["event"] == "layer_status"
