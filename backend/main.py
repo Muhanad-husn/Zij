@@ -122,6 +122,10 @@ class _RegionActivateRequest(BaseModel):
     save_as_preset: bool = False
 
 
+class _LayerToggleRequest(BaseModel):
+    enabled: bool
+
+
 def _region_info(
     region_id: str, label: str, bbox: tuple[float, float, float, float], kind: str
 ) -> dict:
@@ -540,20 +544,42 @@ def create_app(
             )
         return snapshot.model_dump(mode="json")
 
+    @app.post("/api/layers/{domain}/toggle")
+    async def toggle_layer(domain: str, payload: _LayerToggleRequest) -> dict:
+        """FR5 (api.md "POST /api/layers/{domain}/toggle"): delegate straight
+        to `scheduler.set_enabled` and echo back what was requested --
+        disabling stops that adapter's scheduling (zero upstream budget),
+        enabling triggers an immediate fetch (scheduler.md "Enable/disable
+        (FR5)")."""
+        domain_enum = _coerce_domain(domain)
+        await scheduler.set_enabled(domain_enum, payload.enabled)
+        return {"layer": domain_enum.value, "enabled": payload.enabled}
+
+    @app.post("/api/layers/{domain}/refresh", status_code=202)
+    async def refresh_layer(domain: str) -> dict:
+        """FR6 (api.md "POST /api/layers/{domain}/refresh"): fire-and-forget
+        manual refresh -- results ride SSE, not the HTTP response, so a
+        failed fetch (already recorded + published by the scheduler's own
+        write path, #38) must never turn into a 5xx here."""
+        domain_enum = _coerce_domain(domain)
+        try:
+            await scheduler.refresh(domain_enum)
+        except Exception:
+            _LOG.warning(
+                "POST /api/layers/%s/refresh: refresh failed",
+                domain_enum.value,
+                exc_info=True,
+            )
+        return {"layer": domain_enum.value, "queued": True}
+
     @app.post("/api/refresh", status_code=202)
     async def refresh() -> dict:
-        # v0 is manual-refresh-only (no scheduler): force both layers to
-        # refetch inline. FR10 isolation -- one layer's failure never aborts
-        # the other's refresh.
-        try:
-            await air_adapter.fetch(hormuz_region)
-        except AdapterError:
-            _LOG.warning("POST /api/refresh: air layer refetch failed", exc_info=True)
-        try:
-            await _fetch_and_cache_land()
-        except AdapterError:
-            _LOG.warning("POST /api/refresh: land layer refetch failed", exc_info=True)
-        return {"queued": ["air", "land"]}
+        """FR6 (api.md "POST /api/refresh"): delegate to
+        `scheduler.refresh_all()` and echo back exactly the enabled-layer
+        list it reports queuing -- never a hardcoded domain list, so a
+        disabled layer (e.g. marine) is genuinely excluded."""
+        queued = await scheduler.refresh_all()
+        return {"queued": [domain.value for domain in queued]}
 
     @app.get("/api/layers/{domain}/caveats")
     async def get_layer_caveats(domain: str) -> dict:

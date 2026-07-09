@@ -50,6 +50,7 @@ weakened.
 import asyncio
 import contextlib
 import json
+import time
 from pathlib import Path
 
 import httpx
@@ -2041,3 +2042,323 @@ def test_region_list_estimate_and_activate(tmp_path, monkeypatch):
         assert region_arg.id == "gulf-of-oman"
         assert region_arg.label == gulf_of_oman_cfg.label
         assert tuple(region_arg.bbox) == tuple(gulf_of_oman_cfg.bbox)
+
+
+# ===========================================================================
+# api-core slice 03 (issue #55): layer controls -- toggle + per-layer/global
+# manual refresh, absorbing #38 (a failed manual refresh must surface via
+# SSE, never as a silent success).
+#
+# Locked outer acceptance test (DEC-1), transcribed from
+# plans/api-core/03-controls-refresh.md ("Acceptance criterion") and
+# design/contracts/api.md ("POST /api/layers/{domain}/toggle", "POST
+# /api/layers/{domain}/refresh", "POST /api/refresh", "Error envelope"):
+#
+#   Given the app wired to a mocked scheduler and a spy EventBus
+#   When  POST /api/layers/air/toggle {enabled:false} is called
+#   Then  scheduler.set_enabled("air", False) runs and 200 returns
+#         {layer:"air", enabled:false}
+#   When  POST /api/layers/air/refresh is called
+#   Then  scheduler.refresh("air") runs and the response is
+#         202 {layer:"air", queued:true}
+#   When  POST /api/refresh is called with air+land enabled
+#   Then  202 returns {queued:["air","land"]}
+#   When  a queued refresh's fetch fails
+#   Then  a layer_status SSE event conveys the error/rate-limited/
+#         cached-fallback state (#38)
+#
+# Split into two parts because the "mocked scheduler" boundary and the
+# "#38 failure surfaces via SSE" requirement are not simultaneously
+# satisfiable by the SAME collaborator without the test becoming a
+# tautology:
+#
+# - Part A (toggle / per-layer refresh / refresh_all delegation) uses an
+#   `AsyncMock` scheduler exactly like the established pattern in
+#   test_region_list_estimate_and_activate -- this proves the ROUTE
+#   genuinely calls through to set_enabled/refresh/refresh_all with the
+#   right arguments and echoes exactly what the scheduler reports back.
+# - Part B (#38) uses a REAL `backend.scheduler.Scheduler` + a REAL
+#   `backend.events.EventBus`, wired to a `PollAdapter` double whose
+#   `fetch()` always raises. A mocked scheduler could only "prove" #38 by
+#   having this test's own AsyncMock side effect call
+#   `events.publish_layer_status` directly -- which would just assert that
+#   the test's own stub fired, not that the real write path
+#   (`Scheduler._handle_fetch_failure`, backend/scheduler.py) does. Reading
+#   that write path at authorship time shows exactly why this must fail
+#   today: `_handle_fetch_failure`'s non-`RateLimitedError` branch (the
+#   "cached-fallback beats error" gate) sets `self._status[domain]` but
+#   never calls `self._publish_status_event(...)` -- no SSE event is
+#   published for a plain fetch failure at all. Closing that gap (plus
+#   building the three new routes and `Scheduler.refresh_all`) is exactly
+#   what this slice is scoped to do (plan: "Absorbs #38").
+#
+# Both parts drive real httpx requests against `create_app(...)`; the
+# "mocked/spied" language in the plan's Boundary line covers both flavors
+# used here (a full `AsyncMock` in Part A, a real bus a subscriber "spies"
+# on via `events.subscribe()` in Part B).
+#
+# Both parts inject inert `PollAdapter` doubles for `air_adapter`/
+# `land_adapter` (Part A) rather than leaving `create_app`'s real-adapter
+# defaults in place, so hitting the CURRENT (pre-implementation) `POST
+# /api/refresh` v0 stub -- which still calls `air_adapter.fetch`/
+# `land_adapter.fetch` directly -- can never attempt a real network call to
+# OpenSky/Overpass while this test is red.
+#
+# Originally committed RED before implementation (strict xfail, DEC-33):
+# none of `POST /api/layers/{domain}/toggle`, `POST
+# /api/layers/{domain}/refresh` existed yet as POST routes, `POST
+# /api/refresh` still ran the v0 direct-fetch stub and never touched
+# `scheduler` at all, and (Part B) `Scheduler._handle_fetch_failure`'s
+# non-rate-limited branch never published a `layer_status` event. The slice
+# has since been implemented and this test now runs green (marker removed);
+# the assertions below are unchanged from the locked red contract.
+#
+# Design note (flagged, not silently "corrected" past the contract): the
+# dispatching plan's inner-unit list phrases the unknown-{domain} case as
+# "404/validation_error". This test instead locks the SAME `_coerce_domain`
+# convention already established and locked for every other `{domain}`
+# route in this file (`/api/layers/{domain}/snapshot`, `/caveats`, and
+# `/api/features/{domain}/{source_id}/raw`): `400 bad_request`. Inventing a
+# one-off 404/422 for just the two new control routes would make the
+# `{domain}` surface internally inconsistent for no stated reason; 400
+# bad_request is what `_coerce_domain` already does and what a natural
+# implementation of these new routes will reuse.
+# ===========================================================================
+
+
+def test_layer_toggle_and_refresh_controls_delegate_and_surface_failures_via_sse(
+    tmp_path, monkeypatch
+):
+    """See the module-level comment block directly above for the full
+    Gherkin transcription and the non-tautology rationale for Part A vs.
+    Part B.
+
+    Why this is not satisfiable by a stub:
+      - Part A's delegation checks inspect the AsyncMock scheduler's actual
+        `await_args` for `set_enabled`/`refresh`, and its exact configured
+        `refresh_all` RETURN VALUE (`[air, land]`, marine deliberately
+        excluded) is what the `/api/refresh` response must echo verbatim --
+        a handler that hardcodes "queued: all configured domains" rather
+        than trusting the scheduler's own answer fails that assertion even
+        though a naive body might look plausible.
+      - Part B does not assert on a mock at all: it subscribes to a REAL
+        `EventBus`, drives a REAL `Scheduler.refresh()` behind the new
+        route, backed by an adapter double that genuinely raises, and polls
+        the real subscriber queue for a genuine `layer_status` event. A
+        route/scheduler pair that swallows the failure with no event at all
+        (the "silent success" the plan explicitly forbids) times out and
+        fails this assertion; only an implementation that truly emits SSE
+        on failure passes.
+    """
+    # --- Given: known secrets (NFR5 env-only; air+marine both enabled in
+    # the bundled config.toml, so both secret gates must be satisfied) and
+    # the real bundled config/region set ---
+    monkeypatch.setenv("OPENSKY_CLIENT_ID", "outer-test-opensky-client-id-55")
+    monkeypatch.setenv("OPENSKY_CLIENT_SECRET", "outer-test-opensky-client-secret-55")
+    monkeypatch.setenv("AISSTREAM_API_KEY", "outer-test-aisstream-api-key-55")
+    monkeypatch.delenv("ZIJ_CONFIG_PATH", raising=False)
+
+    from unittest.mock import AsyncMock
+
+    from backend.config import load_config
+    from backend.main import create_app
+    from backend.models import Domain
+    from backend.sources.base import PollAdapter, Region, UpstreamError
+    from backend.store import Store
+
+    cfg, secrets = load_config()
+
+    class _StubPollAdapter(PollAdapter):
+        """A no-network `PollAdapter` double: always raises immediately, so
+        neither Part A app ever reaches out to a real OpenSky/Overpass
+        endpoint -- needed because the CURRENT (pre-implementation)
+        `POST /api/refresh` still calls `air_adapter.fetch`/
+        `land_adapter.fetch` directly."""
+
+        source = "stub-55"
+
+        def __init__(self, domain: Domain) -> None:
+            self.domain = domain
+
+        async def fetch(self, region: Region):
+            raise UpstreamError("stub adapter -- outer test #55, not exercised")
+
+    # =======================================================================
+    # Part A -- toggle / per-layer refresh / refresh_all delegation to a
+    # MOCKED scheduler.
+    # =======================================================================
+    static_dir_a = tmp_path / "dist-mocked"
+    static_dir_a.mkdir()
+    (static_dir_a / "index.html").write_text(
+        "<!doctype html><html><body>Zij</body></html>", encoding="utf-8"
+    )
+    store_a = Store(db_path=tmp_path / "mocked.db")
+
+    scheduler = AsyncMock()
+    # Deliberately differential from "every configured domain" (marine is
+    # enabled in the bundled config too) -- see module docstring above.
+    scheduler.refresh_all = AsyncMock(return_value=[Domain.AIR, Domain.LAND])
+
+    app_mocked = create_app(
+        static_dir=static_dir_a,
+        config=cfg,
+        secrets=secrets,
+        store=store_a,
+        air_adapter=_StubPollAdapter(Domain.AIR),
+        land_adapter=_StubPollAdapter(Domain.LAND),
+        scheduler=scheduler,
+    )
+
+    with TestClient(app_mocked) as client:
+        # --- When: POST /api/layers/air/toggle {enabled:false} ---
+        toggle_resp = client.post("/api/layers/air/toggle", json={"enabled": False})
+
+        # --- Then: 200 {"layer":"air","enabled":false}; scheduler.set_enabled
+        # awaited once with (air, False) -- genuine delegation, not an echo
+        # of the request body ---
+        assert toggle_resp.status_code == 200
+        assert toggle_resp.json() == {"layer": "air", "enabled": False}
+        scheduler.set_enabled.assert_awaited_once()
+        set_enabled_call = scheduler.set_enabled.await_args
+        domain_arg = (
+            set_enabled_call.args[0]
+            if set_enabled_call.args
+            else set_enabled_call.kwargs["domain"]
+        )
+        enabled_arg = (
+            set_enabled_call.args[1]
+            if len(set_enabled_call.args) > 1
+            else set_enabled_call.kwargs["enabled"]
+        )
+        assert domain_arg == Domain.AIR
+        assert enabled_arg is False
+
+        # --- When: POST /api/layers/air/refresh ---
+        refresh_resp = client.post("/api/layers/air/refresh")
+
+        # --- Then: 202 {"layer":"air","queued":true}; scheduler.refresh
+        # awaited once with air ---
+        assert refresh_resp.status_code == 202
+        assert refresh_resp.json() == {"layer": "air", "queued": True}
+        scheduler.refresh.assert_awaited_once()
+        refresh_call = scheduler.refresh.await_args
+        refreshed_domain = (
+            refresh_call.args[0] if refresh_call.args else refresh_call.kwargs["domain"]
+        )
+        assert refreshed_domain == Domain.AIR
+
+        # --- When: POST /api/refresh (air+land enabled) ---
+        refresh_all_resp = client.post("/api/refresh")
+
+        # --- Then: 202 {"queued":["air","land"]}, echoing EXACTLY what
+        # scheduler.refresh_all() reported (marine excluded, per the mock's
+        # configured return value) -- not every configured domain ---
+        assert refresh_all_resp.status_code == 202
+        assert refresh_all_resp.json() == {"queued": ["air", "land"]}
+        scheduler.refresh_all.assert_awaited_once()
+
+        # --- When: an unknown {domain} hits the toggle route ---
+        unknown_resp = client.post("/api/layers/space/toggle", json={"enabled": True})
+
+        # --- Then: the SAME `_coerce_domain` envelope already locked in for
+        # every other {domain} route in this file (400 bad_request) -- see
+        # module docstring's "Design note" above ---
+        assert unknown_resp.status_code == 400
+        unknown_body = unknown_resp.json()
+        assert unknown_body["error"]["code"] == "bad_request"
+        assert "space" in unknown_body["error"]["message"]
+
+    # =======================================================================
+    # Part B -- #38: a queued refresh's underlying fetch failure surfaces as
+    # a `layer_status` SSE event, never a silent success. REAL Scheduler +
+    # REAL EventBus (see module docstring's rationale above).
+    # =======================================================================
+    from backend.events import EventBus
+    from backend.registry import Registry
+    from backend.scheduler import Scheduler
+
+    class _AlwaysFailingAirAdapter(PollAdapter):
+        """A PollAdapter double whose fetch() always raises -- so the
+        failure genuinely originates upstream of backend/main.py, in the
+        real Scheduler's write path."""
+
+        domain = Domain.AIR
+        source = "stub-55-failing"
+
+        async def fetch(self, region: Region):
+            raise UpstreamError("simulated upstream failure (outer test #55)")
+
+    hormuz_cfg = next(r for r in cfg.regions if r.id == "hormuz")
+    hormuz_region = Region(
+        id=hormuz_cfg.id, label=hormuz_cfg.label, bbox=hormuz_cfg.bbox
+    )
+
+    real_events = EventBus()
+    status_queue = real_events.subscribe()
+    real_store = Store(db_path=tmp_path / "real.db")
+    real_registry = Registry()
+    real_scheduler = Scheduler(
+        cfg,
+        {Domain.AIR: _AlwaysFailingAirAdapter()},
+        hormuz_region,
+        registry=real_registry,
+        store=real_store,
+        events=real_events,
+    )
+
+    static_dir_b = tmp_path / "dist-real"
+    static_dir_b.mkdir()
+    (static_dir_b / "index.html").write_text(
+        "<!doctype html><html><body>Zij</body></html>", encoding="utf-8"
+    )
+
+    app_real = create_app(
+        static_dir=static_dir_b,
+        config=cfg,
+        secrets=secrets,
+        store=real_store,
+        registry=real_registry,
+        events=real_events,
+        scheduler=real_scheduler,
+    )
+
+    with TestClient(app_real) as real_client:
+        # --- When: POST /api/layers/air/refresh triggers a fetch that fails
+        # upstream ---
+        failing_refresh_resp = real_client.post("/api/layers/air/refresh")
+
+        # --- Then: the HTTP response is STILL 202 {"layer":"air",
+        # "queued":true} -- the failure never turns into a 5xx; per the
+        # plan, "results ride SSE, not the HTTP response" ---
+        assert failing_refresh_resp.status_code == 202
+        assert failing_refresh_resp.json() == {"layer": "air", "queued": True}
+
+        # --- And: a `layer_status` SSE event conveys the failure. Poll
+        # with a bounded timeout rather than assuming a particular
+        # fire-and-forget mechanism (inline await-and-swallow vs a
+        # genuinely detached background task) -- either way the event must
+        # show up promptly. A route/scheduler pair that silently swallows
+        # the failure with no event at all times out and fails this
+        # assertion. ---
+        status_event = None
+        deadline = time.monotonic() + 5.0
+        while time.monotonic() < deadline:
+            try:
+                status_event = status_queue.get_nowait()
+                break
+            except asyncio.QueueEmpty:
+                time.sleep(0.05)
+
+        assert status_event is not None, (
+            "expected a layer_status SSE event after a failed manual "
+            "refresh (#38); none arrived within 5s"
+        )
+        assert status_event["event"] == "layer_status"
+        status_data = status_event["data"]
+        assert status_data["layer"] == "air"
+        # error / rate-limited / cached-fallback -- whichever the write
+        # path mapped this failure to (scheduler.md "cached-fallback beats
+        # error"); "live"/"stale"/"loading" would mean the failure was
+        # dropped on the floor instead of surfaced.
+        assert status_data["status"] in ("error", "rate-limited", "cached-fallback")
+        assert status_data.get("detail")

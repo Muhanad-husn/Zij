@@ -441,6 +441,28 @@ class Scheduler:
         tick may already have in flight for this layer."""
         await self._do_fetch(domain)
 
+    async def refresh_all(self) -> list[Domain]:
+        """FR6 "refresh all enabled layers" trigger (api.md "POST
+        /api/refresh"; plan api-core/03 "Absorbs #38"). Queues an immediate
+        refresh for every currently-enabled POLL layer (`_adapters`) and
+        returns exactly the list it queued, so the caller echoes the
+        scheduler's own enabled set rather than a hardcoded domain list --
+        a disabled layer is genuinely excluded. Per-layer isolation (FR10):
+        one layer's fetch failure (already recorded + published by
+        `_handle_fetch_failure`, #38) must never stop a sibling layer's
+        refresh."""
+        queued = [
+            domain for domain in self._adapters if self._enabled.get(domain, False)
+        ]
+        for domain in queued:
+            try:
+                await self.refresh(domain)
+            except Exception:
+                logger.warning(
+                    "refresh_all: layer %s refresh failed", domain, exc_info=True
+                )
+        return queued
+
     async def _do_fetch(self, domain: Domain) -> LayerSnapshot:
         """Single-flight per layer (spec "Coalescing (FR6)"): a shared
         `asyncio.Future`, not a lock -- joining callers need the *result*,
@@ -562,15 +584,20 @@ class Scheduler:
         on a published `layer_status` event (the poll loop separately defers
         the retry by `retry_after`). Every other error uses the "cached-fallback
         beats error" gate: on a warm, region-matched fallback row show
-        `cached-fallback`, else `error`. That gate is a no-op (status untouched)
-        when `store` was not supplied -- preserving the slice-02 contract."""
+        `cached-fallback`, else `error`; either way (#38) a `layer_status`
+        event carrying a non-empty `detail` is published, so a manual
+        refresh's failure is never a silent success. That gate is a no-op
+        (status untouched, nothing published) when `store` was not supplied
+        -- preserving the slice-02 contract."""
+        detail = str(exc) or f"{type(exc).__name__} while fetching {domain.value}"
+
         if isinstance(exc, RateLimitedError):
             self._status[domain] = LayerStatus.RATE_LIMITED
             self._publish_status_event(
                 domain,
                 LayerStatus.RATE_LIMITED,
                 retry_after_s=exc.retry_after,
-                detail=str(exc) or None,
+                detail=detail,
             )
             return
 
@@ -579,9 +606,11 @@ class Scheduler:
 
         cached = await self._store.get_fallback(domain.value)
         if cached is not None and cached.meta.region_id == self._region.id:
-            self._status[domain] = LayerStatus.CACHED_FALLBACK
+            status = LayerStatus.CACHED_FALLBACK
         else:
-            self._status[domain] = LayerStatus.ERROR
+            status = LayerStatus.ERROR
+        self._status[domain] = status
+        self._publish_status_event(domain, status, detail=detail)
 
     def _publish_status_event(
         self,
