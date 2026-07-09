@@ -1,0 +1,29 @@
+[connect] wss://stream.aisstream.io/v0/stream
+[connected] True
+[subscribe payload sent]
+{
+  "APIKey": "demo-key-not-a-real-secret",
+  "BoundingBoxes": [
+    [
+      [
+        25.0,
+        55.0
+      ],
+      [
+        27.5,
+        57.5
+      ]
+    ]
+  ],
+  "FilterMessageTypes": [
+    "PositionReport",
+    "ShipStaticData"
+  ]
+}
+
+[snapshot] layer=marine region=hormuz feature_count=2
+  MMSI=366222333 label=None status=stale lat=25.5 lon=55.5 age_s=2400 sog_kn=5.0 cog_deg=200.0 heading_deg=200 ship_type=None
+  MMSI=366111222 label='MERIDIAN STAR' status=live lat=26.15 lon=56.25 age_s=120 sog_kn=13.1 cog_deg=91.0 heading_deg=None ship_type=70
+
+[_prev_pos -- FR9 prior fixes]
+  MMSI=366111222 prev=(lat=26.1, lon=56.2, ts=2026-07-09 11:50:00+00:00)
