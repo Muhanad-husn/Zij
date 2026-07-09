@@ -1,0 +1,16 @@
+$ curl -N http://127.0.0.1:50780/api/events
+# (server publishes a layer_status mid-stream to show a live incremental)
+
+< HTTP/1.1 200
+< content-type: text/event-stream; charset=utf-8
+
+id: 1
+event: snapshot
+data: {"meta": {"layer": "air", "region_id": "hormuz", "status": "live", "timestamp_fetched": "2026-07-09T12:00:00Z", "timestamp_source": "2026-07-09T12:00:00Z", "cadence_s": 600, "stale_after_s": 1200, "feature_count": 1, "retry_after_s": null, "detail": null}, "features": [{"domain": "air", "source": "opensky", "source_id": "abc123", "label": "ZIJ001", "lat": 26.5, "lon": 56.2, "geometry_type": "point", "geometry": null, "timestamp_source": "2026-07-09T12:00:00Z", "timestamp_fetched": "2026-07-09T12:00:00Z", "position_age_s": 0.0, "status": "live", "integrity_flags": [], "attrs": {"callsign": "ZIJ001"}}]}
+
+id: 2
+event: layer_status
+data: {"layer": "air", "region_id": "hormuz", "status": "rate-limited", "timestamp_fetched": "2026-07-09T12:00:00Z", "timestamp_source": "2026-07-09T12:00:00Z", "cadence_s": 600, "stale_after_s": 1200, "feature_count": 1, "retry_after_s": 42.0, "detail": "OpenSky returned 429; retrying after 42s."}
+
+
+# subscriber_count after disconnect + teardown: 0
