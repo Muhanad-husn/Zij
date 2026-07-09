@@ -485,5 +485,68 @@ def test_layers_marine_snapshot_404_not_found_when_registry_empty(tmp_path):
     assert resp.json()["error"]["code"] == "not_found"
 
 
+# --- 6. Regression: duplicate save_as_preset activate -> 409 conflict -----
+
+
+async def test_activate_custom_bbox_save_as_preset_duplicate_label_returns_409(
+    tmp_path,
+):
+    """Regression for the defect fixed in `a8ef654`: activating a custom
+    bbox with `save_as_preset: true` when the label/name collides with an
+    already-persisted preset must surface the api.md `conflict` envelope
+    (409), mirroring `POST /api/presets`'s own `ConflictError -> 409` idiom
+    (`backend/main.py` around the `/api/presets` route) -- NOT bubble the
+    raw `store.add_preset` `ConflictError` into an unhandled 500. The first
+    activate-with-the-same-label succeeds (200) so the second call's failure
+    is provably a collision with a real persisted row, not e.g. a bbox
+    validation issue.
+    """
+    app, _cfg, store, scheduler = _build_app_for_activate(
+        tmp_path, db_name="activate_conflict.db"
+    )
+
+    dup_bbox = [51.0, 21.0, 53.0, 23.0]  # area 4, in-cap
+    with TestClient(app) as client:
+        first = client.post(
+            "/api/regions/activate",
+            json={
+                "bbox": dup_bbox,
+                "label": "Duplicate Box",
+                "save_as_preset": True,
+            },
+        )
+        assert first.status_code == 200
+        assert first.json()["active_region"]["kind"] == "preset"
+
+        second = client.post(
+            "/api/regions/activate",
+            json={
+                "bbox": dup_bbox,
+                "label": "Duplicate Box",
+                "save_as_preset": True,
+            },
+        )
+
+        assert second.status_code == 409
+        body = second.json()
+        assert body["error"]["code"] == "conflict"
+
+        # Only the first activate's preset persisted -- the collision was
+        # rejected outright rather than silently overwriting/duplicating it.
+        # Read via the SAME Store instance while the TestClient's lifespan
+        # is still open (a fresh read from the collaborator the handler
+        # wrote through, not the response body).
+        presets = await store.list_presets()
+
+    assert len(presets) == 1
+
+    # The scheduler was only awaited for the first (successful) activate --
+    # the second call's `ConflictError` is raised (in `backend/main.py`'s
+    # `/api/regions/activate`) BEFORE `scheduler.activate_region` would be
+    # reached, so the conflict aborts the whole request rather than
+    # partially activating a region that failed to persist as a preset.
+    assert scheduler.activate_region.await_count == 1
+
+
 if __name__ == "__main__":  # pragma: no cover
     pytest.main([__file__])
