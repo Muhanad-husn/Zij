@@ -1,0 +1,24 @@
+============================= test session starts =============================
+platform win32 -- Python 3.13.11, pytest-9.1.1, pluggy-1.6.0 -- D:\zij-wt\marine-51\.venv\Scripts\python.exe
+cachedir: .pytest_cache
+rootdir: D:\zij-wt\marine-51
+configfile: pyproject.toml
+plugins: anyio-4.14.1, asyncio-1.4.0, respx-0.23.1
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 12 items
+
+backend/tests/test_aisstream.py::test_aisstream_processes_position_and_static_then_snapshot PASSED [  8%]
+backend/tests/test_aisstream.py::test_subscribe_payload_bbox_corner_transform PASSED [ 16%]
+backend/tests/test_aisstream.py::test_position_report_heading_511_sentinel_vs_normal_passthrough PASSED [ 25%]
+backend/tests/test_aisstream.py::test_ship_static_data_enriches_without_moving_position_or_last_heard PASSED [ 33%]
+backend/tests/test_aisstream.py::test_snapshot_returns_fresh_copies_without_a_live_connection PASSED [ 41%]
+backend/tests/test_aisstream.py::test_parse_aisstream_time_utc_variable_length_fraction PASSED [ 50%]
+backend/tests/test_aisstream.py::test_snapshot_feature_attrs_is_a_distinct_dict_per_snapshot PASSED [ 58%]
+backend/tests/test_aisstream.py::test_aisstream_resilience_reconnect_and_region_switch PASSED [ 66%]
+backend/tests/test_aisstream.py::test_evict_stale_drops_aged_entries_from_both_tables PASSED [ 75%]
+backend/tests/test_aisstream.py::test_reconnect_backoff_bound_grows_then_caps PASSED [ 83%]
+backend/tests/test_aisstream.py::test_reconnect_attempt_resets_after_successful_subscribe PASSED [ 91%]
+backend/tests/test_aisstream.py::test_stop_cancels_and_awaits_both_tasks_cleanly PASSED [100%]
+
+============================= 12 passed in 0.47s ==============================
+exit=0
