@@ -1,0 +1,32 @@
+# Real invocation — backend.integrity CAVEATS + active_flag_counts (#44)
+$ uv run python demo_caveats.py
+=== CAVEATS (static per-domain text, verbatim from integrity.md) ===
+
+[air]
+  - Shows only aircraft broadcasting ADS-B/Mode S within receiver coverage.
+  - Military and state aircraft with transponders switched off are invisible here.
+  - Mode S-only aircraft broadcast no position; altitude/position gaps are expected.
+
+[marine]
+  - Terrestrial AIS coverage in the Persian Gulf is receiver-dependent and uneven.
+  - Dark-fleet vessels routinely disable AIS and will not appear.
+  - GPS jamming in the region produces on-land and circular ghost tracks; positions may be spoofed.
+
+[land]
+  - This layer is mapped infrastructure state, not live telemetry.
+  - Positions reflect OpenStreetMap data at the shown osm_base timestamp, not current ground truth.
+  - Absence of a feature means it is unmapped, not necessarily absent on the ground.
+
+=== active_flag_counts over a mixed snapshot (5 vessels: 3 spoof, 2 kinematics) ===
+{
+  "spoof_suspect_on_land": 3,
+  "implausible_kinematics": 2
+}
+
+=== active_flag_counts over an empty snapshot (every flag present, all zero) ===
+{
+  "spoof_suspect_on_land": 0,
+  "implausible_kinematics": 0
+}
+
+[process exited 0]
