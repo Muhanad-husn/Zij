@@ -22,6 +22,7 @@ import itertools
 import json
 import logging
 import time
+import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -34,7 +35,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
-from backend.config import AppConfig, Secrets, load_config
+from backend.config import AppConfig, Secrets, estimate_credits, load_config
 from backend.events import EventBus
 from backend.integrity import CAVEATS, active_flag_counts
 from backend.models import (
@@ -46,6 +47,7 @@ from backend.models import (
     LayerStatus,
 )
 from backend.registry import Registry
+from backend.scheduler import Scheduler
 from backend.sources.base import (
     AdapterError,
     AuthError,
@@ -107,6 +109,65 @@ def _coerce_domain(domain: str) -> Domain:
 class _PresetCreateRequest(BaseModel):
     name: str
     bbox: tuple[float, float, float, float]
+
+
+class _RegionEstimateRequest(BaseModel):
+    bbox: tuple[float, float, float, float]
+
+
+class _RegionActivateRequest(BaseModel):
+    region_id: str | None = None
+    bbox: tuple[float, float, float, float] | None = None
+    label: str | None = None
+    save_as_preset: bool = False
+
+
+def _region_info(
+    region_id: str, label: str, bbox: tuple[float, float, float, float], kind: str
+) -> dict:
+    """A `RegionInfo`-shaped dict (api.md "GET /api/regions" example): no
+    frozen pydantic model exists in `design/` for this shape, so a plain
+    dict literal is the lighter-touch choice, consistent with every other
+    ad-hoc response body already built this way in this module."""
+    return {
+        "id": region_id,
+        "label": label,
+        "bbox": list(bbox),
+        "aviation_credit_cost": estimate_credits(bbox),
+        "kind": kind,
+    }
+
+
+def _estimate_bbox(config: AppConfig, bbox: tuple[float, float, float, float]) -> dict:
+    """Pure estimate math (api.md "POST /api/regions/estimate"): area, the
+    aviation credit-tier cost, and a per-layer cap comparison. Reused
+    verbatim by `POST /api/regions/activate`'s server-side re-validation of
+    a custom bbox (api.md: "Custom bbox is re-validated server-side")."""
+    west, south, east, north = bbox
+    area_sq_deg = (east - west) * (north - south)
+    aviation_credit_cost = estimate_credits(bbox)
+    layer_caps: dict[str, dict] = {}
+    valid = True
+    for domain_name, layer_cfg in config.layers.items():
+        cap = layer_cfg.custom_bbox_cap_sq_deg
+        ok = area_sq_deg <= cap
+        entry: dict[str, object] = {"ok": ok, "cap_sq_deg": cap}
+        if domain_name == Domain.AIR.value:
+            entry["cost_credits"] = aviation_credit_cost
+        if not ok:
+            entry["message"] = (
+                f"{domain_name.capitalize()} bbox {area_sq_deg} sq° "
+                f"exceeds the {cap} sq° cap."
+            )
+            valid = False
+        layer_caps[domain_name] = entry
+    return {
+        "valid": valid,
+        "bbox": list(bbox),
+        "area_sq_deg": area_sq_deg,
+        "aviation_credit_cost": aviation_credit_cost,
+        "layer_caps": layer_caps,
+    }
 
 
 def _adapter_error_to_http(exc: AdapterError) -> HTTPException:
@@ -193,15 +254,23 @@ def create_app(
     store: Store | None = None,
     registry: Registry | None = None,
     events: EventBus | None = None,
+    scheduler: Scheduler | None = None,
 ) -> FastAPI:
     """Build the Zij FastAPI app.
 
     `secrets` is never referenced in any response body -- only `config` is
     ever serialized (NFR5) -- but is used to build the default `air_adapter`
     when one isn't injected. `air_adapter`/`land_adapter`/`store`/`registry`/
-    `events` are each optional and default to a fresh/real collaborator built
-    from `config`/`secrets` when omitted, so the real uvicorn entrypoint
-    (`_build_default_app`) keeps working unchanged.
+    `events`/`scheduler` are each optional and default to a fresh/real
+    collaborator built from `config`/`secrets` when omitted, so the real
+    uvicorn entrypoint (`_build_default_app`) keeps working unchanged.
+
+    The default `scheduler` is constructed (so `POST /api/regions/activate`
+    always has a real collaborator to delegate to) but its `run()` task
+    loop is deliberately NOT started here -- wiring the scheduler's
+    background poll loops into the app lifespan is out of scope for this
+    slice (plans/api-core/02-region-endpoints.md "Out of scope": "The
+    region-switch mechanics themselves ... this slice only calls them").
     """
     if air_adapter is None:
         opensky_cfg = OpenSkyCfg(**config.opensky, **config.layers["air"].model_dump())
@@ -230,6 +299,37 @@ def create_app(
     hormuz_region = Region(
         id=hormuz_cfg.id, label=hormuz_cfg.label, bbox=hormuz_cfg.bbox
     )
+
+    # The region resolved by `load_config` (config.md "Precedence" #5),
+    # else the app's hardcoded pre-scheduler default -- used both as the
+    # default scheduler's initial region and as `GET /api/regions/active`'s
+    # initial state before any `POST /api/regions/activate` call.
+    active_region_cfg = next(
+        (r for r in config.regions if r.id == config.active_region_id),
+        hormuz_cfg,
+    )
+    active_region_state: dict[str, dict | None] = {
+        "info": _region_info(
+            active_region_cfg.id,
+            active_region_cfg.label,
+            active_region_cfg.bbox,
+            "predefined",
+        )
+    }
+
+    if scheduler is None:
+        scheduler = Scheduler(
+            config,
+            {Domain.AIR: air_adapter, Domain.LAND: land_adapter},
+            Region(
+                id=active_region_cfg.id,
+                label=active_region_cfg.label,
+                bbox=active_region_cfg.bbox,
+            ),
+            registry=registry,
+            store=store,
+            events=events,
+        )
 
     @asynccontextmanager
     async def _lifespan(_app: FastAPI):
@@ -291,6 +391,93 @@ def create_app(
     async def get_config() -> dict:
         return config.model_dump(mode="json")
 
+    @app.get("/api/regions")
+    async def list_regions() -> dict:
+        regions = [
+            _region_info(region_cfg.id, region_cfg.label, region_cfg.bbox, "predefined")
+            for region_cfg in config.regions
+        ]
+        preset_rows = await store.list_presets()
+        regions.extend(
+            _region_info(f"custom:{row.id}", row.label, row.bbox, "preset")
+            for row in preset_rows
+        )
+        return {"regions": regions}
+
+    @app.post("/api/regions/estimate")
+    async def estimate_region(payload: _RegionEstimateRequest) -> dict:
+        result = _estimate_bbox(config, payload.bbox)
+        if not result["valid"]:
+            raise HTTPException(
+                status_code=422,
+                detail=_error_envelope(
+                    "validation_error",
+                    "custom bbox exceeds a layer cap",
+                    details=result,
+                ),
+            )
+        return result
+
+    @app.post("/api/regions/activate")
+    async def activate_region_route(payload: _RegionActivateRequest) -> dict:
+        if payload.region_id is not None:
+            region_cfg = next(
+                (r for r in config.regions if r.id == payload.region_id), None
+            )
+            if region_cfg is None:
+                raise HTTPException(
+                    status_code=404,
+                    detail=_error_envelope(
+                        "not_found", f"unknown region_id {payload.region_id!r}"
+                    ),
+                )
+            region = Region(
+                id=region_cfg.id, label=region_cfg.label, bbox=region_cfg.bbox
+            )
+            kind = "predefined"
+        else:
+            if payload.bbox is None:
+                raise HTTPException(
+                    status_code=400,
+                    detail=_error_envelope(
+                        "bad_request",
+                        "activate requires either region_id or bbox",
+                    ),
+                )
+            estimate = _estimate_bbox(config, payload.bbox)
+            if not estimate["valid"]:
+                raise HTTPException(
+                    status_code=422,
+                    detail=_error_envelope(
+                        "validation_error",
+                        "custom bbox exceeds a layer cap",
+                        details=estimate,
+                    ),
+                )
+            label = payload.label or "Custom region"
+            region_id = f"custom:{uuid.uuid4().hex[:8]}"
+            kind = "custom"
+            if payload.save_as_preset:
+                try:
+                    preset_id = await store.add_preset(label, payload.bbox, label=label)
+                except ConflictError as exc:
+                    raise HTTPException(
+                        status_code=409,
+                        detail=_error_envelope("conflict", str(exc)),
+                    ) from exc
+                region_id = f"custom:{preset_id}"
+                kind = "preset"
+            region = Region(id=region_id, label=label, bbox=payload.bbox)
+
+        await scheduler.activate_region(region)
+        info = _region_info(region.id, region.label, region.bbox, kind)
+        active_region_state["info"] = info
+        return {"active_region": info}
+
+    @app.get("/api/regions/active")
+    async def get_active_region() -> dict:
+        return {"active_region": active_region_state["info"]}
+
     async def _fetch_and_cache_land() -> LayerSnapshot:
         """Force a fresh Overpass fetch and write it through to
         `land_cache`, bypassing the freshness check (used by both the cold
@@ -307,30 +494,50 @@ def create_app(
         await store.put_land_cache(row)
         return snapshot
 
-    @app.get("/api/layers/air/snapshot")
-    async def get_air_snapshot() -> dict:
-        try:
-            snapshot = await air_adapter.fetch(hormuz_region)
-        except AdapterError as exc:
-            raise _adapter_error_to_http(exc) from exc
-        return snapshot.model_dump(mode="json")
-
-    @app.get("/api/layers/land/snapshot")
-    async def get_land_snapshot() -> dict:
-        try:
-            cached = await store.get_land_cache(hormuz_region.id)
-            if cached is not None:
-                age_s = (datetime.now(timezone.utc) - cached.fetched_at).total_seconds()
-                if age_s < _LAND_CACHE_FRESH_S:
-                    snapshot = _land_snapshot_from_cache_row(
-                        cached,
-                        cadence_s=land_cadence_s,
-                        stale_after_s=land_stale_after_s,
-                    )
-                    return snapshot.model_dump(mode="json")
-            snapshot = await _fetch_and_cache_land()
-        except AdapterError as exc:
-            raise _adapter_error_to_http(exc) from exc
+    @app.get("/api/layers/{domain}/snapshot")
+    async def get_layer_snapshot(domain: str) -> dict:
+        """Consolidated air/land/marine snapshot route (#37) -- one route
+        for all three domains now that marine is a third live domain. Air
+        and land keep their pre-scheduler direct-fetch behavior exactly
+        (backend/tests/test_api.py::test_snapshots_and_refresh locks this
+        in); marine (and any future registry-only domain) pulls the current
+        `LayerSnapshot` from the registry -- the scheduler is its sole
+        writer -- 404 `not_found` when nothing has been fetched yet for it
+        (api.md: "404 not_found if no active region")."""
+        domain_enum = _coerce_domain(domain)
+        if domain_enum is Domain.AIR:
+            try:
+                snapshot = await air_adapter.fetch(hormuz_region)
+            except AdapterError as exc:
+                raise _adapter_error_to_http(exc) from exc
+            return snapshot.model_dump(mode="json")
+        if domain_enum is Domain.LAND:
+            try:
+                cached = await store.get_land_cache(hormuz_region.id)
+                if cached is not None:
+                    age_s = (
+                        datetime.now(timezone.utc) - cached.fetched_at
+                    ).total_seconds()
+                    if age_s < _LAND_CACHE_FRESH_S:
+                        snapshot = _land_snapshot_from_cache_row(
+                            cached,
+                            cadence_s=land_cadence_s,
+                            stale_after_s=land_stale_after_s,
+                        )
+                        return snapshot.model_dump(mode="json")
+                snapshot = await _fetch_and_cache_land()
+            except AdapterError as exc:
+                raise _adapter_error_to_http(exc) from exc
+            return snapshot.model_dump(mode="json")
+        snapshot = registry.get(domain_enum)
+        if snapshot is None:
+            raise HTTPException(
+                status_code=404,
+                detail=_error_envelope(
+                    "not_found",
+                    f"no active region / snapshot for {domain_enum.value}",
+                ),
+            )
         return snapshot.model_dump(mode="json")
 
     @app.post("/api/refresh", status_code=202)
