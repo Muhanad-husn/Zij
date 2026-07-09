@@ -67,3 +67,11 @@ And   the Caveats button is present and enabled in every status, including error
 ## Status / progress log
 
 - 2026-07-06 planned (sprint v1). Blocked-by: frontend/01.
+- 2026-07-09 built + PR prepared. Outer test `frontend/tests/e2e/badges.spec.ts` red
+  (`f2b0658`, `test.fail()`) → green (`47f5141`, marker removed). All seven `LayerStatus`
+  states + marine badge + always-enabled Caveats shipped; implementer also fixed a
+  pre-existing SSE-vs-REST cold-start race in `main.ts`. Vitest 89 green, backend 207 green,
+  outer Playwright `1 passed`. Two-stage reviewer PASS/PASS, no blocking findings. Evidence
+  `docs/tdd-evidence/frontend/02-badges/`. **PR #92** into `main` (`Closes #58`). Awaiting
+  founder merge approval. Non-blocking follow-up: `LayerSnapshotMeta.status` typed `string`
+  vs a `LayerStatus` union (inherited from slice 01).
