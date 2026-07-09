@@ -1801,12 +1801,15 @@ def test_caveats_raw_and_presets(tmp_path, monkeypatch):
 # plans/api-core/02-region-endpoints.md ("Acceptance criterion") and
 # design/contracts/api.md ("GET /api/regions", "POST /api/regions/estimate",
 # "POST /api/regions/activate", "Error envelope"). Committed RED first
-# (strict xfail, DEC-33): none of `/api/regions`, `/api/regions/estimate`,
-# `/api/regions/activate` exist yet in backend/main.py (they fall through to
-# the `/api/{rest:path}` catch-all -> 404), and `create_app` does not yet
-# accept a `scheduler=` keyword at all (an unexpected-kwarg `TypeError`), so
-# the assertions below fail today and this test xfails cleanly under the
-# tests-green gate.
+# (strict xfail, DEC-33, commit d5c305c): none of `/api/regions`,
+# `/api/regions/estimate`, `/api/regions/activate` existed yet in
+# backend/main.py (they fell through to the `/api/{rest:path}` catch-all ->
+# 404), and `create_app` did not yet accept a `scheduler=` keyword at all (an
+# unexpected-kwarg `TypeError`), so the assertions below failed and this test
+# xfailed cleanly under the tests-green gate. The implementer has since built
+# `backend/main.py` to satisfy this exact seam -- the test now genuinely
+# passes and the marker has been removed to finalize the contract. The
+# assertions above are never weakened.
 #
 # Design seam this test locks in for the implementer (backend/main.py):
 #
@@ -1829,7 +1832,6 @@ def test_caveats_raw_and_presets(tmp_path, monkeypatch):
 # ===========================================================================
 
 
-@pytest.mark.xfail(reason="region endpoints (#54) not yet implemented", strict=True)
 def test_region_list_estimate_and_activate(tmp_path, monkeypatch):
     """Given the app with the 7 predefined regions loaded (bundled
     config.toml) and a spy `scheduler` collaborator injected via
