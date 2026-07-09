@@ -1,0 +1,8 @@
+WARNING backend.store: Corrupt/malformed SQLite database detected at C:\Users\mou97\AppData\Local\Temp\zij-corruption-demo-u8rcx33h\zij.db -- deleting and recreating from schema.sql (every table is a rebuildable cache or low-value preset; no authoritative data is lost)
+[1] Wrote 1472 bytes of garbage to C:\Users\mou97\AppData\Local\Temp\zij-corruption-demo-u8rcx33h\zij.db
+    First bytes: b'this is not a sqlite dat'
+[2] Calling Store.init() on the corrupt file ...
+    init() returned WITHOUT raising -> recovered
+[3] Round-trip after recovery: get_land_cache('hormuz') -> feature_count=42, region_id='hormuz'
+[4] OK — corrupt DB recovered and fresh schema round-trips. Exit 0.
+exit=0
