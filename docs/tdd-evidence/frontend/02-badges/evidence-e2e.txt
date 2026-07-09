@@ -1,0 +1,14 @@
+[WebServer] 
+[WebServer] (!) Some chunks are larger than 500 kB after minification. Consider:
+[WebServer] - Using dynamic import() to code-split the application
+[WebServer] - Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+[WebServer] - Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+
+Running 1 test using 1 worker
+
+  ✓  1 [chromium] › tests\e2e\badges.spec.ts:290:1 › per-domain badges render every LayerStatus with distinct color+label, UTC timestamps, a rate-limited countdown, and an always-enabled Caveats button (3.0s)
+Error: worker-0 process did not exit within 300000ms after stop, force-killed it
+Error: worker-0 process did not exit within 300000ms after stop, force-killed it
+
+  1 passed (5.2m)
+  2 errors were not a part of any test, see above for details
