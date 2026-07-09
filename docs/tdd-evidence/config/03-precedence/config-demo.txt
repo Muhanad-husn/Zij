@@ -1,0 +1,26 @@
+D:\zij-wt\config-46\.venv\Lib\site-packages\fastapi\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+  from starlette.testclient import TestClient as TestClient  # noqa
+========================================================================
+DEMO 1 - precedence chain: bundle < user-TOML < ZIJ_ env < DB override
+========================================================================
+user-TOML only        -> layers.air.cadence_s = 111  (expect 111)
+   sibling preserved  -> layers.air.cadence_floor_s = 60  (deep-merge kept it)
++ ZIJ_ env var        -> layers.air.cadence_s = 222  (expect 222, env beats file)
++ DB config_override   -> layers.air.cadence_s = 333  (expect 333, DB wins)
+
+========================================================================
+DEMO 2 - active_region restore + default fallback
+========================================================================
+override active_region -> active_region_id = 'suez-canal'  (restored)
+invalid region_id      -> active_region_id = 'hormuz'  (falls back to default regions[0])
+no override            -> active_region_id = 'hormuz'  (default regions[0])
+
+========================================================================
+DEMO 3 - live GET /api/config: secrets absent, active_region_id absent
+========================================================================
+HTTP GET /api/config -> 200
+top-level keys: ['aisstream', 'integrity', 'layers', 'opensky', 'overpass', 'regions', 'server']
+'active_region_id' in body?  False  (must be False - internal only)
+any secret-shaped key in body?  False  (must be False - NFR5 env-only)
+regions returned: ['hormuz', 'persian-gulf', 'gulf-of-oman', 'iraq-corridor', 'syria-corridor', 'eastern-med', 'suez-canal']
+exit=0

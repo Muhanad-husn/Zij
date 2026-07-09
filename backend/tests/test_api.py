@@ -155,6 +155,19 @@ def test_health_and_config(tmp_path, monkeypatch):
     assert land_layer["simplify_tolerance_deg"] == 0.0005
     assert land_layer["max_rendered_features"] == 5000
 
+    # --- And: the /api/config body does NOT include active_region_id
+    # (regression lock, config slice 03 / #46): AppConfig.active_region_id is
+    # an internal resolved value (config-module.md "active_region_id") that
+    # api.md's "GET /api/config" shape pins without it -- the active region
+    # is meant to surface via a separate future endpoint, not folded into
+    # this one. A review-driven fix (5a9907e) added `Field(exclude=True)` to
+    # keep it out of serialization; this assertion is the regression test
+    # that locks that fix so the drift can't silently return. Also confirm
+    # the attribute is still readable internally, so the field wasn't
+    # simply removed rather than excluded from serialization only.
+    assert cfg.active_region_id
+    assert "active_region_id" not in config_body
+
     # --- And: the /api/config body contains neither OPENSKY_CLIENT_ID nor
     # OPENSKY_CLIENT_SECRET -- checked as the literal secret VALUES never
     # appearing anywhere in the raw serialized response body (NFR5) ---
