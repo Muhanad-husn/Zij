@@ -1,0 +1,25 @@
+
+> zij-frontend@0.0.0 test
+> vitest run
+
+
+[1m[7m[36m RUN [39m[27m[22m [36mv2.1.9 [39m[90mD:/zij-wt/frontend-57/frontend[39m
+
+ [32m✓[39m tests/unit/wireToGeoJson.test.ts [2m([22m[2m5 tests[22m[2m)[22m[90m 9[2mms[22m[39m
+ [32m✓[39m tests/unit/formatUtc.test.ts [2m([22m[2m6 tests[22m[2m)[22m[90m 9[2mms[22m[39m
+ [32m✓[39m tests/unit/store.test.ts [2m([22m[2m5 tests[22m[2m)[22m[90m 13[2mms[22m[39m
+ [32m✓[39m tests/unit/loadLayers.test.ts [2m([22m[2m4 tests[22m[2m)[22m[90m 14[2mms[22m[39m
+ [32m✓[39m tests/unit/sse-client.test.ts [2m([22m[2m9 tests[22m[2m)[22m[90m 19[2mms[22m[39m
+ [32m✓[39m tests/unit/client.test.ts [2m([22m[2m5 tests[22m[2m)[22m[90m 14[2mms[22m[39m
+ [32m✓[39m tests/unit/badges.test.ts [2m([22m[2m4 tests[22m[2m)[22m[90m 43[2mms[22m[39m
+ [32m✓[39m tests/unit/controls.test.ts [2m([22m[2m6 tests[22m[2m)[22m[90m 43[2mms[22m[39m
+ [32m✓[39m tests/unit/land.test.ts [2m([22m[2m6 tests[22m[2m)[22m[90m 72[2mms[22m[39m
+ [32m✓[39m tests/unit/aviation.test.ts [2m([22m[2m6 tests[22m[2m)[22m[90m 78[2mms[22m[39m
+ [32m✓[39m tests/unit/map-factory.test.ts [2m([22m[2m3 tests[22m[2m)[22m[90m 165[2mms[22m[39m
+ [32m✓[39m tests/unit/build-style.test.ts [2m([22m[2m5 tests[22m[2m)[22m[90m 239[2mms[22m[39m
+
+[2m Test Files [22m [1m[32m12 passed[39m[22m[90m (12)[39m
+[2m      Tests [22m [1m[32m64 passed[39m[22m[90m (64)[39m
+[2m   Start at [22m 07:55:27
+[2m   Duration [22m 3.04s[2m (transform 1.15s, setup 0ms, collect 2.35s, tests 718ms, environment 22.61s, prepare 3.57s)[22m
+
