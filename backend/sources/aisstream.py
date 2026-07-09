@@ -1,19 +1,25 @@
 """aisstream.io StreamAdapter (spec: design/specs/aisstream.md).
 
-Slice sources-marine/01 (issue #47) implements the core of the adapter: the
+Slice sources-marine/01 (issue #47) implemented the core of the adapter: the
 websocket connect + subscribe, the read loop's PositionReport/ShipStaticData
 handling into the `_table`/`_prev_pos` latest-position projection, and the
-synchronous `snapshot()` aging pass. Reconnect/backoff, the eviction sweep,
-and a full `set_region` re-subscribe/clear are slice 02 (out of scope here);
-`set_region`/`stop` provide the minimal pre-connect bootstrap behavior this
-slice needs without breaking the `StreamAdapter` ABC contract.
+synchronous `snapshot()` aging pass.
+
+Slice sources-marine/02 (issue #51) adds the resilience behavior (FR3): the
+read loop is a connect->subscribe->read->reconnect loop with full-jitter
+exponential backoff, a lightweight periodic eviction sweep bounds memory, and
+`set_region` re-subscribes the new bbox mid-stream while clearing the table.
+Table/`_prev_pos` retention across a reconnect keeps `snapshot()` serving the
+aging projection throughout a transient drop.
 """
 
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
+import random
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
@@ -121,6 +127,7 @@ class AisStreamAdapter(StreamAdapter):
         self._region: Region | None = None
         self._ws: Any = None
         self._read_task: asyncio.Task[None] | None = None
+        self._sweep_task: asyncio.Task[None] | None = None
         self._connected: bool = False
 
     @property
@@ -128,23 +135,44 @@ class AisStreamAdapter(StreamAdapter):
         return self._connected
 
     async def set_region(self, region: Region) -> None:
-        """Pre-connect bootstrap: record the region to subscribe on the next
-        `start()`. Mid-stream re-subscribe + table clear is slice 02."""
+        """Region switch (aisstream.md "set_region"): record the region, and
+        if the socket is open re-subscribe the new bbox on it immediately; then
+        CLEAR `_table`/`_prev_pos` -- the new region is a different vessel
+        population and old-region ghosts must not linger. When called before
+        `start()` (the pre-connect bootstrap path) the socket is closed, so no
+        subscribe is sent and the (empty) table clear is a no-op; the region
+        applies on the next `start()`."""
         self._region = region
+        if self._connected and self._ws is not None:
+            await self._subscribe()
+        self._table.clear()
+        self._prev_pos.clear()
 
     async def start(self) -> None:
         """Connect `cfg.ws_url`, send the subscribe payload immediately, and
-        launch the read loop as `_read_task`. Returns once subscribed."""
+        launch the read loop as `_read_task` plus the eviction sweep. Returns
+        once subscribed (so `connected` is True on return)."""
         self._ws = await websockets.connect(self._cfg.ws_url)
         await self._subscribe()
         self._connected = True
         self._read_task = asyncio.create_task(self._read_loop())
+        self._sweep_task = asyncio.create_task(self._sweep_loop())
 
     async def stop(self) -> None:
-        """Close the websocket, cancel the read loop."""
-        if self._read_task is not None:
-            self._read_task.cancel()
-            self._read_task = None
+        """Clean shutdown (follow-up #74): cancel the read + sweep tasks and
+        `await` them under suppressed `CancelledError` BEFORE closing the
+        socket -- cancel->await->suppress, matching the codebase's other
+        cancellation sites -- so no "Task exception was never retrieved"
+        warning and no race between the in-flight `async for` and closing
+        `_ws`."""
+        tasks = [t for t in (self._read_task, self._sweep_task) if t is not None]
+        for task in tasks:
+            task.cancel()
+        for task in tasks:
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+        self._read_task = None
+        self._sweep_task = None
         if self._ws is not None:
             await self._ws.close()
             self._ws = None
@@ -166,20 +194,85 @@ class AisStreamAdapter(StreamAdapter):
         }
 
     async def _read_loop(self) -> None:
+        """Connect->subscribe->read->reconnect loop (aisstream.md "Reconnect
+        (FR3)"). The socket is opened+subscribed in `start()` before this task
+        launches, so `attempt` starts at 0 (a fresh successful subscribe). On a
+        `ConnectionClosed`/read error the connection is torn down, `connected`
+        goes False, and the loop reconnects with full-jitter exponential
+        backoff, resetting `attempt=0` on each successful re-subscribe. The
+        `_table`/`_prev_pos` projection is deliberately NOT cleared across a
+        drop -- it ages naturally via `last_heard` so `snapshot()` keeps
+        serving throughout the blip."""
+        attempt = 0
+        while True:
+            try:
+                async for raw in self._ws:
+                    try:
+                        self._handle_message(raw)
+                    except Exception:
+                        # Malformed single message -> skip + log (aisstream.md
+                        # "Failure modes"); never let one bad frame kill the
+                        # stream.
+                        logger.exception("aisstream: failed to handle message")
+                # A clean end of iteration (graceful close) exits the loop.
+                self._connected = False
+                return
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                # Drop / read error -> render `reconnecting` and reconnect.
+                self._connected = False
+                logger.exception("aisstream: connection dropped, reconnecting")
+
+            # Full-jitter exponential backoff (base 2 s, cap 60 s), using the
+            # module-qualified `random.uniform`/`asyncio.sleep` so the read
+            # loop stays deterministically controllable in tests.
+            bound = min(
+                self._cfg.reconnect_max_s,
+                self._cfg.reconnect_base_s * 2**attempt,
+            )
+            await asyncio.sleep(random.uniform(0, bound))
+            attempt += 1
+            try:
+                self._ws = await websockets.connect(self._cfg.ws_url)
+                await self._subscribe()
+                self._connected = True
+                attempt = 0
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                # Reconnect failed -> keep `connected` False and loop; the next
+                # iteration re-enters backoff with the incremented attempt.
+                self._connected = False
+                logger.exception("aisstream: reconnect attempt failed")
+
+    async def _sweep_loop(self) -> None:
+        """Lightweight periodic eviction (aisstream.md "Eviction sweep"):
+        every `cfg.cadence_s`, drop `_table`/`_prev_pos` entries older than
+        `cfg.drop_after_s` to bound memory. `snapshot()` filters defensively
+        too, so this cadence is not load-bearing for correctness. Cancellable;
+        stopped cleanly by `stop()`."""
         try:
-            async for raw in self._ws:
-                try:
-                    self._handle_message(raw)
-                except Exception:
-                    # Malformed single message -> skip + log (aisstream.md
-                    # "Failure modes"); never let one bad frame kill the
-                    # stream.
-                    logger.exception("aisstream: failed to handle message")
+            while True:
+                await asyncio.sleep(self._cfg.cadence_s)
+                self._evict_stale()
         except asyncio.CancelledError:
             raise
-        except Exception:
-            self._connected = False
-            logger.exception("aisstream: read loop terminated")
+
+    def _evict_stale(self) -> None:
+        drop_after_s = self._cfg.drop_after_s
+        if drop_after_s is None:
+            return
+        now = datetime.now(timezone.utc)
+        expired = [
+            mmsi
+            for mmsi, entry in self._table.items()
+            if entry.feature.timestamp_source is not None
+            and (now - entry.feature.timestamp_source).total_seconds() > drop_after_s
+        ]
+        for mmsi in expired:
+            self._table.pop(mmsi, None)
+            self._prev_pos.pop(mmsi, None)
 
     def _handle_message(self, raw: str | bytes) -> None:
         message = json.loads(raw)

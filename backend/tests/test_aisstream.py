@@ -621,7 +621,11 @@ def test_snapshot_feature_attrs_is_a_distinct_dict_per_snapshot():
 # empty-table assertions genuinely fail today. The xfail keeps the suite green
 # (xfailed -> pytest exits 0) so the tests-green commit gate passes; when the
 # implementer greens the behavior this XPASSes, `strict=True` turns the suite
-# red, and the test-author is dispatched back to remove the marker.
+# red, and the test-author is dispatched back to remove the marker. The
+# implementer has since greened the reconnect + region-switch behavior; the
+# xfail marker has been removed to finalize the contract, and inner units for
+# the eviction sweep, backoff growth/cap/reset, and `stop()` clean shutdown
+# (follow-up #74) are added below.
 #
 # This transcribes the Gherkin in plans/sources-marine/02-aisstream-resilience.md
 # ("Acceptance criterion") and design/specs/aisstream.md ("Reconnect (FR3)" +
@@ -689,10 +693,6 @@ class _BlockingConnection:
         yield ""  # unreachable -- makes this method an async generator
 
 
-@pytest.mark.xfail(
-    reason="sources-marine/02 reconnect+set_region-clear not yet implemented",
-    strict=True,
-)
 async def test_aisstream_resilience_reconnect_and_region_switch(monkeypatch):
     # A distinctive value `random.uniform` is patched to return, so the fake
     # `asyncio.sleep` can tell a backoff wait apart from any other sleep (e.g.
@@ -893,3 +893,309 @@ async def test_aisstream_resilience_reconnect_and_region_switch(monkeypatch):
             assert adapter.snapshot().features == []
         finally:
             await adapter.stop()
+
+
+# ---------------------------------------------------------------------------
+# Slice sources-marine/02 (issue #51): INNER UNIT TESTS (DEC-34) for the gaps
+# the locked outer test above does not already fully pin. The outer test
+# already pins: `_table`/`_prev_pos` retention across the drop, `set_region`
+# clearing both dicts + re-subscribing the new bbox, and the single
+# first-attempt (attempt=0) backoff bound. The plan's "Inner loop -- initial
+# unit test list" items that remain are covered here:
+#   - the eviction sweep (`_evict_stale`): age > drop_after_s removed from BOTH
+#     `_table` and `_prev_pos`, fresh entries retained (outer test never ages a
+#     vessel past drop_after_s during the blip, so eviction itself is unpinned);
+#   - backoff attempt GROWTH + CAP + RESET across successive reconnects (outer
+#     test pins only the one first-attempt bound);
+#   - `stop()` clean shutdown (follow-up #74): cancels + awaits both tasks and
+#     closes the socket without an unretrieved-task exception; idempotent.
+
+
+class _ImmediateDropConnection:
+    """Fake `websockets` connection whose `async for` raises the real
+    `ConnectionClosed` immediately with no frames -- the pure "socket already
+    down" read path the reconnect loop retries against. Re-iterable (a fresh
+    async generator per `__aiter__`), so the read loop can re-enter it on a
+    failed reconnect and get the same immediate drop again."""
+
+    def __init__(self) -> None:
+        self.sent: list[str] = []
+        self.closed = False
+
+    async def send(self, payload: str) -> None:
+        self.sent.append(payload)
+
+    async def close(self) -> None:
+        self.closed = True
+
+    def __aiter__(self):
+        return self._iter()
+
+    async def _iter(self):
+        raise websockets.exceptions.ConnectionClosed(None, None)
+        yield ""  # unreachable -- makes this method an async generator
+
+
+class _ParkingConnection:
+    """Fake connection standing in for a healthy, open socket with no frames:
+    its `async for` parks forever, so `start()`'s read task sits alive in the
+    read loop -- the steady state `stop()` is exercised against. Records the
+    subscribe payload; `close()` flips `closed`."""
+
+    def __init__(self) -> None:
+        self.sent: list[str] = []
+        self.closed = False
+
+    async def send(self, payload: str) -> None:
+        self.sent.append(payload)
+
+    async def close(self) -> None:
+        self.closed = True
+
+    def __aiter__(self):
+        return self._iter()
+
+    async def _iter(self):
+        await asyncio.Event().wait()  # park forever; socket stays 'open'
+        yield ""  # unreachable -- makes this method an async generator
+
+
+async def test_evict_stale_drops_aged_entries_from_both_tables():
+    """Inner unit (plan item 3): the eviction sweep removes entries whose
+    `timestamp_source` age exceeds `drop_after_s` from BOTH `_table` and
+    `_prev_pos`, while retaining fresh entries in both. Driven directly via
+    `_evict_stale()` under a frozen clock -- not via the real `cadence_s`
+    sleep cadence. The outer test keeps every vessel within `drop_after_s`
+    throughout the blip (retention), so age-based eviction itself is not
+    pinned there. `_prev_pos` is populated for each vessel (two reports, the
+    second overwriting the first) so the both-dicts clear is non-vacuous."""
+    from backend.config import Secrets
+    from backend.sources.aisstream import AisStreamAdapter
+
+    now = datetime(2026, 7, 9, 12, 0, 0, tzinfo=timezone.utc)
+    cfg = _make_aisstream_cfg(drop_after_s=100)
+    secrets = Secrets(aisstream_api_key="unit-test-api-key")
+    adapter = AisStreamAdapter(cfg, secrets)
+
+    mmsi_stale, mmsi_fresh = 111000111, 222000222
+    with freeze_time(now):
+        # Stale vessel: two reports; latest timestamp_source is 11:58:00,
+        # i.e. 120 s < now -- age 120 > drop_after_s (100) -> evicted.
+        adapter._handle_message(
+            _position_report_line(
+                mmsi_stale, 26.0, 56.0, "2026-07-09 11:57:00.000000 +0000 UTC"
+            )
+        )
+        adapter._handle_message(
+            _position_report_line(
+                mmsi_stale, 26.1, 56.1, "2026-07-09 11:58:00.000000 +0000 UTC"
+            )
+        )
+        # Fresh vessel: two reports; latest timestamp_source is 11:59:30,
+        # i.e. 30 s < now -- age 30 < drop_after_s (100) -> retained.
+        adapter._handle_message(
+            _position_report_line(
+                mmsi_fresh, 25.5, 55.5, "2026-07-09 11:59:00.000000 +0000 UTC"
+            )
+        )
+        adapter._handle_message(
+            _position_report_line(
+                mmsi_fresh, 25.6, 55.6, "2026-07-09 11:59:30.000000 +0000 UTC"
+            )
+        )
+
+        # Both vessels are in both dicts before the sweep (non-vacuous clear).
+        assert str(mmsi_stale) in adapter._table
+        assert str(mmsi_stale) in adapter._prev_pos
+        assert str(mmsi_fresh) in adapter._table
+        assert str(mmsi_fresh) in adapter._prev_pos
+
+        adapter._evict_stale()
+
+    # The aged-out vessel is gone from BOTH `_table` and `_prev_pos`; the
+    # fresh vessel survives in both.
+    assert str(mmsi_stale) not in adapter._table
+    assert str(mmsi_stale) not in adapter._prev_pos
+    assert str(mmsi_fresh) in adapter._table
+    assert str(mmsi_fresh) in adapter._prev_pos
+
+    # --- And: with `drop_after_s` unset, the sweep is a pure no-op even for a
+    # very old entry (the defensive early return) ---
+    cfg_none = _make_aisstream_cfg(drop_after_s=None)
+    adapter_none = AisStreamAdapter(cfg_none, secrets)
+    with freeze_time(now):
+        adapter_none._handle_message(
+            _position_report_line(
+                333000333, 1.0, 2.0, "2020-01-01 00:00:00.000000 +0000 UTC"
+            )
+        )
+        adapter_none._evict_stale()
+    assert "333000333" in adapter_none._table
+
+
+async def test_reconnect_backoff_bound_grows_then_caps(monkeypatch):
+    """Inner unit (plan item 1, growth/cap): across successive FAILED
+    reconnects the full-jitter upper bound follows `min(reconnect_max_s,
+    reconnect_base_s * 2**attempt)` -- doubling each attempt (2,4,8,16,32) then
+    saturating at `reconnect_max_s` (60). The outer test pins only the single
+    attempt=0 bound; the exponential growth and the cap are pinned here by
+    capturing successive `random.uniform` calls. `websockets.connect` is made
+    to fail every time so `attempt` never resets and simply climbs."""
+    from backend.config import Secrets
+    from backend.sources.aisstream import AisStreamAdapter
+
+    cfg = _make_aisstream_cfg(reconnect_base_s=2.0, reconnect_max_s=60.0)
+    secrets = Secrets(aisstream_api_key="unit-test-api-key")
+    adapter = AisStreamAdapter(cfg, secrets)
+    # Pre-seed the socket with an immediately-dropping connection so the read
+    # loop enters backoff on its first iteration.
+    adapter._ws = _ImmediateDropConnection()
+
+    def failing_connect(uri, **kwargs):
+        # Called as `await websockets.connect(...)`; raising here (before the
+        # await) drives the reconnect `except`, so `attempt` keeps growing.
+        raise ConnectionError("reconnect always fails in this test")
+
+    monkeypatch.setattr("backend.sources.aisstream.websockets.connect", failing_connect)
+
+    uniform_calls: list[tuple[float, float]] = []
+    stop_after = 8
+
+    def fake_uniform(low, high):
+        uniform_calls.append((low, high))
+        return 0.0
+
+    async def fake_sleep(delay, *args, **kwargs):
+        # Break the otherwise-infinite reconnect loop once enough backoff
+        # bounds have been observed (CancelledError propagates straight out of
+        # `_read_loop`, which only re-raises it around the `async for`).
+        if len(uniform_calls) >= stop_after:
+            raise asyncio.CancelledError
+        # otherwise return immediately -- no real wall-clock wait
+
+    monkeypatch.setattr(random, "uniform", fake_uniform)
+    monkeypatch.setattr(asyncio, "sleep", fake_sleep)
+
+    with pytest.raises(asyncio.CancelledError):
+        await adapter._read_loop()
+
+    assert all(low == 0 for low, _ in uniform_calls)
+    highs = [high for _, high in uniform_calls]
+    # Exponential growth off base 2 s, then hard-capped at max 60 s.
+    assert highs[:6] == pytest.approx([2.0, 4.0, 8.0, 16.0, 32.0, 60.0])
+    assert highs[6] == pytest.approx(60.0)  # 2*2**6 = 128 -> capped
+    assert highs[7] == pytest.approx(60.0)
+
+
+async def test_reconnect_attempt_resets_after_successful_subscribe(monkeypatch):
+    """Inner unit (plan item 1, reset): `attempt` resets to 0 after a
+    successful re-subscribe, so the bound returns to `reconnect_base_s` on the
+    next drop instead of continuing to climb (aisstream.md "reset attempt=0 on
+    a successful subscribe"). The outer test cannot show this (its single
+    reconnect succeeds, ending observation). Sequence: drop -> bound 2 (att 0)
+    -> connect FAILS -> drop -> bound 4 (att 1) -> connect SUCCEEDS (att -> 0)
+    -> drop -> bound 2 AGAIN. A non-resetting implementation would draw 8, not
+    2, on that third bound."""
+    from backend.config import Secrets
+    from backend.sources.aisstream import AisStreamAdapter
+
+    cfg = _make_aisstream_cfg(reconnect_base_s=2.0, reconnect_max_s=60.0)
+    secrets = Secrets(aisstream_api_key="unit-test-api-key")
+    adapter = AisStreamAdapter(cfg, secrets)
+    adapter._ws = _ImmediateDropConnection()
+
+    reconnected = _ImmediateDropConnection()
+    connect_uris: list[str] = []
+
+    def fake_connect(uri, **kwargs):
+        connect_uris.append(uri)
+        if len(connect_uris) == 1:
+            # First reconnect fails -> attempt climbs 0 -> 1.
+            raise ConnectionError("first reconnect fails")
+        # Second reconnect succeeds -> subscribe sent, attempt resets to 0;
+        # this connection then immediately drops again on the next read.
+        return _FakeConnect(reconnected)
+
+    monkeypatch.setattr("backend.sources.aisstream.websockets.connect", fake_connect)
+
+    uniform_calls: list[tuple[float, float]] = []
+    stop_after = 3
+
+    def fake_uniform(low, high):
+        uniform_calls.append((low, high))
+        return 0.0
+
+    async def fake_sleep(delay, *args, **kwargs):
+        if len(uniform_calls) >= stop_after:
+            raise asyncio.CancelledError
+
+    monkeypatch.setattr(random, "uniform", fake_uniform)
+    monkeypatch.setattr(asyncio, "sleep", fake_sleep)
+
+    with pytest.raises(asyncio.CancelledError):
+        await adapter._read_loop()
+
+    highs = [high for _, high in uniform_calls]
+    # 2 (att 0) -> 4 (att 1, first reconnect failed) -> 2 (att reset to 0 by
+    # the successful second subscribe), NOT 8.
+    assert highs[:3] == pytest.approx([2.0, 4.0, 2.0])
+    assert len(connect_uris) == 2  # one failed + one successful reconnect
+    assert len(reconnected.sent) == 1  # the re-subscribe on the healthy socket
+
+
+async def test_stop_cancels_and_awaits_both_tasks_cleanly(monkeypatch):
+    """Inner unit (follow-up #74): `start()` then `stop()` cancels AND awaits
+    both the read task and the sweep task and closes the socket, leaving no
+    unretrieved-task exception on the loop -- the cancel->await->suppress
+    pattern. Also idempotent: a second `stop()` is a safe no-op. The outer
+    test calls `stop()` only in its `finally` cleanup and never asserts the
+    shutdown contract, so this is where #74 is pinned."""
+    from backend.config import Secrets
+    from backend.sources.aisstream import AisStreamAdapter
+
+    cfg = _make_aisstream_cfg()
+    secrets = Secrets(aisstream_api_key="unit-test-api-key")
+    adapter = AisStreamAdapter(cfg, secrets)
+
+    connection = _ParkingConnection()
+    monkeypatch.setattr(
+        "backend.sources.aisstream.websockets.connect",
+        lambda uri, **kwargs: _FakeConnect(connection),
+    )
+
+    # Capture anything the loop would surface (e.g. a "Task exception was
+    # never retrieved" leak) so a shutdown that fails to await a task is caught.
+    loop = asyncio.get_running_loop()
+    loop_errors: list[dict] = []
+    loop.set_exception_handler(lambda _loop, ctx: loop_errors.append(ctx))
+
+    await adapter.start()
+    assert adapter.connected is True
+    # Let both tasks reach their await points (read parks, sweep sleeps).
+    for _ in range(3):
+        await asyncio.sleep(0)
+
+    read_task = adapter._read_task
+    sweep_task = adapter._sweep_task
+    assert read_task is not None
+    assert sweep_task is not None
+
+    await adapter.stop()
+
+    # Both tasks were cancelled AND awaited (done), the socket was closed, and
+    # the adapter is back to a clean, disconnected, task-less state.
+    assert read_task.done()
+    assert sweep_task.done()
+    assert read_task.cancelled()
+    assert sweep_task.cancelled()
+    assert connection.closed is True
+    assert adapter.connected is False
+    assert adapter._read_task is None
+    assert adapter._sweep_task is None
+
+    # No unretrieved-task exception leaked to the loop during shutdown.
+    assert loop_errors == []
+
+    # Idempotent: a second stop() on an already-stopped adapter is a no-op.
+    await adapter.stop()
+    assert adapter.connected is False
