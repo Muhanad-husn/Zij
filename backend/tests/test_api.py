@@ -2104,19 +2104,14 @@ def test_region_list_estimate_and_activate(tmp_path, monkeypatch):
 # `land_adapter.fetch` directly -- can never attempt a real network call to
 # OpenSky/Overpass while this test is red.
 #
-# Committed RED before implementation (strict xfail, DEC-33): none of
-# `POST /api/layers/{domain}/toggle`, `POST /api/layers/{domain}/refresh`
-# exist yet as POST routes -- `POST /api/layers/air/toggle` currently
-# returns `405 Method Not Allowed` (Starlette's GET-only catch-all
-# `/api/{rest:path}` matches the PATH, so routing reports the method
-# mismatch rather than a plain 404), not the `{layer,...}` body asserted
-# below; `POST /api/refresh` still runs the v0 direct-fetch stub and never
-# touches `scheduler` at all, so `scheduler.refresh_all.assert_awaited_once()`
-# fails; and (Part B) `Scheduler._handle_fetch_failure`'s non-rate-limited
-# branch never publishes a `layer_status` event, so the SSE poll below
-# times out. Every assertion below fails against the current code for a
-# genuine, exact reason -- not a generic ImportError -- so this xfails
-# cleanly under the tests-green gate rather than passing vacuously.
+# Originally committed RED before implementation (strict xfail, DEC-33):
+# none of `POST /api/layers/{domain}/toggle`, `POST
+# /api/layers/{domain}/refresh` existed yet as POST routes, `POST
+# /api/refresh` still ran the v0 direct-fetch stub and never touched
+# `scheduler` at all, and (Part B) `Scheduler._handle_fetch_failure`'s
+# non-rate-limited branch never published a `layer_status` event. The slice
+# has since been implemented and this test now runs green (marker removed);
+# the assertions below are unchanged from the locked red contract.
 #
 # Design note (flagged, not silently "corrected" past the contract): the
 # dispatching plan's inner-unit list phrases the unknown-{domain} case as
@@ -2131,7 +2126,6 @@ def test_region_list_estimate_and_activate(tmp_path, monkeypatch):
 # ===========================================================================
 
 
-@pytest.mark.xfail(reason="controls-refresh #55 not yet implemented", strict=True)
 def test_layer_toggle_and_refresh_controls_delegate_and_surface_failures_via_sse(
     tmp_path, monkeypatch
 ):
