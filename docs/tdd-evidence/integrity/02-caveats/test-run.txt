@@ -1,0 +1,23 @@
+# pytest run — slice integrity/02-caveats (#44)
+$ env -u AISSTREAM_API_KEY -u OPENSKY_CLIENT_ID -u OPENSKY_CLIENT_SECRET uv run pytest backend/tests/test_integrity.py -v
+============================= test session starts =============================
+platform win32 -- Python 3.13.11, pytest-9.1.1, pluggy-1.6.0 -- D:\zij-wt\integrity-44\.venv\Scripts\python.exe
+cachedir: .pytest_cache
+rootdir: D:\zij-wt\integrity-44
+configfile: pyproject.toml
+plugins: anyio-4.14.1, asyncio-1.4.0, respx-0.23.1
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 4 items
+
+backend/tests/test_integrity.py::test_apply_flags_spoof_suspect_on_land_and_implausible_kinematics PASSED [ 25%]
+backend/tests/test_integrity.py::test_caveats_text_matches_spec_verbatim PASSED [ 50%]
+backend/tests/test_integrity.py::test_active_flag_counts_tallies_flags_across_a_snapshot PASSED [ 75%]
+backend/tests/test_integrity.py::test_active_flag_counts_empty_or_unflagged_snapshot_yields_zero_for_every_flag PASSED [100%]
+
+============================== 4 passed in 0.34s ==============================
+
+$ env -u AISSTREAM_API_KEY -u OPENSKY_CLIENT_ID -u OPENSKY_CLIENT_SECRET uv run pytest -q  (full suite)
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+182 passed, 1 warning in 49.16s

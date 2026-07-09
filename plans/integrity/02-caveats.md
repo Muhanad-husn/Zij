@@ -64,3 +64,4 @@ And   an empty (or unflagged) snapshot yields zero counts for every flag
 ## Status / progress log
 
 - 2026-07-06 planned (sprint v1). Blocked-by: none.
+- 2026-07-09 built via `/sprint-start`. Outer test red `a67a3a6` → green `361c9ee` (182 passed, ruff clean). Two-stage review PASS (zero findings). PR #79 into `main` (prepared; awaiting founder merge approval).
