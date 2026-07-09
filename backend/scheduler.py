@@ -22,15 +22,21 @@ uses a generation counter (`_cancel_gen`), not literal task cancellation: a
 completing old-region fetch is discarded on return by comparing the
 generation captured at fetch-start against the current one.
 
-Still out of scope (later scheduler step): backoff per error class, the
-event-driven stale *timer* (stale is only computed at write time here).
+step (this file, grown) adds backoff per error class (scheduler.md
+"Backoff per error class") -- the poll loop honors `retry_after` for
+`RateLimitedError`, exponential `min(base*2**n, max)` capped at `max_attempts`
+for `UpstreamError`, and surfaces `AuthError`/`ParseError` with no auto-retry --
+plus the event-driven stale *timer* (`_stale_timer`): after each successful
+write, a one-shot `loop.call_at(timestamp_source + stale_after_s)` flips
+`live->stale` and emits a `layer_status` event with no new fetch; a newer
+successful fetch cancels/reschedules it.
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from backend.config import AppConfig, effective_cadence_s
@@ -46,10 +52,29 @@ from backend.models import (
     LayerStatus,
 )
 from backend.registry import Registry
-from backend.sources.base import PollAdapter, Region, StreamAdapter
+from backend.sources.base import (
+    AuthError,
+    ParseError,
+    PollAdapter,
+    RateLimitedError,
+    Region,
+    StreamAdapter,
+    UpstreamError,
+)
 from backend.store import LandCacheRow, Store
 
 logger = logging.getLogger(__name__)
+
+# Per-error-class backoff defaults (scheduler.md "Backoff per error class"),
+# used when the domain's config section omits a knob. Land reads `[overpass]`
+# (`backoff_base_s`/`backoff_max_s`/`max_attempts`); air reads `[opensky]`,
+# whose spec default retry schedule is `min(60*2**n, 300)` -- expressed here as
+# base=60, max=300 so the same `min(base*2**n, max)` formula covers both.
+# `(base_s, max_s, max_attempts)`.
+_BACKOFF_DEFAULTS: dict[Domain, tuple[float, float, int]] = {
+    Domain.LAND: (5.0, 300.0, 4),
+    Domain.AIR: (60.0, 300.0, 4),
+}
 
 
 def _geojson_feature_to_feature(gj_feature: dict[str, Any]) -> Feature:
@@ -121,6 +146,7 @@ class Scheduler:
         self._wake: dict[Domain, asyncio.Event] = {}
         self._status: dict[Domain, LayerStatus] = {}
         self._cancel_gen: dict[Domain, int] = {}
+        self._stale_timer: dict[Domain, asyncio.TimerHandle | None] = {}
 
         for domain, layer_cfg in ((d, cfg.layers[d.value]) for d in adapters):
             self._enabled[domain] = layer_cfg.enabled
@@ -129,6 +155,7 @@ class Scheduler:
             self._wake[domain] = asyncio.Event()
             self._status[domain] = LayerStatus.LOADING
             self._cancel_gen[domain] = 0
+            self._stale_timer[domain] = None
 
         if stream is not None and stream.domain not in self._cancel_gen:
             # Marine supervised purely via the stream adapter (no poll loop
@@ -138,6 +165,7 @@ class Scheduler:
             self._wake[stream.domain] = asyncio.Event()
             self._status[stream.domain] = LayerStatus.LOADING
             self._cancel_gen[stream.domain] = 0
+            self._stale_timer[stream.domain] = None
 
     def current_status(self, domain: Domain) -> LayerStatus:
         """FR7 public reader (spec "Public interface"). The scheduler is the
@@ -149,39 +177,122 @@ class Scheduler:
         """Owns the `TaskGroup`; lifetime = app lifetime (spec "Task
         model"). One `_poll_loop(domain)` task per adapter this scheduler
         was constructed with."""
-        async with asyncio.TaskGroup() as tg:
-            for domain in self._adapters:
-                tg.create_task(self._poll_loop(domain))
+        try:
+            async with asyncio.TaskGroup() as tg:
+                for domain in self._adapters:
+                    tg.create_task(self._poll_loop(domain))
+        finally:
+            # Shutdown (ARCHITECTURE §4.4): cancel any armed one-shot stale
+            # timer so a stray `call_at` callback can't mutate status / publish
+            # after the scheduler has torn down.
+            for domain in list(self._stale_timer):
+                self._cancel_stale_timer(domain)
 
     async def _poll_loop(self, domain: Domain) -> None:
         """Cadence timing per spec: `asyncio.wait_for(_wake.wait(),
         timeout=cadence_s)` -- timeout is a scheduled tick, the event being
         set is a manual refresh/enable kick. A disabled layer parks purely
         on `_wake` (no timeout) for zero upstream spend (FR5); re-enabling
-        sets `_wake` for an immediate first fetch."""
+        sets `_wake` for an immediate first fetch.
+
+        Backoff per error class (scheduler.md "Backoff per error class") is a
+        property of THIS loop, not `_do_fetch` (which `refresh()` also calls,
+        one-shot): the wait before the *next* attempt is derived from the
+        *outcome* of this one. `RateLimitedError` defers ~`retry_after` (not
+        the shorter cadence); `UpstreamError` backs off exponentially, capped
+        at `max_attempts`, then resumes normal cadence; `AuthError`/`ParseError`
+        surface with no auto-retry (next scheduled tick may retry). A success,
+        a manual refresh, or an enable kick resets the backoff. Backoff never
+        blocks another layer -- each loop is independent (FR10)."""
         wake = self._wake[domain]
+        attempts = 0  # consecutive UpstreamError count; reset on any success
+        next_delay_s: float | None = None  # None -> use the layer's cadence
         while True:
             if self._enabled[domain]:
+                timeout = (
+                    next_delay_s
+                    if next_delay_s is not None
+                    else self._cadence_s[domain]
+                )
                 try:
-                    await asyncio.wait_for(wake.wait(), timeout=self._cadence_s[domain])
+                    await asyncio.wait_for(wake.wait(), timeout=timeout)
                 except TimeoutError:
                     pass
+                else:
+                    # A manual refresh / enable kick overrides any pending
+                    # backoff and fetches immediately.
+                    next_delay_s = None
+                    attempts = 0
             else:
                 await wake.wait()
+                next_delay_s = None
+                attempts = 0
             wake.clear()
-            if self._enabled[domain]:
-                # FR10: per-layer failure isolation -- a crashing adapter
-                # must not kill the scheduler or a sibling layer's task.
-                # Cancellation still propagates for clean shutdown.
-                try:
-                    await self._do_fetch(domain)
-                except asyncio.CancelledError:
-                    raise
-                except Exception:
-                    logger.exception(
-                        "layer %s: fetch failed, will retry next cadence tick",
-                        domain,
+            if not self._enabled[domain]:
+                continue
+            # FR10: per-layer failure isolation -- a crashing adapter must not
+            # kill the scheduler or a sibling layer's task. Cancellation still
+            # propagates for clean shutdown.
+            try:
+                await self._do_fetch(domain)
+            except asyncio.CancelledError:
+                raise
+            except RateLimitedError as exc:
+                attempts = 0
+                next_delay_s = (
+                    exc.retry_after
+                    if exc.retry_after is not None
+                    else self._backoff_params(domain)[0]
+                )
+            except UpstreamError:
+                base_s, max_s, max_attempts = self._backoff_params(domain)
+                attempts += 1
+                if attempts >= max_attempts:
+                    attempts = 0
+                    next_delay_s = None  # cap reached -> resume normal cadence
+                else:
+                    # Backoff exists to retry SOONER than the normal cadence
+                    # after a failure (in every real config base << cadence),
+                    # never to make a failing layer poll LESS often than a
+                    # healthy one -- so the exponential delay is bounded above
+                    # by the layer's own cadence (the cadence tick would fire a
+                    # retry by then regardless). A no-op in production; only the
+                    # exponential growth below the cadence is observable.
+                    next_delay_s = min(
+                        base_s * 2 ** (attempts - 1),
+                        max_s,
+                        float(self._cadence_s[domain]),
                     )
+            except (AuthError, ParseError):
+                # Surface, no auto-retry (scheduler.md): the next scheduled
+                # cadence tick may retry after an operator fix.
+                attempts = 0
+                next_delay_s = None
+            except Exception:
+                logger.exception(
+                    "layer %s: fetch failed, will retry next cadence tick",
+                    domain,
+                )
+                attempts = 0
+                next_delay_s = None
+            else:
+                attempts = 0
+                next_delay_s = None
+
+    def _backoff_params(self, domain: Domain) -> tuple[float, float, int]:
+        """`(base_s, max_s, max_attempts)` for a layer, reading its config
+        section (`[overpass]` for land, `[opensky]` for air) over the
+        per-domain defaults."""
+        base_s, max_s, max_attempts = _BACKOFF_DEFAULTS.get(domain, (5.0, 300.0, 4))
+        section: dict[str, Any] = {
+            Domain.LAND: self._cfg.overpass,
+            Domain.AIR: self._cfg.opensky,
+        }.get(domain, {})
+        return (
+            float(section.get("backoff_base_s", base_s)),
+            float(section.get("backoff_max_s", max_s)),
+            int(section.get("max_attempts", max_attempts)),
+        )
 
     async def set_enabled(self, domain: Domain, enabled: bool) -> None:
         """FR5. Disabling parks the loop on `_wake` (checked on its next
@@ -247,6 +358,10 @@ class Scheduler:
         """
         for domain in self._cancel_gen:
             self._cancel_gen[domain] += 1
+            # A pending old-region stale timer must not fire against the new
+            # region's state (the bumped generation already guards its effect,
+            # but cancel the handle so no stray callback lingers).
+            self._cancel_stale_timer(domain)
 
         self._region = region
 
@@ -367,7 +482,7 @@ class Scheduler:
                 # disturbing what a joiner's `await fut` observes -- the
                 # stored exception is still raised for every awaiter.
                 fut.exception()
-            await self._handle_fetch_failure(domain)
+            await self._handle_fetch_failure(domain, exc)
             raise
         else:
             # Region-switch cancellation (scheduler.md "Region-switch
@@ -434,10 +549,31 @@ class Scheduler:
 
         self._status[domain] = status
 
-    async def _handle_fetch_failure(self, domain: Domain) -> None:
-        """`cached-fallback` beats `error` (scheduler.md): on any failure,
-        check for a warm, region-matched fallback row before giving up. A
-        no-op (status untouched) if `store` was not supplied."""
+        # Write path step 7: (re)arm the event-driven stale timer against this
+        # snapshot's own `source_ts + stale_after_s`. A newer successful fetch
+        # reaching here cancels the prior handle first.
+        self._arm_stale_timer(domain, snap)
+
+    async def _handle_fetch_failure(self, domain: Domain, exc: BaseException) -> None:
+        """Map a failed fetch to `LayerStatus` per the error class
+        (scheduler.md "Status transitions" / "Backoff per error class").
+
+        `RateLimitedError` -> `rate-limited`, carrying `retry_after_s`/`detail`
+        on a published `layer_status` event (the poll loop separately defers
+        the retry by `retry_after`). Every other error uses the "cached-fallback
+        beats error" gate: on a warm, region-matched fallback row show
+        `cached-fallback`, else `error`. That gate is a no-op (status untouched)
+        when `store` was not supplied -- preserving the step contract."""
+        if isinstance(exc, RateLimitedError):
+            self._status[domain] = LayerStatus.RATE_LIMITED
+            self._publish_status_event(
+                domain,
+                LayerStatus.RATE_LIMITED,
+                retry_after_s=exc.retry_after,
+                detail=str(exc) or None,
+            )
+            return
+
         if self._store is None:
             return
 
@@ -446,3 +582,90 @@ class Scheduler:
             self._status[domain] = LayerStatus.CACHED_FALLBACK
         else:
             self._status[domain] = LayerStatus.ERROR
+
+    def _publish_status_event(
+        self,
+        domain: Domain,
+        status: LayerStatus,
+        *,
+        retry_after_s: float | None = None,
+        detail: str | None = None,
+    ) -> None:
+        """Publish a `layer_status`-only event (no feature delta) for a status
+        change without a new snapshot (scheduler.md "Write path": e.g.
+        `live->rate-limited`, the stale flip). Reuses the last registry
+        snapshot's `meta` when present so `region_id`/timestamps stay accurate;
+        otherwise builds a minimal meta from config."""
+        if self._events is None:
+            return
+        prev = self._registry.get(domain) if self._registry is not None else None
+        if prev is not None:
+            meta = prev.meta.model_copy(
+                update={
+                    "status": status,
+                    "retry_after_s": retry_after_s,
+                    "detail": detail,
+                }
+            )
+        else:
+            layer_cfg = self._cfg.layers.get(domain.value)
+            stale_after = _configured_stale_after_s(layer_cfg) if layer_cfg else 0
+            meta = LayerSnapshotMeta(
+                layer=domain,
+                region_id=self._region.id,
+                status=status,
+                timestamp_fetched=None,
+                timestamp_source=None,
+                cadence_s=self._cadence_s.get(domain, 0),
+                stale_after_s=stale_after,
+                feature_count=0,
+                retry_after_s=retry_after_s,
+                detail=detail,
+            )
+        self._events.publish_layer_status(meta)
+
+    def _arm_stale_timer(self, domain: Domain, snap: LayerSnapshot) -> None:
+        """Schedule the one-shot `live->stale` flip at `source_ts +
+        stale_after_s` (scheduler.md "Status transitions" stale-timer rule).
+        Cancels any prior handle first. Skipped when the snapshot is already
+        `stale` (nothing to flip) or has no source timestamp."""
+        self._cancel_stale_timer(domain)
+        if snap.meta.status != LayerStatus.LIVE:
+            return
+        if snap.meta.timestamp_source is None:
+            return
+        loop = asyncio.get_running_loop()
+        now = datetime.now(timezone.utc)
+        deadline = snap.meta.timestamp_source + timedelta(
+            seconds=snap.meta.stale_after_s
+        )
+        seconds_until = max((deadline - now).total_seconds(), 0.0)
+        gen = self._cancel_gen.get(domain, 0)
+        self._stale_timer[domain] = loop.call_at(
+            loop.time() + seconds_until, self._on_stale_timer, domain, gen
+        )
+
+    def _cancel_stale_timer(self, domain: Domain) -> None:
+        handle = self._stale_timer.get(domain)
+        if handle is not None:
+            handle.cancel()
+        self._stale_timer[domain] = None
+
+    def _on_stale_timer(self, domain: Domain, gen: int) -> None:
+        """One-shot stale-timer callback (sync -- `loop.call_at` contract). No
+        fetch: if no newer data has arrived (status still `live`, same
+        generation), flip `live->stale` and emit a `layer_status` event."""
+        self._stale_timer[domain] = None
+        if self._cancel_gen.get(domain, 0) != gen:
+            return  # a region switch (or a newer arm) superseded this handle
+        if self._status.get(domain) != LayerStatus.LIVE:
+            return  # newer data / a different status already landed
+        self._status[domain] = LayerStatus.STALE
+        if self._registry is None:
+            return
+        snap = self._registry.get(domain)
+        if snap is None:
+            return
+        snap.meta.status = LayerStatus.STALE
+        if self._events is not None:
+            self._events.publish_layer_status(snap.meta)
