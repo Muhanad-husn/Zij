@@ -1490,3 +1490,305 @@ async def test_events_on_connect_replays_only_enabled_layers(tmp_path, monkeypat
         )
         second = await asyncio.wait_for(frames.__anext__(), timeout=5.0)
         assert second["event"] == "layer_status"
+
+
+def test_caveats_raw_and_presets(tmp_path, monkeypatch):
+    """Locked outer acceptance test for api-core step (issue #56):
+    `GET /api/layers/{domain}/caveats`, `GET /api/features/{domain}/{source_id}/raw`,
+    and the `/api/presets` CRUD trio, transcribed from
+    plans/api-core/04-caveats-raw-presets.md and design/contracts/api.md
+    ("GET /api/layers/{domain}/caveats", "GET /api/features/{domain}/{source_id}/raw",
+    "Presets (FR11, P1 -- designed now)").
+
+    Given a registry whose `marine` snapshot carries 5 features -- 3 flagged
+    `spoof_suspect_on_land`, 1 flagged `implausible_kinematics`, 1 unflagged --
+    and whose `air` snapshot carries one feature with a known `source_id` and
+    a non-empty, distinctive `raw_payload`, plus a real hermetic `Store` on a
+    per-test tmp sqlite db (FR11 `config_presets`):
+
+    When  GET /api/layers/marine/caveats is called
+    Then  it returns the verbatim `integrity.CAVEATS[Domain.MARINE]` bullets
+          (read from the collaborator, not paraphrased here) and
+          `active_flags` == `integrity.active_flag_counts(marine_snapshot)`,
+          in particular `spoof_suspect_on_land: 3` and
+          `implausible_kinematics: 1`; the response body never contains
+          `raw_payload` anywhere on the wire (pins inner-unit item 4 -- the
+          `air` feature's `raw_payload` is a distinctive literal precisely so
+          this absence check is meaningful, not vacuous against a stub that
+          never carries the field at all).
+
+    When  GET /api/features/air/{source_id}/raw is called for the source_id
+          of the feature actually present in the current `air` snapshot
+    Then  it returns 200 with exactly
+          `{"domain":"air","source_id":...,"source":"opensky","raw_payload":...}`,
+          the `raw_payload` byte-for-byte the untouched literal the test
+          constructed the feature with (not a re-derived/re-serialized copy).
+    When  the same route is called for a source_id NOT in the current
+          snapshot (i.e. rotated out)
+    Then  it returns 404 with the api.md `not_found` error envelope.
+
+    When  GET /api/presets is called against the empty injected Store
+    Then  it returns `{"presets": []}`.
+    When  POST /api/presets {name, bbox} is called
+    Then  it returns 201 with an `id`/`name`/`bbox`/`created_at` body, and the
+          preset subsequently appears via GET /api/presets.
+    When  POST /api/presets is called again with the SAME name
+    Then  it returns 409 with the api.md `conflict` error envelope (the
+          duplicate is never inserted -- the list is unaffected).
+    When  DELETE /api/presets/{id} is called
+    Then  it returns 204 and the preset no longer appears via GET /api/presets.
+
+    Design seam this test locks in for the developer (backend/main.py):
+    three new routes over the collaborators `create_app` already accepts
+    (`registry=`, `store=`, both optional keywords since slices 01/02/03) --
+    no new `create_app` parameter is required, only new routes reading
+    `backend.integrity.CAVEATS`/`active_flag_counts` and calling
+    `store.list_presets()`/`add_preset()`/`delete_preset()`
+    (`backend.store.ConflictError` -> 409).
+
+    Why this is not satisfiable by a stub or a tautology:
+      - `active_flags` is compared against `integrity.active_flag_counts`
+        computed independently in this test from the SAME snapshot object,
+        not a hardcoded literal -- a handler that ignores the registry (e.g.
+        always returns zeros) fails this comparison, and so does one that
+        computes counts from the wrong domain's snapshot.
+      - `caveats` is compared against `integrity.CAVEATS[Domain.MARINE]`
+        itself (the frozen collaborator), so a handler returning
+        placeholder/paraphrased text fails even though it "has some text".
+      - The raw endpoint's `raw_payload` is asserted equal to the exact dict
+        literal the test feature was built with, and its absence is
+        separately asserted on the caveats response body's raw text -- a
+        handler that leaks `raw_payload` into snapshot-shaped responses (or
+        one that fabricates a raw_payload for the /raw route rather than
+        reading the live feature) fails one side or the other.
+      - The 404 branch uses a source_id that is deliberately never inserted
+        into the registry, proving the handler actually checks the live
+        snapshot rather than returning 200 unconditionally.
+      - The preset round-trip drives a REAL `Store` against a real per-test
+        sqlite db (no mock) through create/list/duplicate/delete, so the 409
+        assertion exercises the actual `UNIQUE(kind, name)` constraint via
+        `store.py`'s `ConflictError`, and the 204 assertion exercises a real
+        delete against a real row -- a handler that only pretends to persist
+        (e.g. an in-memory stub) would still pass a naive check, but the
+        cross-request `GET /api/presets` re-reads after POST and DELETE mean
+        a fake in-request-only response body cannot fool this test.
+
+    Committed RED before implementation (strict xfail, ): none of the
+    three routes existed yet in `backend/main.py` (`create_app` itself already
+    accepted `registry=`/`store=` from slices #53/#18, so the injection calls
+    below did not raise -- the test failed on the first `caveats_resp.status_code
+    == 200` assertion, a 404 from the unmatched catch-all, not an import
+    error), so it xfailed cleanly under the tests-green gate. the developer
+    has since built these three routes in `backend/main.py` to satisfy this
+    exact seam -- the test now genuinely passes and the marker has been
+    removed to finalize the contract. The assertions above are never
+    weakened.
+    """
+    # --- Given: known secrets (NFR5 env-only; marine + air both enabled in
+    # the bundled config.toml) ---
+    monkeypatch.setenv("OPENSKY_CLIENT_ID", "outer-test-opensky-client-id-56")
+    monkeypatch.setenv("OPENSKY_CLIENT_SECRET", "outer-test-opensky-client-secret-56")
+    monkeypatch.setenv("AISSTREAM_API_KEY", "outer-test-aisstream-api-key-56")
+    monkeypatch.delenv("AISHUB_USERNAME", raising=False)
+    monkeypatch.delenv("ZIJ_CONFIG_PATH", raising=False)
+
+    from datetime import datetime, timezone
+
+    from backend import integrity
+    from backend.config import load_config
+    from backend.main import create_app
+    from backend.models import (
+        Domain,
+        Feature,
+        FeatureStatus,
+        GeometryType,
+        IntegrityFlag,
+        LayerSnapshot,
+        LayerSnapshotMeta,
+        LayerStatus,
+    )
+    from backend.registry import Registry
+    from backend.store import Store
+
+    cfg, secrets = load_config()
+
+    fetched = datetime(2026, 7, 9, 12, 0, 0, tzinfo=timezone.utc)
+
+    def _marine_feature(source_id: str, flags: list) -> Feature:
+        return Feature(
+            domain=Domain.MARINE,
+            source="aisstream",
+            source_id=source_id,
+            label=f"Vessel {source_id}",
+            lat=26.0,
+            lon=56.0,
+            geometry_type=GeometryType.POINT,
+            geometry=None,
+            timestamp_source=fetched,
+            timestamp_fetched=fetched,
+            position_age_s=0.0,
+            status=FeatureStatus.LIVE,
+            integrity_flags=flags,
+            raw_payload={"mmsi": source_id, "never-on-wire": True},
+        )
+
+    # --- Given: a marine snapshot with 3 spoof-suspect + 1 implausible-
+    # kinematics + 1 unflagged feature (5 total; feature_count matches) ---
+    marine_features = (
+        [
+            _marine_feature(f"spoof-{i}", [IntegrityFlag.SPOOF_SUSPECT_ON_LAND])
+            for i in range(3)
+        ]
+        + [_marine_feature("kinematics-1", [IntegrityFlag.IMPLAUSIBLE_KINEMATICS])]
+        + [_marine_feature("clean-1", [])]
+    )
+    marine_meta = LayerSnapshotMeta(
+        layer=Domain.MARINE,
+        region_id="hormuz",
+        status=LayerStatus.LIVE,
+        timestamp_fetched=fetched,
+        timestamp_source=fetched,
+        cadence_s=60,
+        stale_after_s=120,
+        feature_count=len(marine_features),
+    )
+    marine_snapshot = LayerSnapshot(meta=marine_meta, features=marine_features)
+
+    # --- Given: an air snapshot with one feature carrying a known source_id
+    # and a distinctive, non-empty raw_payload ---
+    air_feature = Feature(
+        domain=Domain.AIR,
+        source="opensky",
+        source_id="abc123",
+        label="ZIJ001",
+        lat=26.5,
+        lon=56.2,
+        geometry_type=GeometryType.POINT,
+        geometry=None,
+        timestamp_source=fetched,
+        timestamp_fetched=fetched,
+        position_age_s=0.0,
+        status=FeatureStatus.LIVE,
+        attrs={"callsign": "ZIJ001"},
+        raw_payload={"icao24": "abc123", "secret_upstream_field": "never-on-wire"},
+    )
+    air_meta = LayerSnapshotMeta(
+        layer=Domain.AIR,
+        region_id="hormuz",
+        status=LayerStatus.LIVE,
+        timestamp_fetched=fetched,
+        timestamp_source=fetched,
+        cadence_s=600,
+        stale_after_s=1200,
+        feature_count=1,
+    )
+    air_snapshot = LayerSnapshot(meta=air_meta, features=[air_feature])
+
+    registry = Registry()
+    registry[Domain.MARINE] = marine_snapshot
+    registry[Domain.AIR] = air_snapshot
+
+    static_dir = tmp_path / "dist"
+    static_dir.mkdir()
+    (static_dir / "index.html").write_text(
+        "<!doctype html><html><body>Zij</body></html>", encoding="utf-8"
+    )
+
+    # --- Given: a real hermetic Store on a per-test tmp sqlite db (FR11) ---
+    store = Store(db_path=tmp_path / "presets.db")
+
+    app = create_app(
+        static_dir=static_dir,
+        config=cfg,
+        secrets=secrets,
+        store=store,
+        registry=registry,
+    )
+
+    with TestClient(app) as client:
+        # --- When: GET /api/layers/marine/caveats ---
+        caveats_resp = client.get("/api/layers/marine/caveats")
+
+        # --- Then: verbatim caveat bullets + live active_flags counts ---
+        assert caveats_resp.status_code == 200
+        caveats_body = caveats_resp.json()
+        assert caveats_body["domain"] == "marine"
+        assert caveats_body["caveats"] == integrity.CAVEATS[Domain.MARINE]
+        expected_counts = integrity.active_flag_counts(marine_snapshot)
+        assert caveats_body["active_flags"] == expected_counts
+        assert caveats_body["active_flags"]["spoof_suspect_on_land"] == 3
+        assert caveats_body["active_flags"]["implausible_kinematics"] == 1
+        # --- Then: raw_payload never rides the caveats response (inner
+        # unit item 4) ---
+        assert "raw_payload" not in caveats_resp.text
+        assert "never-on-wire" not in caveats_resp.text
+
+        # --- When: GET /api/features/air/{id}/raw for a feature IN the
+        # current snapshot ---
+        raw_resp = client.get("/api/features/air/abc123/raw")
+
+        # --- Then: the untouched raw_payload passes through verbatim ---
+        assert raw_resp.status_code == 200
+        assert raw_resp.json() == {
+            "domain": "air",
+            "source_id": "abc123",
+            "source": "opensky",
+            "raw_payload": air_feature.raw_payload,
+        }
+
+        # --- When: the same route for a source_id NOT in the snapshot ---
+        raw_missing_resp = client.get("/api/features/air/rotated-out-id/raw")
+
+        # --- Then: 404 not_found (api.md error envelope) ---
+        assert raw_missing_resp.status_code == 404
+        assert raw_missing_resp.json()["error"]["code"] == "not_found"
+
+        # --- When: GET /api/presets against the empty injected Store ---
+        list_empty_resp = client.get("/api/presets")
+
+        # --- Then: an empty list ---
+        assert list_empty_resp.status_code == 200
+        assert list_empty_resp.json() == {"presets": []}
+
+        # --- When: POST /api/presets {name, bbox} ---
+        create_resp = client.post(
+            "/api/presets",
+            json={"name": "my-box", "bbox": [52.0, 26.0, 55.0, 28.0]},
+        )
+
+        # --- Then: 201, with the created preset's id/name/bbox/created_at ---
+        assert create_resp.status_code == 201
+        created = create_resp.json()
+        assert created["name"] == "my-box"
+        assert created["bbox"] == [52.0, 26.0, 55.0, 28.0]
+        assert "created_at" in created
+        preset_id = created["id"]
+        assert isinstance(preset_id, int)
+
+        # --- Then: the preset round-trips via GET /api/presets ---
+        list_resp = client.get("/api/presets")
+        assert list_resp.status_code == 200
+        list_body = list_resp.json()
+        assert len(list_body["presets"]) == 1
+        assert list_body["presets"][0]["id"] == preset_id
+        assert list_body["presets"][0]["name"] == "my-box"
+        assert list_body["presets"][0]["bbox"] == [52.0, 26.0, 55.0, 28.0]
+        assert "created_at" in list_body["presets"][0]
+
+        # --- When: POST /api/presets again with the SAME name ---
+        dup_resp = client.post(
+            "/api/presets",
+            json={"name": "my-box", "bbox": [40.0, 20.0, 41.0, 21.0]},
+        )
+
+        # --- Then: 409 conflict (api.md error envelope); no duplicate row ---
+        assert dup_resp.status_code == 409
+        assert dup_resp.json()["error"]["code"] == "conflict"
+        assert len(client.get("/api/presets").json()["presets"]) == 1
+
+        # --- When: DELETE /api/presets/{id} ---
+        delete_resp = client.delete(f"/api/presets/{preset_id}")
+
+        # --- Then: 204, and the preset is gone ---
+        assert delete_resp.status_code == 204
+        assert client.get("/api/presets").json() == {"presets": []}
