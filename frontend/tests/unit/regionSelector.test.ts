@@ -239,6 +239,86 @@ describe('mountRegionSelector — layer_caps ok:false disables Confirm and shows
   });
 });
 
+describe('mountRegionSelector — out-of-order estimate responses (stale-response guard)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  /** A controllable promise whose resolution is driven explicitly by the
+   * test, so responses can be settled in a chosen (non-request) order. */
+  function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+    let resolve!: (value: T) => void;
+    const promise = new Promise<T>((res) => {
+      resolve = res;
+    });
+    return { promise, resolve };
+  }
+
+  it('a stale first-request response resolving AFTER a second-request response must not overwrite the second (latest) result', async () => {
+    const parent = document.createElement('div');
+    const store = new Store();
+    const c = mockedClient();
+    c.fetchRegions.mockResolvedValue({ regions: REGIONS });
+    c.fetchActiveRegion.mockResolvedValue({ active_region: null });
+
+    const requestA = deferred<EstimateResult>(); // over-cap bbox, issued first
+    const requestB = deferred<EstimateResult>(); // valid bbox, issued second
+    c.estimateRegion.mockImplementationOnce(() => requestA.promise);
+    c.estimateRegion.mockImplementationOnce(() => requestB.promise);
+
+    const { container } = mountRegionSelector(parent, store);
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    testid(container, 'custom-bbox-toggle').click();
+
+    // Edit to bbox A, let its debounce fire — request A is now in flight
+    // (deliberately left unresolved).
+    fillBbox(container, OVER_CAP_BBOX);
+    await vi.advanceTimersByTimeAsync(300);
+    expect(c.estimateRegion).toHaveBeenCalledTimes(1);
+    expect(c.estimateRegion).toHaveBeenNthCalledWith(1, OVER_CAP_BBOX);
+
+    // Edit to bbox B before A resolves, let its debounce fire — request B
+    // is now also in flight.
+    fillBbox(container, VALID_BBOX);
+    await vi.advanceTimersByTimeAsync(300);
+    expect(c.estimateRegion).toHaveBeenCalledTimes(2);
+    expect(c.estimateRegion).toHaveBeenNthCalledWith(2, VALID_BBOX);
+
+    // Resolve out of order: B (the latest, correct request) first, then A
+    // (the stale request) afterward.
+    requestB.resolve(VALID_ESTIMATE);
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    requestA.resolve(OVER_CAP_ESTIMATE);
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // The rendered state must reflect B (the current bbox), not the stale
+    // A response that resolved later.
+    const landMsg = testid(container, 'bbox-cap-message-land');
+    const marineMsg = testid(container, 'bbox-cap-message-marine');
+    expect(landMsg.style.display, 'stale A response must not re-show a cap message for the current (valid) bbox B').toBe('none');
+    expect(marineMsg.style.display, 'stale A response must not re-show a cap message for the current (valid) bbox B').toBe('none');
+
+    const estimateArea = testid(container, 'bbox-estimate-area');
+    const estimateCost = testid(container, 'bbox-estimate-cost');
+    expect(estimateArea.textContent).toBe(String(VALID_ESTIMATE.area_sq_deg));
+    expect(estimateCost.textContent).toBe(String(VALID_ESTIMATE.aviation_credit_cost));
+
+    const confirm = testid(container, 'bbox-confirm') as HTMLButtonElement;
+    expect(confirm.disabled, 'Confirm must stay enabled for the current valid bbox B; a stale ok:false response must not re-disable it').toBe(false);
+  });
+});
+
 describe('mountRegionSelector — activate payload shape: predefined {region_id} vs custom {bbox,label}, no cross-contamination', () => {
   beforeEach(() => {
     vi.useFakeTimers();

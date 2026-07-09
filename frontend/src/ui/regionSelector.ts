@@ -106,6 +106,10 @@ export function mountRegionSelector(parent: HTMLElement, store: Store): RegionSe
   let regions: RegionInfo[] = [];
   let latestEstimate: EstimateResult | null = null;
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+  // Generation token bumped on every scheduled estimate so a late-resolving
+  // response from a superseded (edited-away) bbox can be recognized as
+  // stale and dropped — see scheduleEstimate().
+  let latestEstimateReqId = 0;
 
   function optionLabel(region: RegionInfo): string {
     return `${region.label} — ${region.aviation_credit_cost} cr`;
@@ -190,6 +194,10 @@ export function mountRegionSelector(parent: HTMLElement, store: Store): RegionSe
     // must stay disabled until a fresh estimate resolves.
     latestEstimate = null;
     confirmButton.disabled = true;
+    // Invalidate any in-flight estimate request from a prior edit so its
+    // response — if it resolves after this one — is dropped as stale
+    // rather than clobbering the UI with an out-of-date bbox's result.
+    const reqId = ++latestEstimateReqId;
     debounceTimer = setTimeout(() => {
       debounceTimer = null;
       const bbox = parseBbox();
@@ -198,6 +206,9 @@ export function mountRegionSelector(parent: HTMLElement, store: Store): RegionSe
       }
       void estimateRegion(bbox)
         .then((estimate) => {
+          if (reqId !== latestEstimateReqId) {
+            return; // superseded by a later edit — discard stale response
+          }
           renderEstimate(estimate);
         })
         .catch((err) => {
