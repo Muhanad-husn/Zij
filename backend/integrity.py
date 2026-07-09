@@ -8,9 +8,10 @@ appended out; no I/O at flag time (NFR3). Loading the landmask asset itself
 is the one I/O step, and it happens once at `Integrity.__init__` (startup),
 never inside `apply`.
 
-Slice integrity/01-flags (issue #43). Static caveat text + active-flag
-counting (`CAVEATS`) is out of scope here and lands in step
-(plans/integrity/01-flags.md "Out of scope").
+Slice integrity/01-flags (issue #43) delivered the two flags above. Slice
+integrity/02-caveats (issue #44) adds the static per-layer caveat text
+(`CAVEATS`) and the `active_flag_counts` helper backing
+`GET /api/layers/{domain}/caveats` (api.md).
 """
 
 from __future__ import annotations
@@ -28,9 +29,32 @@ from shapely.errors import ShapelyError
 from shapely.geometry import Point, shape
 from shapely.geometry.base import BaseGeometry
 
-from backend.models import Domain, Feature, IntegrityFlag
+from backend.models import Domain, Feature, IntegrityFlag, LayerSnapshot
 
 _EARTH_RADIUS_M = 6371000.0
+
+# Static per-layer caveat text (design/specs/integrity.md "Static caveat
+# text"), served by GET /api/layers/{domain}/caveats alongside live
+# active_flags counts (api.md). Verbatim -- not paraphrased.
+CAVEATS: dict[Domain, list[str]] = {
+    Domain.AIR: [
+        "Shows only aircraft broadcasting ADS-B/Mode S within receiver coverage.",
+        "Military and state aircraft with transponders switched off are invisible here.",
+        "Mode S-only aircraft broadcast no position; altitude/position gaps are expected.",
+    ],
+    Domain.MARINE: [
+        "Terrestrial AIS coverage in the Persian Gulf is receiver-dependent and uneven.",
+        "Dark-fleet vessels routinely disable AIS and will not appear.",
+        "GPS jamming in the region produces on-land and circular ghost tracks; "
+        "positions may be spoofed.",
+    ],
+    Domain.LAND: [
+        "This layer is mapped infrastructure state, not live telemetry.",
+        "Positions reflect OpenStreetMap data at the shown osm_base timestamp, "
+        "not current ground truth.",
+        "Absence of a feature means it is unmapped, not necessarily absent on the ground.",
+    ],
+}
 
 # config.md [integrity] landmask_path="" -> this default (populated once by
 # scripts/fetch_landmask.py, STRUCTURE.md).
@@ -76,6 +100,18 @@ def haversine(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
         + math.cos(phi1) * math.cos(phi2) * math.sin(dlambda / 2) ** 2
     )
     return 2 * _EARTH_RADIUS_M * math.asin(math.sqrt(a))
+
+
+def active_flag_counts(snapshot: LayerSnapshot) -> dict[str, int]:
+    """Tally each feature's `integrity_flags` across `snapshot`, keyed by
+    `IntegrityFlag.value` (api.md `active_flags` wire shape). Every known
+    `IntegrityFlag` is always present, at 0 if unflagged, so an empty or
+    entirely-unflagged snapshot still yields a zero for every flag."""
+    counts: dict[str, int] = {flag.value: 0 for flag in IntegrityFlag}
+    for feature in snapshot.features:
+        for flag in feature.integrity_flags:
+            counts[flag.value] += 1
+    return counts
 
 
 def _resolve_landmask_path(landmask_path: str) -> Path:
