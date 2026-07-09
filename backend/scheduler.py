@@ -1,6 +1,7 @@
 """Scheduler core runtime (spec: design/specs/scheduler.md; plans:
 plans/scheduler/01-core-runtime.md (issue #45),
-plans/scheduler/02-status-write-path.md (issue #49)).
+plans/scheduler/02-status-write-path.md (issue #49),
+plans/scheduler/04-region-toggle.md (issue #52)).
 
 step laid the concurrency spine: one asyncio task per poll layer,
 per-layer cadence independence (FR6), single-flight coalescing of manual
@@ -8,16 +9,21 @@ per-layer cadence independence (FR6), single-flight coalescing of manual
 parking a layer purely on `_wake` for zero upstream spend while disabled
 (FR5).
 
-step (this file, grown) adds status ownership (FR7) and the write path
-(FR8/FR9/FR10): the scheduler becomes the sole writer of `LayerStatus`, and
-every successful fetch runs `integrity.apply -> registry[domain] = snap ->
+step adds status ownership (FR7) and the write path (FR8/FR9/FR10): the
+scheduler becomes the sole writer of `LayerStatus`, and every successful
+fetch runs `integrity.apply -> registry[domain] = snap ->
 events.publish_snapshot(snap) -> (air/marine only) await
 store.put_fallback(snap)`, in that fixed order.
 
-Still out of scope (later scheduler slices 03-04): backoff per error class,
-the event-driven stale *timer* (stale is only computed at write time here),
-region-switch (`activate_region`), enable/disable of marine stream
-supervision, and the real SSE endpoint (api-core/01).
+step (this file, grown) adds the region-switch sequence
+(`activate_region`, ARCHITECTURE §4.2) and extends `set_enabled` to also
+supervise an optional marine `StreamAdapter` (FR5). Per-layer cancellation
+uses a generation counter (`_cancel_gen`), not literal task cancellation: a
+completing old-region fetch is discarded on return by comparing the
+generation captured at fetch-start against the current one.
+
+Still out of scope (later scheduler step): backoff per error class, the
+event-driven stale *timer* (stale is only computed at write time here).
 """
 
 from __future__ import annotations
@@ -25,17 +31,59 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import datetime, timezone
+from typing import Any
 
 from backend.config import AppConfig, effective_cadence_s
 from backend.config import stale_after_s as _configured_stale_after_s
 from backend.events import EventBus
 from backend.integrity import Integrity, PrevPos
-from backend.models import Domain, LayerSnapshot, LayerStatus
+from backend.models import (
+    Domain,
+    Feature,
+    GeometryType,
+    LayerSnapshot,
+    LayerSnapshotMeta,
+    LayerStatus,
+)
 from backend.registry import Registry
-from backend.sources.base import PollAdapter, Region
-from backend.store import Store
+from backend.sources.base import PollAdapter, Region, StreamAdapter
+from backend.store import LandCacheRow, Store
 
 logger = logging.getLogger(__name__)
+
+
+def _geojson_feature_to_feature(gj_feature: dict[str, Any]) -> Feature:
+    """Inverse of the `land_cache.geojson` encoding (storage.md). Mirrors
+    `backend.main._geojson_to_feature`; kept local so `scheduler.py` does not
+    depend on `main.py` (wrong dependency direction -- `main.py` wires the
+    scheduler, not the other way around)."""
+    properties = dict(gj_feature["properties"])
+    if properties.get("geometry_type") == GeometryType.POINT.value:
+        properties["geometry"] = None
+    else:
+        properties["geometry"] = gj_feature.get("geometry")
+    return Feature.model_validate(properties)
+
+
+def _land_snapshot_from_cache_row(
+    row: LandCacheRow, *, cadence_s: int, stale_after_s: int
+) -> LayerSnapshot:
+    """Mirrors `backend.main._land_snapshot_from_cache_row` (same rationale
+    as `_geojson_feature_to_feature` above)."""
+    features = [
+        _geojson_feature_to_feature(gj) for gj in row.geojson.get("features", [])
+    ]
+    meta = LayerSnapshotMeta(
+        layer=Domain.LAND,
+        region_id=row.region_id,
+        status=LayerStatus.LIVE,
+        timestamp_fetched=row.fetched_at,
+        timestamp_source=row.osm_base,
+        cadence_s=cadence_s,
+        stale_after_s=stale_after_s,
+        feature_count=row.feature_count,
+    )
+    return LayerSnapshot(meta=meta, features=features)
 
 
 class Scheduler:
@@ -56,6 +104,7 @@ class Scheduler:
         integrity: Integrity | None = None,
         store: Store | None = None,
         events: EventBus | None = None,
+        stream: StreamAdapter | None = None,
     ) -> None:
         self._cfg = cfg
         self._adapters = adapters
@@ -64,12 +113,14 @@ class Scheduler:
         self._integrity = integrity
         self._store = store
         self._events = events
+        self._stream = stream
 
         self._enabled: dict[Domain, bool] = {}
         self._cadence_s: dict[Domain, int] = {}
         self._inflight: dict[Domain, asyncio.Future[LayerSnapshot] | None] = {}
         self._wake: dict[Domain, asyncio.Event] = {}
         self._status: dict[Domain, LayerStatus] = {}
+        self._cancel_gen: dict[Domain, int] = {}
 
         for domain, layer_cfg in ((d, cfg.layers[d.value]) for d in adapters):
             self._enabled[domain] = layer_cfg.enabled
@@ -77,6 +128,16 @@ class Scheduler:
             self._inflight[domain] = None
             self._wake[domain] = asyncio.Event()
             self._status[domain] = LayerStatus.LOADING
+            self._cancel_gen[domain] = 0
+
+        if stream is not None and stream.domain not in self._cancel_gen:
+            # Marine supervised purely via the stream adapter (no poll loop
+            # task, no `fetch`/cadence/enabled bookkeeping) -- still needs a
+            # generation slot (`activate_region` bumps every layer's) and a
+            # status/wake slot (`set_enabled`'s marine branch below).
+            self._wake[stream.domain] = asyncio.Event()
+            self._status[stream.domain] = LayerStatus.LOADING
+            self._cancel_gen[stream.domain] = 0
 
     def current_status(self, domain: Domain) -> LayerStatus:
         """FR7 public reader (spec "Public interface"). The scheduler is the
@@ -124,10 +185,141 @@ class Scheduler:
 
     async def set_enabled(self, domain: Domain, enabled: bool) -> None:
         """FR5. Disabling parks the loop on `_wake` (checked on its next
-        wake); enabling sets `_wake` for an immediate fetch."""
+        wake); enabling sets `_wake` for an immediate fetch.
+
+        Marine variant (scheduler.md "Enable/disable (FR5)"): when `domain`
+        is the injected stream's domain and it has no poll-loop task of its
+        own (not in `_adapters`), disable/enable instead supervise the
+        `StreamAdapter` directly -- `stop()` (close the websocket -> zero
+        stream) / `start()` + `_wake` + an emitted `loading` status.
+        """
+        if (
+            self._stream is not None
+            and domain == self._stream.domain
+            and domain not in self._adapters
+        ):
+            if enabled:
+                await self._stream.start()
+                if domain in self._wake:
+                    self._wake[domain].set()
+                self._status[domain] = LayerStatus.LOADING
+                if self._events is not None:
+                    snap = self._stream.snapshot()
+                    # The adapter's snapshot() hardcodes status=LIVE (it has
+                    # no notion of the scheduler's enable/disable state) --
+                    # the scheduler is the sole writer of LayerStatus
+                    # (spec "Status ownership"), so stamp the authoritative
+                    # value onto the published meta before it goes out.
+                    # snapshot() returns a freshly constructed LayerSnapshot
+                    # on every call, so mutating this meta in place carries
+                    # no aliasing risk against the adapter's internal table.
+                    snap.meta.status = LayerStatus.LOADING
+                    self._events.publish_layer_status(snap.meta)
+            else:
+                await self._stream.stop()
+            return
+
         self._enabled[domain] = enabled
         if enabled:
             self._wake[domain].set()
+
+    async def activate_region(self, region: Region) -> None:
+        """Region-switch sequence (scheduler.md "Region-switch sequence",
+        ARCHITECTURE §4.2), steps 1-6 in order:
+
+        1. Set `_region`; bump `_cancel_gen[domain]` for every layer so an
+           in-flight old-region fetch's result is discarded on return
+           (`_do_fetch` checks the generation).
+        2. Clear the registry for all layers and publish `region_changed`.
+        3. Repopulate cheaply: land from `store.get_land_cache` if fresh;
+           air/marine from `store.get_fallback` only when the row's
+           `region_id` matches the new region (a mismatched-region fallback
+           must never be shown -- `fallback_snapshots` is keyed by layer
+           only, storage.md).
+        4. Set `_wake` for poll layers (next tick fetches the new bbox).
+        5. `await stream.set_region(new)` if a marine stream is injected.
+        6. Persist the new region as the `active_region` config override.
+
+        Every collaborator (`registry`/`store`/`events`/`stream`) is
+        optional and guarded exactly like the write path in
+        `_handle_fetch_success`/`_handle_fetch_failure` -- a caller that
+        didn't supply one keeps working with that step skipped.
+        """
+        for domain in self._cancel_gen:
+            self._cancel_gen[domain] += 1
+
+        self._region = region
+
+        if self._registry is not None:
+            self._registry.clear()
+
+        if self._events is not None:
+            self._events.publish_region_changed(region.id, region.bbox)
+
+        if self._store is not None:
+            if Domain.LAND in self._adapters:
+                await self._repopulate_land(region)
+            for domain in (Domain.AIR, Domain.MARINE):
+                if domain in self._adapters or (
+                    self._stream is not None and self._stream.domain == domain
+                ):
+                    await self._repopulate_fallback(domain, region)
+
+        for domain in self._adapters:
+            self._wake[domain].set()
+
+        if self._stream is not None:
+            await self._stream.set_region(region)
+
+        if self._store is not None:
+            await self._store.put_config_override(
+                "active_region", {"region_id": region.id}
+            )
+
+    async def _repopulate_land(self, region: Region) -> None:
+        """Region-switch step 3, land branch: serve the cached land layer
+        without a fetch if it's still fresh (storage.md "Refresh cadence":
+        `now - fetched_at < land cadence`, mirroring the same freshness rule
+        used for the normal Overpass refresh)."""
+        assert self._store is not None
+        row = await self._store.get_land_cache(region.id)
+        if row is None:
+            self._status[Domain.LAND] = LayerStatus.LOADING
+            return
+
+        cadence_s = self._cadence_s.get(Domain.LAND, 0)
+        now = datetime.now(timezone.utc)
+        age_s = (now - row.fetched_at).total_seconds()
+        if cadence_s and age_s >= cadence_s:
+            self._status[Domain.LAND] = LayerStatus.LOADING
+            return  # stale -- leave it to the next scheduled fetch
+
+        layer_cfg = self._cfg.layers.get(Domain.LAND.value)
+        stale_after = _configured_stale_after_s(layer_cfg) if layer_cfg else cadence_s
+        snap = _land_snapshot_from_cache_row(
+            row, cadence_s=cadence_s, stale_after_s=stale_after
+        )
+        if self._registry is not None:
+            self._registry[Domain.LAND] = snap
+        if self._events is not None:
+            self._events.publish_snapshot(snap)
+        self._status[Domain.LAND] = snap.meta.status
+
+    async def _repopulate_fallback(self, domain: Domain, region: Region) -> None:
+        """Region-switch step 3, air/marine branch: the region-matched
+        fallback gate. `store.get_fallback` is always consulted (so a
+        caller can prove it was checked); the row is only used to
+        repopulate when its `region_id` matches the new region."""
+        assert self._store is not None
+        fallback = await self._store.get_fallback(domain.value)
+        if fallback is None or fallback.meta.region_id != region.id:
+            self._status[domain] = LayerStatus.LOADING
+            return
+        if self._registry is not None:
+            self._registry[domain] = fallback
+        if self._events is not None:
+            self._events.publish_snapshot(fallback)
+        self._status[domain] = fallback.meta.status
 
     async def refresh(self, domain: Domain) -> None:
         """FR6 manual kick: join the same single-flight fetch a scheduled
@@ -145,6 +337,7 @@ class Scheduler:
         loop = asyncio.get_running_loop()
         fut = loop.create_future()
         self._inflight[domain] = fut
+        gen = self._cancel_gen.get(domain, 0)
         try:
             result = await self._adapters[domain].fetch(self._region)
         except asyncio.CancelledError as exc:
@@ -177,7 +370,17 @@ class Scheduler:
             await self._handle_fetch_failure(domain)
             raise
         else:
-            await self._handle_fetch_success(domain, result)
+            # Region-switch cancellation (scheduler.md "Region-switch
+            # sequence" step 1): `activate_region` does not literally cancel
+            # an in-flight fetch (adapters aren't required to tolerate that
+            # mid-request) -- it bumps `_cancel_gen[domain]` instead. A fetch
+            # that started under the old generation still completes (this
+            # `await` above already ran), but its result is stale: skip the
+            # write path so it never lands in the registry/SSE/fallback for
+            # the new region. The future is still resolved with the (unused)
+            # result so any joiner's `await fut` completes cleanly.
+            if self._cancel_gen.get(domain, 0) == gen:
+                await self._handle_fetch_success(domain, result)
             fut.set_result(result)
             return result
         finally:
