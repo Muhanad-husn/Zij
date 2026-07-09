@@ -115,11 +115,13 @@ Each phase, if the corresponding piece of slice 03 is missing, fails fast
 (seconds, not minutes) via a bounded `asyncio.wait_for` -- never hangs the
 suite/commit-hook.
 
-It is authored and committed red by the test-author before any
-implementation exists (strict xfail, DEC-33): none of `_do_fetch`'s error
-handling honors `retry_after`/exponential backoff, and no stale timer is
-armed anywhere in `backend/scheduler.py` yet, so this genuinely fails
-against the current code and xfails cleanly under the tests-green gate.
+It was authored and committed red by the test-author before any
+implementation existed (strict xfail, DEC-33): none of `_do_fetch`'s error
+handling honored `retry_after`/exponential backoff, and no stale timer was
+armed anywhere in `backend/scheduler.py`, so this genuinely failed against
+the then-current code and xfailed cleanly under the tests-green gate. The
+implementer has since made it genuinely pass; the xfail marker has been
+removed to finalize the contract.
 """
 
 from __future__ import annotations
@@ -333,10 +335,6 @@ class AlreadyAgedThenIdleAdapter(PollAdapter):
         )
 
 
-@pytest.mark.xfail(
-    reason="scheduler backoff + event-driven stale timer not yet implemented (#50)",
-    strict=True,
-)
 async def test_scheduler_backoff_per_error_class_and_event_driven_stale_timer():
     from backend.scheduler import Scheduler
 
