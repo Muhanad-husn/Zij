@@ -56,10 +56,23 @@
  * depends on the connection state. See that helper's own comment for why a
  * `page.route().fulfill()` stub can't safely stand in here (it would leave
  * the EventSource retrying forever in the background).
+ *
+ * RECONCILIATION (slice frontend/03-region-selector, issue #59): the app now
+ * unconditionally fetches `GET /api/regions` and `GET /api/regions/active`
+ * on load (region dropdown population + last-region restore). This test has
+ * no live FastAPI backend, so those unstubbed calls would leak through
+ * Vite's preview proxy to a connection refused, logging a browser
+ * `console.error` that would trip this test's "zero console errors" clause
+ * even though the map itself boots cleanly — the same class of issue the
+ * snapshot-endpoint reconciliation above already documents.
+ * `tests/e2e/helpers/stubRegionEndpoints.ts` is used below to answer both
+ * quietly; this test asserts nothing about regions (that's
+ * `region-selector.spec.ts`'s job).
  */
 
 import { test, expect } from '@playwright/test';
 import { startQuietSseStub } from './helpers/quietSseStub';
+import { stubRegionEndpoints } from './helpers/stubRegionEndpoints';
 
 /** Minimal valid empty LayerSnapshot per design/contracts/feature-schema.md
  * §"LayerSnapshot & metadata". Only used to keep the app's on-load snapshot
@@ -137,6 +150,7 @@ test(
       // note above the imports.
       await stubApi(page);
       await sseStub.attachTo(page);
+      await stubRegionEndpoints(page);
 
       await page.goto('/');
 

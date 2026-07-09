@@ -47,6 +47,18 @@
  * connection-lost state from swallowing the Refresh button's clicks, should
  * the stream ever error mid-test.
  *
+ * RECONCILIATION (slice frontend/03-region-selector, issue #59): the app now
+ * unconditionally fetches `GET /api/regions` and `GET /api/regions/active`
+ * on load (region dropdown population + last-region restore). This test has
+ * no live FastAPI backend, so those unstubbed calls would leak through
+ * Vite's preview proxy to a connection refused, logging a browser
+ * `console.error` that would trip this test's "zero console errors" clause
+ * even though the layer rendering/refresh behavior this test actually
+ * exercises works fine — the same class of reconciliation the SSE note above
+ * already documents. `tests/e2e/helpers/stubRegionEndpoints.ts` is used
+ * below to answer both quietly; this test asserts nothing about regions
+ * (that's `region-selector.spec.ts`'s job).
+ *
  * REQUIRED TEST SEAMS (implementer must expose these — not the test-author's
  * to relax; each is independently asserted below):
  *
@@ -100,6 +112,7 @@
 
 import { test, expect, type Page } from '@playwright/test';
 import { startQuietSseStub } from './helpers/quietSseStub';
+import { stubRegionEndpoints } from './helpers/stubRegionEndpoints';
 
 // --- Fixtures ----------------------------------------------------------
 // Modeled on design/contracts/feature-schema.md "Wire examples". Kept small
@@ -422,6 +435,7 @@ test(
     // static bundle only).
     await stubApi(page);
     await sseStub.attachTo(page);
+    await stubRegionEndpoints(page);
 
     await page.goto('/');
 
