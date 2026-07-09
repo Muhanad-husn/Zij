@@ -43,7 +43,7 @@ Filed in dependency order 2026-07-06; the mapping is contiguous, **Dn = #(39+n)*
 | D6 | scheduler/core-runtime ⭐ | [#45](https://github.com/Muhanad-husn/Zij/issues/45) | · | D18 | frontend/sse-client ⭐ | [#57](https://github.com/Muhanad-husn/Zij/issues/57) |
 | D7 | config/precedence | [#46](https://github.com/Muhanad-husn/Zij/issues/46) | · | D19 | frontend/badges | [#58](https://github.com/Muhanad-husn/Zij/issues/58) |
 | D8 | sources-marine/aisstream-core ⭐ | [#47](https://github.com/Muhanad-husn/Zij/issues/47) | · | D20 | frontend/region-selector | [#59](https://github.com/Muhanad-husn/Zij/issues/59) |
-| D9 | sources-marine/aishub-dormant | [#48](https://github.com/Muhanad-husn/Zij/issues/48) | · | D21 | frontend/toggles-refresh | [#60](https://github.com/Muhanad-husn/Zij/issues/60) |
+| D9 | *(cancelled — dropped from v1)* | — | · | D21 | frontend/toggles-refresh | [#60](https://github.com/Muhanad-husn/Zij/issues/60) |
 | D10 | scheduler/status-write-path | [#49](https://github.com/Muhanad-husn/Zij/issues/49) | · | D22 | frontend/caveat-panel | [#61](https://github.com/Muhanad-husn/Zij/issues/61) |
 | D11 | scheduler/backoff-stale | [#50](https://github.com/Muhanad-husn/Zij/issues/50) | · | D23 | frontend/marine-integrity | [#62](https://github.com/Muhanad-husn/Zij/issues/62) |
 | D12 | sources-marine/aisstream-resilience | [#51](https://github.com/Muhanad-husn/Zij/issues/51) | · | | | |
@@ -94,7 +94,6 @@ LEVEL 1 (no new deps)
   D4  integrity/01 flags        (+ scripts/fetch_landmask.py)
   D5  integrity/02 caveats
   D6  scheduler/01 core-runtime ⭐
-  D9  sources-marine/03 aishub-dormant
 LEVEL 2
   D7  config/03 precedence          ── D3, D2
   D8  sources-marine/01 aisstream-core ⭐ ── D3
@@ -291,16 +290,10 @@ locked contract the test-author encodes as the outer test, DEC-1).
 > `snapshot()` keeps serving; entries past 2 h are evicted; after `set_region` no old-region vessels
 > remain.
 
-### D9 — sources-marine: AISHub dormant adapter
-**Title:** `feat(aishub): dormant marine PollAdapter (1 req/min) proving renderer-independence (FR3)`
-**Labels:** `sub:v1`, `enhancement` · **Blocked-by:** none new · **Plan:** `plans/sources-marine/03-aishub-dormant.md`
+### D9 — sources-marine: AISHub dormant adapter *(cancelled)*
 
-> The dormant secondary `PollAdapter` returning byte-compatible `LayerSnapshot(MARINE)`, self-enforcing
-> a 1 req/min floor, absent from bundled config (activate via `AISHUB_USERNAME` + a one-line wiring
-> swap). Proves the FR3 renderer-independence acceptance. Can slip — unblocks nothing.
->
-> **Acceptance:** `fetch(region)` (mocked) returns `LayerSnapshot(MARINE)` shape-identical to aisstream;
-> a call <60 s after the last is throttled; the adapter is not in bundled `config.toml`.
+> Dropped from v1. AISHub gates API access behind contributing an owned AIS receiver feed, so it was
+> never a viable sign-up source; aisstream.io is the marine source. Issue #48 closed as not-planned.
 
 ## api-core
 

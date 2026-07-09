@@ -6,10 +6,10 @@ Design for `backend/sources/base.py`. Implements the adapter side of PRD §10, F
 
 The two source access patterns from the PRD map to two base classes:
 
-- **`PollAdapter`** — request/response. `fetch(region) → LayerSnapshot`. Used by **OpenSky** (§6.1), **Overpass** (§6.3), **AISHub** (§6.2, dormant). The scheduler calls `fetch` on cadence.
+- **`PollAdapter`** — request/response. `fetch(region) → LayerSnapshot`. Used by **OpenSky** (§6.1), **Overpass** (§6.3). The scheduler calls `fetch` on cadence.
 - **`StreamAdapter`** — long-running task holding a websocket and internal state; the scheduler samples it on cadence via a synchronous `snapshot()`. Used by **aisstream** (§6.2): the rolling MMSI table *is* the latest projection.
 
-Both return the identical `LayerSnapshot`, so the renderer is shape-agnostic — this is what makes FR3's "AISHub swaps in without renderer changes" true **by construction** ([§ renderer independence](#renderer-independence-fr3)).
+Both return the identical `LayerSnapshot`, so the renderer is shape-agnostic — this is what makes FR3's renderer-independence — any marine adapter swaps in without renderer changes — true **by construction** ([§ renderer independence](#renderer-independence-fr3)).
 
 ## Region type
 
@@ -133,9 +133,9 @@ Adapters **return or raise; they never set layer status**. The scheduler maps ou
 
 ## Renderer independence (FR3)
 
-The contract guarantees the FR3 acceptance criterion "the adapter interface admits an AISHub polling implementation without changes to the renderer":
+The contract guarantees the FR3 acceptance criterion "the adapter interface admits an alternative marine polling implementation without changes to the renderer":
 
-- AISHub is a `PollAdapter` (§6.2 1-req/min is compatible with the poll cadence); aisstream is a `StreamAdapter`. **Both return `LayerSnapshot` with `domain = MARINE`.**
+- An alternative marine source implemented as a `PollAdapter` and the aisstream `StreamAdapter` **both return `LayerSnapshot` with `domain = MARINE`.** The renderer consumes only that shape.
 - The scheduler's marine-sampling code is identical for either (poll `fetch` vs. sample `snapshot()` differ only in the scheduler's source-shape branch, chosen at wiring time from [config.md](config.md)).
 - The frontend renders `LayerSnapshot` and never learns which marine source produced it (shell boundary, [ARCHITECTURE §6](../docs/ARCHITECTURE.md#6-the-shell-boundary-d1-no-rewrite-promise)).
 

@@ -52,7 +52,9 @@ class LayerStatus(str, Enum):
     RATE_LIMITED = "rate-limited"  # 429; carries retry_after_s
     ERROR = "error"  # last fetch failed, no warm cache
     CACHED_FALLBACK = "cached-fallback"  # serving FR8 fallback snapshot
-    RECONNECTING = "reconnecting"  # marine stream only (FR3); UI treats as loading-family
+    RECONNECTING = (
+        "reconnecting"  # marine stream only (FR3); UI treats as loading-family
+    )
 
 
 def _reject_naive_datetime(value: datetime | None) -> datetime | None:
@@ -76,7 +78,7 @@ class Feature(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=False)
 
     domain: Domain
-    source: str  # "opensky" | "aisstream" | "aishub" | "overpass"
+    source: str  # "opensky" | "aisstream" | "overpass"
     source_id: str  # ICAO24 (air) | MMSI (marine) | OSM type/id (land)
     label: str | None = None  # callsign | vessel name | OSM name; may be absent
 
@@ -88,13 +90,19 @@ class Feature(BaseModel):
     # GeoJSON geometry object for line/polygon; None for points (lat/lon suffice).
     geometry: dict[str, Any] | None = None
 
-    timestamp_source: datetime | None  # source's own time (time_position / AIS ts / osm_base)
+    timestamp_source: (
+        datetime | None
+    )  # source's own time (time_position / AIS ts / osm_base)
     timestamp_fetched: datetime  # when Zij fetched/snapshotted it (UTC)
-    position_age_s: float | None  # now - timestamp_source, seconds; None if no source ts
+    position_age_s: (
+        float | None
+    )  # now - timestamp_source, seconds; None if no source ts
 
     status: FeatureStatus = FeatureStatus.LIVE
     integrity_flags: list[IntegrityFlag] = Field(default_factory=list)
-    attrs: dict[str, Any] = Field(default_factory=dict)  # domain-specific, see Units table
+    attrs: dict[str, Any] = Field(
+        default_factory=dict
+    )  # domain-specific, see Units table
 
     # In-memory only. Excluded from model_dump()/JSON by default (exclude=True).
     # Reachable solely via the raw-payload inspection endpoint (FR11).

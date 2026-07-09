@@ -27,7 +27,6 @@ D:\Zij/                              (repo root)
 │       ├── base.py                  # SourceAdapter / PollAdapter / StreamAdapter, Region, errors
 │       ├── opensky.py                # OAuth2 token mgr, bbox states, credit accounting
 │       ├── aisstream.py              # websocket client, latest-position table per MMSI
-│       ├── aishub.py                 # polling adapter, dormant until receiver commissioned (OQ2)
 │       └── overpass.py               # whitelisted queries, DP-simplification, osm_base capture
 │
 ├── backend/tests/                   # pytest — see §6 for the "why here" one-liner
@@ -39,7 +38,6 @@ D:\Zij/                              (repo root)
 │   ├── test_opensky.py
 │   ├── test_aisstream.py
 │   ├── test_overpass.py
-│   ├── test_aishub.py
 │   ├── test_scheduler.py
 │   ├── test_integrity.py
 │   ├── test_store.py
@@ -127,7 +125,6 @@ Distribution name (`[project].name` in pyproject.toml, what you'd `pip install`)
 | `sources/base.py` | The `SourceAdapter`/`PollAdapter`/`StreamAdapter` ABCs, `Region`, and the `AdapterError` taxonomy ([adapter-interface.md](../contracts/adapter-interface.md)). | The registry, SQLite, status transitions (those are the scheduler's job). |
 | `sources/opensky.py` | OAuth2 token lifecycle, `/states/all` fetch, per-call credit accounting against bbox area. | SQLite, the frontend, other adapters' internals. |
 | `sources/aisstream.py` | The websocket connection, the in-memory latest-position-per-MMSI table, re-subscribe on region switch. | SQLite persistence (that's `store.py` via the scheduler), the frontend. |
-| `sources/aishub.py` | The dormant polling-shaped alternative marine adapter (1 req/min), returning the identical `LayerSnapshot` shape as aisstream. | Anything that would make swapping it in require a renderer or scheduler change (FR3). |
 | `sources/overpass.py` | Tag-whitelisted queries, mirror/backoff selection, Douglas-Peucker simplification, `osm_base` capture. | SQLite writes directly — it returns a snapshot; `store.py`/scheduler persists it. |
 | `scheduler.py` | Per-layer cadence timers, manual-refresh coalescing, backoff, and **all** `LayerStatus` transitions ([ARCHITECTURE §5](ARCHITECTURE.md#5-failure-isolation-fr10-and-the-layer-status-state-machine)). | The wire format of the API (that's `main.py`); how a specific adapter talks to its upstream. |
 | `integrity.py` | The FR9 landmask point-in-polygon and kinematics-jump checks, run at snapshot time. | Sources, SQLite, or the API — it is a pure function over features in, flagged features out. |
@@ -143,7 +140,7 @@ Distribution name (`[project].name` in pyproject.toml, what you'd `pip install`)
 |---|---|---|
 | `models.py` | stdlib, pydantic | `sources.*`, `store`, `scheduler`, `config`, `main` |
 | `sources/base.py` | `models` | `store`, `scheduler`, `main` |
-| `sources/{opensky,aisstream,aishub,overpass}.py` | `sources.base`, `models` | `store`, `scheduler`, `main`, each other |
+| `sources/{opensky,aisstream,overpass}.py` | `sources.base`, `models` | `store`, `scheduler`, `main`, each other |
 | `integrity.py` | `models`, shapely | `sources.*`, `store`, `main` |
 | `store.py` | `models` | `sources.*`, `scheduler`, `main` |
 | `config.py` | `models` (Cfg types), pydantic-settings | `sources.*`, `store`, `scheduler`, `main` |
@@ -167,7 +164,6 @@ This mirrors [ARCHITECTURE §6](ARCHITECTURE.md#6-the-shell-boundary-d1-no-rewri
 OPENSKY_CLIENT_ID=
 OPENSKY_CLIENT_SECRET=
 AISSTREAM_API_KEY=
-# AISHUB_USERNAME=      # optional — dormant secondary marine adapter (OQ2)
 ```
 
 **`README.md`** — currently an empty file (0 content lines). Needs at minimum: product one-liner + link to `design/docs/zij_prd.md`, `pip install -e .` / `uvicorn backend.main:app` quick-start, and the `design/assets/zij_lockup.svg` header image (now available; §8, [DECISIONS open items](DECISIONS.md#design-phase-open-items)).
@@ -181,7 +177,7 @@ AISSTREAM_API_KEY=
 | exists at | items |
 |---|---|
 | **v0** (source-validation spike, PRD §11) | `backend/main.py` (direct adapter wiring, no scheduler yet — v0 is manual-refresh-only per roadmap), `backend/models.py`, `backend/config.py` (regions + opensky/overpass sections only), `backend/store.py` (land_cache table only — D4 makes this non-optional even at v0), `backend/sources/base.py`, `backend/sources/opensky.py`, `backend/sources/overpass.py`, a minimal `frontend/` (single static MapLibre page, Hormuz hardcoded), `backend/tests/` for opensky+overpass only. |
-| **v1** (the monitor) | adds `backend/scheduler.py`, `backend/integrity.py`, `backend/sources/aisstream.py`, `backend/sources/aishub.py` (dormant), full `backend/store.py` (all 3 tables), full `config.toml` (all layers/regions), the full `frontend/src/{state,sse,map,ui}` structure, `design/docs/TESTING.md`'s complete backend suite, `frontend/tests/` (vitest), the CI workflow. |
+| **v1** (the monitor) | adds `backend/scheduler.py`, `backend/integrity.py`, `backend/sources/aisstream.py`, full `backend/store.py` (all 3 tables), full `config.toml` (all layers/regions), the full `frontend/src/{state,sse,map,ui}` structure, `design/docs/TESTING.md`'s complete backend suite, `frontend/tests/` (vitest), the CI workflow. |
 | **v2** (installables) | `packaging/tauri/`, `packaging/capacitor/` gain real content; credential first-run flow; FR11 presets endpoints (designed in `api.md` now, but UI lands v2 alongside P1 popup depth). |
 
 ## 8. Notable gaps found while assembling this tree

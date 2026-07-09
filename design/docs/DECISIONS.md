@@ -87,7 +87,7 @@ Index:
 ## ADR-9 — HTTP & websocket clients
 
 **Status:** Accepted.
-**Context:** OpenSky/Overpass/AISHub are HTTP; aisstream is a websocket (PRD §6, §7.2 names httpx + websockets).
+**Context:** OpenSky/Overpass are HTTP; aisstream is a websocket (PRD §6, §7.2 names httpx + websockets).
 **Decision:** **httpx** (async) for all REST adapters — one shared `AsyncClient` per adapter with timeouts; handles OpenSky OAuth2 token refresh via an auth flow. **websockets** library for the aisstream `StreamAdapter`.
 **Consequences:** Matches PRD prerequisites §7.2. httpx gives per-request timeouts and connection reuse (credit-cheap). Testable with respx.
 **Rejected:** aiohttp (fine, but httpx is already the PRD's named dep and pairs with sync test clients). requests (sync, wrong for the loop).

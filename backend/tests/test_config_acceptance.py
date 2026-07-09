@@ -22,9 +22,9 @@ injected fixture file; the only "Given" this test controls directly is the env.
 
 Marine/aisstream/integrity sections and the full `validate_bbox` activation
 path are explicitly out of scope for this slice (plans/config/01-config-loader.md
-"Out of scope"), so this test does not require AISSTREAM_API_KEY/
-AISHUB_USERNAME to be set even though those layers appear (disabled or absent)
-in the full config.md contract.
+"Out of scope"), so this test does not require AISSTREAM_API_KEY to be set
+even though those layers appear (disabled or absent) in the full config.md
+contract.
 
 It was authored and committed red by the test-author before any
 implementation existed (strict xfail, DEC-33). The implementer has since made
@@ -52,13 +52,11 @@ def test_load_config_returns_regions_credit_tier_and_isolated_secrets(monkeypatc
     client_secret = "test-opensky-client-secret-7e21"
     monkeypatch.setenv("OPENSKY_CLIENT_ID", client_id)
     monkeypatch.setenv("OPENSKY_CLIENT_SECRET", client_secret)
-    # AISHUB_USERNAME: no layer requires it (out of scope for this slice), so
-    # it is left unset. AISSTREAM_API_KEY: marine is enabled in the bundled
-    # config.toml as of slice config-02 (#42), so its own secret gate needs a
-    # non-empty value too, or load_config() below raises MissingSecretError
-    # for a reason this (config-01) slice's contract does not cover.
+    # AISSTREAM_API_KEY: marine is enabled in the bundled config.toml as of
+    # slice config-02 (#42), so its own secret gate needs a non-empty value
+    # too, or load_config() below raises MissingSecretError for a reason this
+    # (config-01) slice's contract does not cover.
     monkeypatch.setenv("AISSTREAM_API_KEY", "config01-outer-aisstream-api-key")
-    monkeypatch.delenv("AISHUB_USERNAME", raising=False)
     # Don't let a stray operator user-config override path leak into this test
     # (user-TOML layering is out of scope for this slice).
     monkeypatch.delenv("ZIJ_CONFIG_PATH", raising=False)
