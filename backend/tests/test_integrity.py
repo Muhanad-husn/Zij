@@ -89,8 +89,6 @@ import math
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-import pytest
-
 from backend.integrity import Integrity, IntegrityCfg, PrevPos
 from backend.models import (
     Domain,
@@ -344,9 +342,11 @@ def test_apply_flags_spoof_suspect_on_land_and_implausible_kinematics():
 #
 # It was authored and committed red by the test-author before any
 # implementation existed (strict xfail, DEC-33): `CAVEATS` and
-# `active_flag_counts` do not exist in `backend.integrity` yet, so importing
-# them inside the test body raises `ImportError`/`AttributeError` and the
-# test xfails cleanly under the tests-green gate.
+# `active_flag_counts` did not exist in `backend.integrity` yet, so importing
+# them inside the test body raised `ImportError`/`AttributeError` and the
+# tests xfailed cleanly under the tests-green gate. The implementer has since
+# made these genuinely pass; the xfail markers have been removed to finalize
+# the contract (test-author's marker-removal pass, DEC-1).
 # =============================================================================
 
 
@@ -387,10 +387,6 @@ def _snapshot(domain: Domain, features: list[Feature]) -> LayerSnapshot:
     )
 
 
-@pytest.mark.xfail(
-    reason="integrity CAVEATS + active-flag counts not yet implemented",
-    strict=True,
-)
 def test_caveats_text_matches_spec_verbatim():
     from backend.integrity import CAVEATS
 
@@ -420,10 +416,6 @@ def test_caveats_text_matches_spec_verbatim():
     ]
 
 
-@pytest.mark.xfail(
-    reason="integrity CAVEATS + active-flag counts not yet implemented",
-    strict=True,
-)
 def test_active_flag_counts_tallies_flags_across_a_snapshot():
     from backend.integrity import active_flag_counts
 
@@ -496,10 +488,6 @@ def test_active_flag_counts_tallies_flags_across_a_snapshot():
     }
 
 
-@pytest.mark.xfail(
-    reason="integrity CAVEATS + active-flag counts not yet implemented",
-    strict=True,
-)
 def test_active_flag_counts_empty_or_unflagged_snapshot_yields_zero_for_every_flag():
     from backend.integrity import active_flag_counts
 
