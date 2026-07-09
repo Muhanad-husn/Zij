@@ -1,0 +1,16 @@
+$ cd frontend && npx playwright test tests/e2e/region-selector.spec.ts
+
+Running 1 test using 1 worker
+
+  ✓  1 [chromium] › tests\e2e\region-selector.spec.ts:400:1 › region selector: predefined activation shows credit cost inline, an over-cap custom bbox blocks Confirm with the cap-naming message, a valid custom bbox activates and region_changed clears the map (3.0s)
+
+  1 passed (5.2m)
+
+# NOTE: the post-result "worker did not exit within 300000ms after stop, force-killed it"
+# lines are the documented harmless Playwright chromium-teardown hang on this
+# environment (see plans / prior frontend slices), not a test failure. The
+# result line above (✓ ... 1 passed) is the authoritative outcome. The outer
+# acceptance test encodes plans/frontend/03-region-selector.md's Gherkin verbatim:
+# predefined region activation (+ inline credit cost), over-cap custom bbox
+# (cap-naming message shown + Confirm disabled before activation), valid custom
+# bbox confirm (activate {bbox,label}), and region_changed clearing the map.
