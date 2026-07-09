@@ -25,15 +25,18 @@ import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
 from backend.config import AppConfig, Secrets, load_config
 from backend.events import EventBus
+from backend.integrity import CAVEATS, active_flag_counts
 from backend.models import (
     Domain,
     Feature,
@@ -53,7 +56,7 @@ from backend.sources.base import (
 )
 from backend.sources.opensky import CreditLedger, OpenSkyAdapter, OpenSkyCfg
 from backend.sources.overpass import OverpassAdapter, OverpassCfg
-from backend.store import LandCacheRow, Store
+from backend.store import ConflictError, LandCacheRow, Store
 
 _LOG = logging.getLogger(__name__)
 
@@ -87,6 +90,23 @@ def _error_envelope(code: str, message: str, **extra: object) -> dict:
     body: dict[str, object] = {"code": code, "message": message}
     body.update(extra)
     return {"error": body}
+
+
+def _coerce_domain(domain: str) -> Domain:
+    """`str` path param -> `Domain`, raising the api.md `bad_request` envelope
+    for anything outside `{air, marine, land}`."""
+    try:
+        return Domain(domain)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=_error_envelope("bad_request", f"unknown domain {domain!r}"),
+        ) from exc
+
+
+class _PresetCreateRequest(BaseModel):
+    name: str
+    bbox: tuple[float, float, float, float]
 
 
 def _adapter_error_to_http(exc: AdapterError) -> HTTPException:
@@ -327,6 +347,88 @@ def create_app(
         except AdapterError:
             _LOG.warning("POST /api/refresh: land layer refetch failed", exc_info=True)
         return {"queued": ["air", "land"]}
+
+    @app.get("/api/layers/{domain}/caveats")
+    async def get_layer_caveats(domain: str) -> dict:
+        domain_enum = _coerce_domain(domain)
+        snapshot = registry.get(domain_enum)
+        if snapshot is None:
+            # api.md: static caveats + "any active integrity-flag counts from
+            # the current snapshot" -- with no snapshot yet, that's every
+            # flag at 0. Reuse `active_flag_counts` (rather than hand-roll
+            # the zero dict) via a minimal `.features`-bearing stand-in.
+            active_flags = active_flag_counts(SimpleNamespace(features=[]))
+        else:
+            active_flags = active_flag_counts(snapshot)
+        return {
+            "domain": domain_enum.value,
+            "caveats": CAVEATS[domain_enum],
+            "active_flags": active_flags,
+        }
+
+    @app.get("/api/features/{domain}/{source_id}/raw")
+    async def get_feature_raw(domain: str, source_id: str) -> dict:
+        domain_enum = _coerce_domain(domain)
+        snapshot = registry.get(domain_enum)
+        feature = None
+        if snapshot is not None:
+            feature = next(
+                (f for f in snapshot.features if f.source_id == source_id), None
+            )
+        if feature is None:
+            raise HTTPException(
+                status_code=404,
+                detail=_error_envelope(
+                    "not_found",
+                    f"no live {domain_enum.value} feature with source_id {source_id!r}",
+                ),
+            )
+        return {
+            "domain": domain_enum.value,
+            "source_id": feature.source_id,
+            "source": feature.source,
+            "raw_payload": feature.raw_payload,
+        }
+
+    @app.get("/api/presets")
+    async def list_presets() -> dict:
+        rows = await store.list_presets()
+        return {
+            "presets": [
+                {
+                    "id": row.id,
+                    "name": row.name,
+                    "bbox": list(row.bbox),
+                    "created_at": row.created_at.isoformat().replace("+00:00", "Z"),
+                }
+                for row in rows
+            ]
+        }
+
+    @app.post("/api/presets", status_code=201)
+    async def create_preset(payload: _PresetCreateRequest) -> dict:
+        try:
+            preset_id = await store.add_preset(
+                payload.name, payload.bbox, label=payload.name
+            )
+        except ConflictError as exc:
+            raise HTTPException(
+                status_code=409,
+                detail=_error_envelope("conflict", str(exc)),
+            ) from exc
+        rows = await store.list_presets()
+        created = next(row for row in rows if row.id == preset_id)
+        return {
+            "id": created.id,
+            "name": created.name,
+            "bbox": list(created.bbox),
+            "created_at": created.created_at.isoformat().replace("+00:00", "Z"),
+        }
+
+    @app.delete("/api/presets/{preset_id}", status_code=204)
+    async def delete_preset(preset_id: int) -> None:
+        await store.delete_preset(preset_id)
+        return None
 
     # Monotonic per-connection-independent counter for the SSE `id:` field
     # (api.md "## SSE": "Each event has ... a monotonic id:") -- shared

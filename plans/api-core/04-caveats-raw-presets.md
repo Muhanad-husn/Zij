@@ -67,3 +67,9 @@ Then  the first returns 201 and the duplicate returns 409 conflict; DELETE retur
 
 - 2026-07-06 planned (sprint v1). Blocked-by: integrity/02, store/03, api-core/01.
   Note: caveats endpoint is P0; raw-feature + presets endpoints are P1 (contract frozen now, UI v2).
+- 2026-07-09 built via sprint-start on branch `api-56`. Outer test `test_caveats_raw_and_presets`
+  authored RED (strict-xfail, `2d2f092`) → implementer greened all three routes in `backend/main.py`
+  (case a: outer test fully pinned behaviour, no inner units needed) → marker removed, final GREEN
+  commit `7ea9ab4`. Full suite 195 passed (secret-free), ruff clean. Two-stage reviewer PASS/PASS,
+  zero findings ≥80 conf. Evidence `d04f7b8`. **PR #83** into `main` (Closes #56); awaiting founder
+  merge approval.

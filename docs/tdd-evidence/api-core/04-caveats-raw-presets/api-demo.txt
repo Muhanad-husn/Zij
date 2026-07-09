@@ -1,0 +1,101 @@
+D:\zij-wt\api-56\.venv\Lib\site-packages\fastapi\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+  from starlette.testclient import TestClient as TestClient  # noqa
+=== GET /api/layers/{domain}/caveats (P0, FR9) ===
+
+$ GET /api/layers/marine/caveats
+< HTTP 200
+< {
+  "domain": "marine",
+  "caveats": [
+    "Terrestrial AIS coverage in the Persian Gulf is receiver-dependent and uneven.",
+    "Dark-fleet vessels routinely disable AIS and will not appear.",
+    "GPS jamming in the region produces on-land and circular ghost tracks; positions may be spoofed."
+  ],
+  "active_flags": {
+    "spoof_suspect_on_land": 3,
+    "implausible_kinematics": 1
+  }
+}
+
+=== GET /api/features/{domain}/{source_id}/raw (P1) ===
+
+$ GET /api/features/air/abc123/raw
+< HTTP 200
+< {
+  "domain": "air",
+  "source_id": "abc123",
+  "source": "opensky",
+  "raw_payload": {
+    "icao24": "abc123",
+    "secret_upstream_field": "never-on-wire"
+  }
+}
+
+$ GET /api/features/air/rotated-out-id/raw (rotated out -> 404)
+< HTTP 404
+< {
+  "error": {
+    "code": "not_found",
+    "message": "no live air feature with source_id 'rotated-out-id'"
+  }
+}
+
+=== Presets CRUD (P1, FR11) ===
+
+$ GET /api/presets (empty)
+< HTTP 200
+< {
+  "presets": []
+}
+
+$ POST /api/presets {name:'My Box', bbox:[...]}
+< HTTP 201
+< {
+  "id": 1,
+  "name": "My Box",
+  "bbox": [
+    52.0,
+    26.0,
+    55.0,
+    28.0
+  ],
+  "created_at": "2026-07-09T03:06:39.398907Z"
+}
+
+$ GET /api/presets (after create)
+< HTTP 200
+< {
+  "presets": [
+    {
+      "id": 1,
+      "name": "My Box",
+      "bbox": [
+        52.0,
+        26.0,
+        55.0,
+        28.0
+      ],
+      "created_at": "2026-07-09T03:06:39.398907Z"
+    }
+  ]
+}
+
+$ POST /api/presets {name:'My Box'} (duplicate -> 409)
+< HTTP 409
+< {
+  "error": {
+    "code": "conflict",
+    "message": "preset 'My Box' already exists"
+  }
+}
+
+$ DELETE /api/presets/1
+< HTTP 204 (no body)
+
+$ GET /api/presets (after delete)
+< HTTP 200
+< {
+  "presets": []
+}
+
+Demo complete: all three routes served real responses through the ASGI boundary.
