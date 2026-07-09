@@ -68,3 +68,4 @@ Then  the layer status is `cached-fallback` (not `error`); with no cache it is `
 ## Status / progress log
 
 - 2026-07-06 planned (sprint v1). Blocked-by: scheduler/01, integrity/01, store/02.
+- 2026-07-09 built test-first (DEC-1/DEC-33): outer test red `48fa596` → impl green `0de8e9f` → review-fix `e037784` → regression test `d01b540`. Suite 151 passed, ruff clean. Two-stage review: stage-1 PASS, stage-2 clean after fixes. Review finding #2 (STRUCTURE.md sync) routed to spec-drift #75. **PR [#78](https://github.com/Muhanad-husn/Zij/pull/78)** into `main` (Closes #49) — awaiting founder approval.

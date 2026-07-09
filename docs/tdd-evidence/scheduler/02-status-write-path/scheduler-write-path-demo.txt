@@ -1,0 +1,19 @@
+============================= test session starts =============================
+platform win32 -- Python 3.13.14, pytest-9.1.1, pluggy-1.6.0 -- D:\zij-wt\scheduler-49\.venv\Scripts\python.exe
+cachedir: .pytest_cache
+rootdir: D:\zij-wt\scheduler-49
+configfile: pyproject.toml
+plugins: anyio-4.14.1, asyncio-1.4.0, respx-0.23.1
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 7 items
+
+backend/tests/test_scheduler_write_path.py::test_fresh_fetch_yields_live_ordered_write_path_and_persisted_air_fallback_without_raw_payload PASSED [ 14%]
+backend/tests/test_scheduler_write_path.py::test_aged_source_timestamp_yields_stale_status PASSED [ 28%]
+backend/tests/test_scheduler_write_path.py::test_fetch_failure_with_warm_region_matched_cache_yields_cached_fallback_not_error PASSED [ 42%]
+backend/tests/test_scheduler_write_path.py::test_fetch_failure_with_region_mismatched_cache_yields_error_not_cached_fallback PASSED [ 57%]
+backend/tests/test_scheduler_write_path.py::test_fetch_failure_with_no_cache_yields_error PASSED [ 71%]
+backend/tests/test_scheduler_write_path.py::test_air_prev_derived_from_outgoing_registry_snapshot_before_replacement PASSED [ 85%]
+backend/tests/test_scheduler_write_path.py::test_cancelled_fetch_skips_failure_write_path_and_leaves_status_untouched PASSED [100%]
+
+============================== 7 passed in 0.38s ==============================
+exit=0
