@@ -69,3 +69,4 @@ Then  the layer flips to `stale` via the timer and emits a layer_status event (n
 ## Status / progress log
 
 - 2026-07-06 planned (sprint v1). Blocked-by: scheduler/02.
+- 2026-07-09 built. Outer test red `af739e1` → green `727f981`; 224 tests pass, ruff clean. Two-stage review PASS/DONE_WITH_CONCERNS (stage-1 spec-compliance empirically verified). PR [#90](https://github.com/Muhanad-husn/Zij/pull/90) into `main` (Closes #50). Follow-ups filed: #87 (rate-limited→cached-fallback), #88 (stale timer on region-switch), #89 (spec-drift backoff cadence-cap). Awaiting founder merge approval.
