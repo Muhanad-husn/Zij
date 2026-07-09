@@ -16,7 +16,6 @@ flowchart LR
     OS[OpenSky REST]
     AIS[aisstream.io WS]
     OV[Overpass API]
-    AH[AISHub REST\ndormant]
   end
 
   subgraph proc[Single FastAPI process / one event loop]
@@ -25,7 +24,6 @@ flowchart LR
       OSA[opensky.py\nPollAdapter]
       AISA[aisstream.py\nStreamAdapter]
       OVA[overpass.py\nPollAdapter]
-      AHA[aishub.py\nPollAdapter]
     end
     REG[(snapshot registry\nin-memory\nLayerSnapshot per layer)]
     INT[integrity.py\nlandmask + kinematics]
@@ -44,7 +42,6 @@ flowchart LR
   OS --> OSA --> SCHED
   AIS --> AISA --> SCHED
   OV --> OVA --> SCHED
-  AH -.-> AHA -.-> SCHED
   SCHED --> INT --> REG
   SCHED --> REG
   REG <--> STORE <--> DB
@@ -57,7 +54,7 @@ flowchart LR
 
 ## 3. Data flow
 
-1. **Poll layers (air, land, secondary marine):** scheduler fires on cadence → `adapter.fetch(region)` → returns a `LayerSnapshot` ([feature-schema.md](../contracts/feature-schema.md)) → scheduler runs integrity flags → writes it into the in-memory **snapshot registry** (the single source of truth) → emits an SSE `snapshot` event → for air/marine also persists to `fallback_snapshots` (FR8).
+1. **Poll layers (air, land):** scheduler fires on cadence → `adapter.fetch(region)` → returns a `LayerSnapshot` ([feature-schema.md](../contracts/feature-schema.md)) → scheduler runs integrity flags → writes it into the in-memory **snapshot registry** (the single source of truth) → emits an SSE `snapshot` event → for air/marine also persists to `fallback_snapshots` (FR8).
 2. **Stream layer (marine primary, aisstream):** the `StreamAdapter` task holds the websocket and maintains a latest-position table per MMSI in memory (PRD §6.2). On the marine display cadence (default 60 s, FR6) the scheduler calls `adapter.snapshot()`, runs integrity, updates the registry, emits SSE.
 3. **Land:** served from `land_cache` (D4). On region activation, if cache is fresh (<24 h, floor 1 h) it is served in <2 s (FR4); otherwise an Overpass fetch runs with a `loading` status pushed over SSE, then cached.
 4. **Frontend:** subscribes to `/api/events` once. On connect it receives the current snapshot of every enabled layer (full-state-on-connect, [api.md §SSE](../contracts/api.md#sse)). Thereafter it consumes incremental `snapshot` and `layer_status` events and re-renders the affected MapLibre source only.
@@ -143,4 +140,4 @@ What must never leak across the boundary:
 - Secrets never travel to the frontend or into any bundle (NFR5); they live in env/keychain and are read only by the backend.
 - `raw_payload` never rides normal serialization; it is reachable only via the explicit inspection endpoint ([feature-schema.md raw_payload](../contracts/feature-schema.md#raw_payload-handling), [api.md](../contracts/api.md#get-apifeaturesdomainsource_idraw)).
 
-Because adapters return the common `LayerSnapshot` and the renderer consumes only that, swapping AISHub in for aisstream is a backend-only change with zero renderer impact (FR3) — this falls out of the contract by construction ([adapter-interface.md](../contracts/adapter-interface.md)).
+Because adapters return the common `LayerSnapshot` and the renderer consumes only that, swapping in an alternative marine adapter for aisstream is a backend-only change with zero renderer impact (FR3) — this falls out of the contract by construction ([adapter-interface.md](../contracts/adapter-interface.md)).

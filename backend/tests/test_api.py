@@ -84,7 +84,6 @@ def test_health_and_config(tmp_path, monkeypatch):
     # its own secret gate needs a non-empty value too, or load_config() below
     # raises MissingSecretError for an unrelated reason.
     monkeypatch.setenv("AISSTREAM_API_KEY", "outer-test-aisstream-api-key-4f2a")
-    monkeypatch.delenv("AISHUB_USERNAME", raising=False)
     monkeypatch.delenv("ZIJ_CONFIG_PATH", raising=False)
 
     from backend.config import load_config
@@ -441,7 +440,6 @@ def test_snapshots_and_refresh(tmp_path, monkeypatch):
     # non-empty value keeps its secret gate from firing for an unrelated
     # reason in this air/land-focused test.
     monkeypatch.setenv("AISSTREAM_API_KEY", "outer-test-aisstream-api-key-18")
-    monkeypatch.delenv("AISHUB_USERNAME", raising=False)
     monkeypatch.delenv("ZIJ_CONFIG_PATH", raising=False)
 
     # Test-only speedup (allowed): drop the 0.5s inter-class Overpass sleep so
@@ -791,7 +789,6 @@ def test_stale_land_cache_triggers_refetch_and_write_through(tmp_path, monkeypat
     # non-empty value keeps its secret gate from firing for an unrelated
     # reason in this land-cache-focused test.
     monkeypatch.setenv("AISSTREAM_API_KEY", "stale-test-aisstream-api-key")
-    monkeypatch.delenv("AISHUB_USERNAME", raising=False)
     monkeypatch.delenv("ZIJ_CONFIG_PATH", raising=False)
 
     import backend.sources.overpass as overpass_module
@@ -1041,7 +1038,6 @@ def test_unexpected_handler_failure_still_returns_api_md_envelope(
     # non-empty value keeps its secret gate from firing for an unrelated
     # reason in this error-envelope-focused test.
     monkeypatch.setenv("AISSTREAM_API_KEY", "boom-test-aisstream-api-key")
-    monkeypatch.delenv("AISHUB_USERNAME", raising=False)
     monkeypatch.delenv("ZIJ_CONFIG_PATH", raising=False)
 
     from backend.config import load_config
@@ -1238,7 +1234,6 @@ async def test_events_full_state_on_connect_then_live_layer_status(
     # `app = _build_default_app()` -> `load_config()` with NO overrides (marine
     # is enabled in the bundled config), which gates `AISSTREAM_API_KEY`.
     # Deleting it here would fail that import when this test runs in isolation.
-    monkeypatch.delenv("AISHUB_USERNAME", raising=False)
     monkeypatch.delenv("ZIJ_CONFIG_PATH", raising=False)
 
     from datetime import datetime, timezone
@@ -1393,7 +1388,6 @@ async def test_events_on_connect_replays_only_enabled_layers(tmp_path, monkeypat
     replayed, would arrive before it)."""
     monkeypatch.setenv("OPENSKY_CLIENT_ID", "sse-test-opensky-client-id")
     monkeypatch.setenv("OPENSKY_CLIENT_SECRET", "sse-test-opensky-client-secret")
-    monkeypatch.delenv("AISHUB_USERNAME", raising=False)
     monkeypatch.delenv("ZIJ_CONFIG_PATH", raising=False)
 
     from datetime import datetime, timezone
@@ -1589,7 +1583,6 @@ def test_caveats_raw_and_presets(tmp_path, monkeypatch):
     monkeypatch.setenv("OPENSKY_CLIENT_ID", "outer-test-opensky-client-id-56")
     monkeypatch.setenv("OPENSKY_CLIENT_SECRET", "outer-test-opensky-client-secret-56")
     monkeypatch.setenv("AISSTREAM_API_KEY", "outer-test-aisstream-api-key-56")
-    monkeypatch.delenv("AISHUB_USERNAME", raising=False)
     monkeypatch.delenv("ZIJ_CONFIG_PATH", raising=False)
 
     from datetime import datetime, timezone
@@ -1893,7 +1886,6 @@ def test_region_list_estimate_and_activate(tmp_path, monkeypatch):
     monkeypatch.setenv("OPENSKY_CLIENT_ID", "outer-test-opensky-client-id-54")
     monkeypatch.setenv("OPENSKY_CLIENT_SECRET", "outer-test-opensky-client-secret-54")
     monkeypatch.setenv("AISSTREAM_API_KEY", "outer-test-aisstream-api-key-54")
-    monkeypatch.delenv("AISHUB_USERNAME", raising=False)
     monkeypatch.delenv("ZIJ_CONFIG_PATH", raising=False)
 
     from unittest.mock import AsyncMock

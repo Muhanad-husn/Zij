@@ -22,7 +22,7 @@ class Scheduler:
 
 ### Task model ([ADR-8](../docs/DECISIONS.md#adr-8--concurrency-pure-asyncio))
 - `run()` opens one `asyncio.TaskGroup`. Under it:
-  - **One `_poll_loop(domain)` task per enabled poll layer** (air, land; marine-secondary if AISHub wired).
+  - **One `_poll_loop(domain)` task per enabled poll layer** (air, land).
   - **One `_stream_supervisor()` task** if the marine source is a `StreamAdapter`: it owns `adapter.start()`, samples `snapshot()` on the marine cadence, and watches `connected`.
 - Per-layer control primitives:
   ```python

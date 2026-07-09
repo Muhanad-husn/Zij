@@ -112,7 +112,6 @@ def _set_hermetic_secrets(monkeypatch, *, aisstream_api_key: str) -> None:
     monkeypatch.setenv("OPENSKY_CLIENT_ID", "sections-outer-opensky-client-id")
     monkeypatch.setenv("OPENSKY_CLIENT_SECRET", "sections-outer-opensky-client-secret")
     monkeypatch.setenv("AISSTREAM_API_KEY", aisstream_api_key)
-    monkeypatch.delenv("AISHUB_USERNAME", raising=False)
     monkeypatch.delenv("ZIJ_CONFIG_PATH", raising=False)
 
 

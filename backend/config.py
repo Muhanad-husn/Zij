@@ -82,7 +82,6 @@ class Secrets(BaseSettings):
     opensky_client_id: str | None = None
     opensky_client_secret: str | None = None
     aisstream_api_key: str | None = None
-    aishub_username: str | None = None
 
 
 class RegionCfg(BaseModel):
@@ -230,8 +229,7 @@ def _resolve_active_region_id(
 
 def _check_required_secrets(cfg: AppConfig, secrets: Secrets) -> None:
     """Fail fast (named error) when an enabled layer's required secret is
-    missing. Air (OpenSky) and marine (aisstream) are gated here; aishub is
-    still out of scope (no layer currently requires it)."""
+    missing. Air (OpenSky) and marine (aisstream) are gated here."""
     air = cfg.layers.get("air")
     if air is not None and air.enabled:
         if not secrets.opensky_client_id:

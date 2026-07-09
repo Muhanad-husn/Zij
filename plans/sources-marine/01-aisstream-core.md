@@ -60,7 +60,6 @@ And   snapshot() performs no I/O and never raises
 
 - Reconnect / backoff / eviction sweep / `set_region` (slice 02).
 - Integrity flags (integrity feature); scheduler sampling + status (scheduler feature).
-- AISHub (slice 03).
 
 ## Definition of done
 

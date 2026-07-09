@@ -59,7 +59,7 @@ Then  its hollow warning ring renders (never hidden) and the popup names the fla
 
 ## Out of scope (deferred)
 
-- Backend flag computation (integrity feature); AISHub as the marine source (backend, transparent here).
+- Backend flag computation (integrity feature); the marine source (backend, transparent here).
 - Raw-payload popup inspection (FR11, v2).
 
 ## Definition of done

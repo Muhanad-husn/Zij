@@ -86,7 +86,7 @@ class Feature(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=False)
 
     domain: Domain
-    source: str                       # "opensky" | "aisstream" | "aishub" | "overpass"
+    source: str                       # "opensky" | "aisstream" | "overpass"
     source_id: str                    # ICAO24 (air) | MMSI (marine) | OSM type/id (land)
     label: str | None = None          # callsign | vessel name | OSM name; may be absent
 

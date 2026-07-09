@@ -21,7 +21,6 @@ Secrets never appear in any TOML file or bundle (NFR5, §7.4). `pydantic-setting
 | `OPENSKY_CLIENT_ID` | OpenSky OAuth2 client (§7.1, D5) | v0 |
 | `OPENSKY_CLIENT_SECRET` | OpenSky OAuth2 client | v0 |
 | `AISSTREAM_API_KEY` | aisstream.io account (§7.1, D2) | v1 |
-| `AISHUB_USERNAME` | AISHub (dormant, §7.1) | optional |
 
 Startup fails fast with a named error if a secret required by an **enabled** layer is missing. Disabled layers need no secret (FR5).
 
@@ -161,7 +160,6 @@ class Secrets(BaseSettings):
     opensky_client_id: str | None = None
     opensky_client_secret: str | None = None
     aisstream_api_key: str | None = None
-    aishub_username: str | None = None
 
 class RegionCfg(BaseModel):
     id: str

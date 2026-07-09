@@ -6,7 +6,7 @@
 ```python
 def load_config() -> tuple[AppConfig, Secrets]      # config.md Loading design
 class AppConfig(BaseModel): regions; layers; overpass; opensky; aisstream; integrity; server
-class Secrets(BaseSettings): opensky_client_id; opensky_client_secret; aisstream_api_key; aishub_username
+class Secrets(BaseSettings): opensky_client_id; opensky_client_secret; aisstream_api_key
 
 class ConfigService:
     def __init__(self, cfg: AppConfig, secrets: Secrets, store: Store): ...
@@ -31,7 +31,7 @@ Merge lowest→highest into `AppConfig`:
 Merge is a deep-merge of nested tables (a user override of `layers.air.cadence_s` must not wipe `layers.air.cadence_floor_s`). Implement as recursive dict merge before `AppConfig.model_validate`.
 
 ### Secrets — separate object (NFR5)
-`Secrets(BaseSettings)` reads env + `.env` (dev) **only**; never any TOML. Returned as a distinct object so it can never be serialized into `GET /api/config` (which returns `AppConfig` only, api.md). **Startup fail-fast:** for each **enabled** layer, assert its required secret is present (air→`opensky_client_id`+`secret`; marine→`aisstream_api_key`; AISHub if wired→`aishub_username`). Missing → clear named error naming the env var and the layer (config.md; ARCHITECTURE §4.1). Disabled layers need no secret (FR5).
+`Secrets(BaseSettings)` reads env + `.env` (dev) **only**; never any TOML. Returned as a distinct object so it can never be serialized into `GET /api/config` (which returns `AppConfig` only, api.md). **Startup fail-fast:** for each **enabled** layer, assert its required secret is present (air→`opensky_client_id`+`secret`; marine→`aisstream_api_key`). Missing → clear named error naming the env var and the layer (config.md; ARCHITECTURE §4.1). Disabled layers need no secret (FR5).
 
 ### Region registry access
 - `regions()` = predefined `RegionCfg`s (bundled TOML) + `region_preset` rows from `store.list_presets()` mapped to `RegionCfg` (id `custom:<hash>` / preset id). `region(id)` resolves either.
@@ -54,7 +54,7 @@ Merge is a deep-merge of nested tables (a user override of `layers.air.cadence_s
 - Invalid bbox (bad ordering / out of WGS84) → `validate_bbox` returns `valid:false` with a `bad_request`/`validation_error` message (api.md `422`).
 
 ## Configuration consumed
-All of config.md (it *is* the loader). Env: `ZIJ_*`, `ZIJ_CONFIG_PATH`, secrets `OPENSKY_*`/`AISSTREAM_API_KEY`/`AISHUB_USERNAME`.
+All of config.md (it *is* the loader). Env: `ZIJ_*`, `ZIJ_CONFIG_PATH`, secrets `OPENSKY_*`/`AISSTREAM_API_KEY`.
 
 ## Acceptance criteria
 - [ ] **[ADR-6]** — precedence defaults < bundled TOML < user TOML < env < DB overrides, with deep-merge of nested tables.
