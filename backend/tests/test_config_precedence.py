@@ -42,7 +42,6 @@ def _hermetic_secrets(monkeypatch) -> None:
     monkeypatch.setenv("OPENSKY_CLIENT_ID", "precedence-unit-opensky-id")
     monkeypatch.setenv("OPENSKY_CLIENT_SECRET", "precedence-unit-opensky-secret")
     monkeypatch.setenv("AISSTREAM_API_KEY", "precedence-unit-aisstream-key")
-    monkeypatch.delenv("AISHUB_USERNAME", raising=False)
     monkeypatch.delenv("ZIJ_CONFIG_PATH", raising=False)
     monkeypatch.delenv("ZIJ_LAYERS__AIR__CADENCE_S", raising=False)
     monkeypatch.delenv("ZIJ_LAYERS__AIR__ENABLED", raising=False)

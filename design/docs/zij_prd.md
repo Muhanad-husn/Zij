@@ -14,7 +14,7 @@ This document defines that product: a lightweight, installable application that 
 
 What this product is not: it is not a historical telemetry archive, not an analytics or graph platform, and not a commercial SaaS offering. Those exclusions are load-bearing. They keep the architecture small enough that one developer can ship and maintain it.
 
-Two things changed between v1 and this revision. First, the end goal is now explicit: the product ships as an **installable application for desktop and mobile**, which rules out the v1 Streamlit architecture. Second, source-access research invalidated two v1 assumptions (AISHub as a sign-up API; OpenSky as anonymous-friendly at useful rates), so the source strategy and refresh model have been rebuilt around how these services actually work.
+Two things changed between v1 and this revision. First, the end goal is now explicit: the product ships as an **installable application for desktop and mobile**, which rules out the v1 Streamlit architecture. Second, source-access research invalidated a v1 assumption (OpenSky as anonymous-friendly at useful rates), so the source strategy and refresh model have been rebuilt around how these services actually work.
 
 ### 1.1 Name and identity
 
@@ -31,7 +31,7 @@ These decisions are locked for this version. Reopening any of them requires a do
 | # | Decision | Rationale | Rejected alternative |
 |---|----------|-----------|----------------------|
 | D1 | **Web-first architecture: FastAPI backend + MapLibre GL JS frontend**, packaged later via Tauri (desktop) and Capacitor (mobile). | The same codebase serves browser, desktop, and mobile. Source adapters, schema, and cache carry across all three unchanged. | Streamlit (no mobile path, fragile background refresh, throwaway frontend); PWA-only (constrained background behavior on mobile, weaker install story). |
-| D2 | **Marine primary source: aisstream.io websocket feed.** AISHub remains a secondary adapter, activated only if an owned AIS receiver station is commissioned. | AISHub gates API access behind contributing a receiver feed meeting coverage and uptime thresholds. That is a hardware project, not an API sign-up, and cannot block v1. | AISHub-primary (access gated); commercial APIs such as Spire or Datalastic (cost unjustified at this scope). |
+| D2 | **Marine source: aisstream.io websocket feed.** A free API-key sign-up streams AIS position reports filtered by subscribed bounding boxes. | A free websocket service fits the "latest available projection" model directly and carries no hardware or cost gate to block v1. | Commercial APIs such as Spire or Datalastic (cost unjustified at this scope). |
 | D3 | **Per-layer refresh cadence** replaces the single 30-minute interval: aviation 10 min, marine continuous-with-snapshot, land 24 h. | The three domains have different tempos. A jet moves roughly 400 km in 30 minutes; a road network moves on a timescale of months. One interval is wrong for all three. | Uniform 30-minute refresh (v1). |
 | D4 | **SQLite is the standard store for the land layer** and the fallback cache for mobile layers. It is no longer "optional." | Overpass queries for conflict-theater regions are expensive and slow; land data changes slowly. Fetch daily, serve from cache. | Purely in-memory land layer (re-fetches megabytes of unchanged geometry every session). |
 | D5 | **OpenSky access via OAuth2 client credentials with an explicit credit budget.** | OAuth2 is mandatory for accounts created since March 2025. Credits are consumed per call scaled by bounding-box area; the app must budget, not hope. | Anonymous access (400 credits/day is insufficient for 10-minute aviation refresh across a session). |
@@ -98,13 +98,9 @@ Access realities that are now requirements rather than footnotes:
 - **Budget math (registered tier):** predefined regions are sized so a `/states/all` call costs at most 2 credits. At a 10-minute cadence that is ≤ 288 credits/day per region — comfortably inside 4,000, with headroom for manual refreshes and a second concurrent region.
 - **Coverage caveat:** OpenSky sees ADS-B (and FLARM) broadcasters within receiver coverage. Military aircraft with transponders off are invisible; Mode S-only aircraft have no position. The UI must say so (FR9).
 
-### 6.2 Marine — aisstream.io (primary), AISHub (secondary, gated)
+### 6.2 Marine — aisstream.io
 
-AISHub is not a sign-up API. Access requires contributing a raw AIS feed from an owned receiver, meeting quality thresholds (≥ 10-vessel average coverage over 7 days, ≥ 90% uptime), and its webservice is limited to one request per minute. The v1 draft treated it as equivalent to OpenSky in accessibility; it is not.
-
-The primary marine source is therefore **aisstream.io**: a free websocket service (API key via account sign-up) that streams AIS position reports filtered by subscribed bounding boxes. The websocket model inverts the fetch pattern — instead of polling, the marine adapter holds a subscription and maintains a rolling latest-position table per MMSI in memory, snapshotted to the UI on the marine layer's display cadence. This fits the "latest available projection" principle naturally: the table *is* the latest projection.
-
-AISHub remains specified as a secondary adapter behind the same interface, activated only if a receiver station is commissioned (open question OQ2). Its 1-request/minute limit is compatible with the snapshot model.
+The marine source is **aisstream.io**: a free websocket service (API key via account sign-up) that streams AIS position reports filtered by subscribed bounding boxes. The websocket model inverts the fetch pattern — instead of polling, the marine adapter holds a subscription and maintains a rolling latest-position table per MMSI in memory, snapshotted to the UI on the marine layer's display cadence. This fits the "latest available projection" principle naturally: the table *is* the latest projection.
 
 **Coverage caveat:** terrestrial AIS coverage in the Persian Gulf is receiver-dependent and uneven; dark-fleet tankers routinely disable AIS; GPS jamming in the region produces on-land and circular ghost tracks. See FR9.
 
@@ -137,7 +133,6 @@ Everything the developer or operator must have in hand before v0 work starts (or
 |------------|----------|--------------|-------------|-------|
 | OpenSky `client_id` + `client_secret` | OpenSky Network | Create an account, then create an API client on the Account page | v0 | OAuth2 client credentials flow; registered tier grants 4,000 credits/day. Non-commercial terms apply (§12). |
 | aisstream.io API key | aisstream.io | Account sign-up on the site | v1 | Free websocket access; verify current terms and Gulf coverage (OQ1) before relying on it. |
-| AISHub username | AISHub | Contribute an owned AIS receiver feed meeting quality thresholds (≥ 10-vessel coverage, ≥ 90% uptime), then apply | Optional | Dormant adapter; only relevant if OQ2 resolves toward commissioning a receiver. |
 | Vector tile provider key (if required) | OpenFreeMap / Protomaps | OpenFreeMap needs no key; a self-hosted Protomaps extract needs a one-time download | v0 | Attribution per OSM requirements either way. |
 
 Overpass requires no account or key; the public instances are rate-limited by IP, so the only prerequisite is respecting the query discipline in §6.3.
@@ -180,7 +175,7 @@ Latest-position table per MMSI from the aisstream.io subscription, snapshotted t
 
 - [ ] Websocket disconnects trigger automatic reconnection with backoff; layer status shows "reconnecting."
 - [ ] Vessels not heard from in 30 minutes render de-emphasized; in 2 hours, they are dropped from the projection.
-- [ ] The adapter interface admits an AISHub polling implementation without changes to the renderer.
+- [ ] The adapter interface admits an alternative marine polling implementation without changes to the renderer.
 
 ### FR4 — Land context projection (P0)
 
@@ -257,7 +252,6 @@ backend/
     base.py          adapter interface (fetch → List[Feature])
     opensky.py       OAuth2 token manager, bbox states, credit accounting
     aisstream.py     websocket client, latest-position table per MMSI
-    aishub.py        polling adapter, dormant until receiver commissioned
     overpass.py      whitelisted queries, simplification, osm_base capture
   models.py          common Feature schema (below)
   store.py           SQLite: land cache, fallback snapshots, presets, config
@@ -319,7 +313,7 @@ Evaluated four weeks after v1 completion, from the operator's own usage log:
 | ID | Question | Owner | Blocking? |
 |----|----------|-------|-----------|
 | OQ1 | Confirm aisstream.io terms of service, message coverage in the Persian Gulf, and key rate/connection limits against current documentation. | Author | Blocks v1 marine layer (not v0) |
-| OQ2 | Commission an owned AIS receiver (Netherlands siting) to unlock AISHub and, separately, an ADS-B feeder to raise the OpenSky allowance to 8,000 credits/day? Hardware cost vs. benefit. | Author | Non-blocking; improves both budgets |
+| OQ2 | Commission an ADS-B feeder to raise the OpenSky allowance to 8,000 credits/day? Hardware cost vs. benefit. | Author | Non-blocking; improves the aviation budget |
 | OQ3 | Mobile architecture: bundle the Python service on-device (heavier, offline-capable) vs. a personally hosted backend the mobile app consumes (thin client, requires a host)? | Author | Blocks v2 only |
 | OQ4 | Landmask source and resolution for the FR9 point-in-polygon check (Natural Earth 10 m is the default candidate). | Author | Non-blocking; resolve during v1 |
 | OQ5 | Formal name/trademark clearance for "Zij" beyond the informal software-collision scan. | Author | Blocks public distribution (v2), not development |

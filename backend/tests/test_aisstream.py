@@ -214,7 +214,6 @@ async def test_aisstream_processes_position_and_static_then_snapshot(monkeypatch
     monkeypatch.setenv("OPENSKY_CLIENT_ID", "test-opensky-client-id")
     monkeypatch.setenv("OPENSKY_CLIENT_SECRET", "test-opensky-client-secret")
     monkeypatch.setenv("AISSTREAM_API_KEY", "test-aisstream-api-key")
-    monkeypatch.delenv("AISHUB_USERNAME", raising=False)
     monkeypatch.delenv("ZIJ_CONFIG_PATH", raising=False)
 
     from backend.config import load_config
@@ -705,7 +704,6 @@ async def test_aisstream_resilience_reconnect_and_region_switch(monkeypatch):
     monkeypatch.setenv("OPENSKY_CLIENT_ID", "test-opensky-client-id")
     monkeypatch.setenv("OPENSKY_CLIENT_SECRET", "test-opensky-client-secret")
     monkeypatch.setenv("AISSTREAM_API_KEY", "test-aisstream-api-key")
-    monkeypatch.delenv("AISHUB_USERNAME", raising=False)
     monkeypatch.delenv("ZIJ_CONFIG_PATH", raising=False)
 
     from backend.config import load_config

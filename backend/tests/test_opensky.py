@@ -108,7 +108,6 @@ async def test_token_manager_single_flight(monkeypatch):
     # non-empty value keeps its secret gate from firing for an unrelated
     # reason in this air-adapter-focused test.
     monkeypatch.setenv("AISSTREAM_API_KEY", "test-aisstream-api-key")
-    monkeypatch.delenv("AISHUB_USERNAME", raising=False)
     monkeypatch.delenv("ZIJ_CONFIG_PATH", raising=False)
 
     from backend.config import load_config
@@ -394,7 +393,6 @@ async def test_fetch_hormuz_states(monkeypatch):
     # non-empty value keeps its secret gate from firing for an unrelated
     # reason in this air-adapter-focused test.
     monkeypatch.setenv("AISSTREAM_API_KEY", "test-aisstream-api-key")
-    monkeypatch.delenv("AISHUB_USERNAME", raising=False)
     monkeypatch.delenv("ZIJ_CONFIG_PATH", raising=False)
 
     from backend.config import load_config

@@ -52,7 +52,6 @@ def _set_valid_opensky_secrets(
     # non-empty value keeps its own secret gate from firing for an unrelated
     # reason in these air/opensky-focused unit tests.
     monkeypatch.setenv("AISSTREAM_API_KEY", "unit-aisstream-api-key")
-    monkeypatch.delenv("AISHUB_USERNAME", raising=False)
     monkeypatch.delenv("ZIJ_CONFIG_PATH", raising=False)
 
 
@@ -74,7 +73,6 @@ def test_missing_opensky_client_id_raises_named_error_when_air_enabled(monkeypat
     # failure it targets, independent of _check_required_secrets's internal
     # check ordering.
     monkeypatch.setenv("AISSTREAM_API_KEY", "unit-aisstream-api-key")
-    monkeypatch.delenv("AISHUB_USERNAME", raising=False)
     monkeypatch.delenv("ZIJ_CONFIG_PATH", raising=False)
 
     with pytest.raises(MissingSecretError) as exc_info:
@@ -94,7 +92,6 @@ def test_missing_opensky_client_secret_raises_named_error_when_air_enabled(monke
     # OPENSKY_CLIENT_SECRET failure it targets, independent of
     # _check_required_secrets's internal check ordering.
     monkeypatch.setenv("AISSTREAM_API_KEY", "unit-aisstream-api-key")
-    monkeypatch.delenv("AISHUB_USERNAME", raising=False)
     monkeypatch.delenv("ZIJ_CONFIG_PATH", raising=False)
 
     with pytest.raises(MissingSecretError) as exc_info:
@@ -428,7 +425,6 @@ def test_missing_aisstream_api_key_raises_named_error_when_marine_enabled(monkey
     monkeypatch.setenv("OPENSKY_CLIENT_ID", "unit-id")
     monkeypatch.setenv("OPENSKY_CLIENT_SECRET", "unit-secret")
     monkeypatch.setenv("AISSTREAM_API_KEY", "")
-    monkeypatch.delenv("AISHUB_USERNAME", raising=False)
     monkeypatch.delenv("ZIJ_CONFIG_PATH", raising=False)
 
     with pytest.raises(MissingSecretError) as exc_info:

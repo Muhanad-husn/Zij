@@ -19,7 +19,7 @@ Zij is a lightweight, installable application that projects the most recent avai
 | # | Decision | Rationale |
 |---|----------|-----------|
 | D1 | Web-first: FastAPI + MapLibre GL JS → Tauri (desktop) + Capacitor (mobile) | Same codebase across all platforms. |
-| D2 | Marine primary: aisstream.io websocket | AISHub requires owned hardware; cannot block v1. |
+| D2 | Marine primary: aisstream.io websocket | Free API-key sign-up; websocket stream held in-memory. |
 | D3 | Per-layer cadence: aviation 10 min, marine snapshot 60 s, land 24 h | Three domains have different operational tempos. |
 | D4 | SQLite: standard for land cache + fallback mobile snapshots | Overpass queries expensive; cache daily updates. |
 | D5 | OpenSky: OAuth2 client credentials with credit budget | OAuth2 now mandatory; cost scales with bbox area. |
@@ -32,7 +32,6 @@ Zij is a lightweight, installable application that projects the most recent avai
 |--------|------|---------|-----------------|
 | OpenSky `/states/all` | OAuth2 client credentials | 10 min (default) | 4,000 credits/day (registered); ≤2 credits per call; predefined regions fit within budget + manual refresh headroom. |
 | aisstream.io | API key (free sign-up) | Continuous; snapshot every 60 s | Verify Gulf coverage & current ToS (OQ1); websocket stream held in-memory. |
-| AISHub | Owned receiver (≥10-vessel, 90% uptime) | 1 req/min max | Dormant secondary adapter; only if receiver commissioned (OQ2). |
 | Overpass (OSM) | None (public, IP-rate-limited) | ≤24 h per region | Tag whitelist enforced; query partitioned; exponential backoff on 429/504. |
 | Vector base tiles | None (OpenFreeMap) | Static | MapLibre GL JS; attribution per OSM license. |
 
@@ -85,7 +84,7 @@ Zij is a lightweight, installable application that projects the most recent avai
 | ID | Question | Blocks |
 |----|----------|--------|
 | OQ1 | Confirm aisstream.io ToS, Persian Gulf coverage, key rate and connection limits vs. current docs. | v1 marine layer |
-| OQ2 | Commission owned AIS receiver (NL siting) + ADS-B feeder to unlock AISHub and raise OpenSky allowance to 8k credits/day? | Non-blocking; improves both budgets |
+| OQ2 | Commission an ADS-B feeder to raise the OpenSky allowance to 8k credits/day? | Non-blocking; improves budget |
 | OQ3 | Mobile service architecture: bundle Python on-device (offline-capable) or thin client consuming personal backend (requires a host)? | v2 mobile only |
 | OQ4 | Landmask source and resolution for FR9 point-in-polygon check (Natural Earth 10 m is candidate). | Non-blocking; resolve in v1 |
 | OQ5 | Formal name and trademark clearance for "Zij" beyond software-collision scan. | Blocks public distribution (v2), not development |

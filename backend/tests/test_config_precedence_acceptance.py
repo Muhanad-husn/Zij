@@ -136,7 +136,6 @@ def _set_hermetic_secrets(monkeypatch) -> None:
     monkeypatch.setenv("OPENSKY_CLIENT_ID", REAL_OPENSKY_CLIENT_ID)
     monkeypatch.setenv("OPENSKY_CLIENT_SECRET", REAL_OPENSKY_CLIENT_SECRET)
     monkeypatch.setenv("AISSTREAM_API_KEY", REAL_AISSTREAM_API_KEY)
-    monkeypatch.delenv("AISHUB_USERNAME", raising=False)
 
 
 def test_precedence_chain_and_active_region_restore(tmp_path, monkeypatch):
