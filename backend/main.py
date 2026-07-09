@@ -458,7 +458,13 @@ def create_app(
             region_id = f"custom:{uuid.uuid4().hex[:8]}"
             kind = "custom"
             if payload.save_as_preset:
-                preset_id = await store.add_preset(label, payload.bbox, label=label)
+                try:
+                    preset_id = await store.add_preset(label, payload.bbox, label=label)
+                except ConflictError as exc:
+                    raise HTTPException(
+                        status_code=409,
+                        detail=_error_envelope("conflict", str(exc)),
+                    ) from exc
                 region_id = f"custom:{preset_id}"
                 kind = "preset"
             region = Region(id=region_id, label=label, bbox=payload.bbox)
