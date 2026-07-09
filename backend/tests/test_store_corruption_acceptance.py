@@ -20,6 +20,13 @@ recovered by delete-and-recreate with a logged warning; app continues.").
 It was authored and committed red by the test-author before any
 implementation existed, guarded by a strict xfail (DEC-33).
 
+The implementer has since made this genuinely pass (`Store._init_sync`'s
+`_open_healthy_connection()` helper: `PRAGMA integrity_check`, on
+`sqlite3.DatabaseError`/non-'ok' logs a WARNING naming the path, deletes the
+DB + `-wal`/`-shm` sidecars, recreates from `schema.sql`). The strict xfail
+marker has been removed by the test-author (DEC-33) now that the suite is
+genuinely green -- this finalizes the locked contract.
+
 Scope note: this outer test locks the corruption-recovery path only. The
 healthy-DB-is-preserved case (integrity_check == 'ok' -> recovery is a
 no-op, no data loss) is deliberately left to an inner unit test authored
@@ -37,8 +44,6 @@ conftest baseline fixture runs).
 
 import logging
 from datetime import datetime, timezone
-
-import pytest
 
 HORMUZ_BBOX = (55.0, 25.0, 57.5, 27.5)
 
@@ -65,7 +70,6 @@ LAND_GEOJSON = {
 }
 
 
-@pytest.mark.xfail(reason="corruption recovery not yet implemented (#70)", strict=True)
 async def test_corrupt_db_is_recovered_by_delete_and_recreate(
     tmp_path, monkeypatch, caplog
 ):
