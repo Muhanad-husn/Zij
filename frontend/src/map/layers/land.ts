@@ -89,3 +89,11 @@ export function updateLandLayer(map: MapLibreMap, snapshot: LayerSnapshot): void
   const source = map.getSource(LAND_SOURCE_ID) as GeoJSONSource | undefined;
   source?.setData(wireToGeoJson(snapshot.features));
 }
+
+/** Clears the `land` source to zero features (spec §6: "all layer panes
+ * clear immediately" on `region_changed`). No-op if the source hasn't been
+ * added yet (map not loaded / layer never initialized). */
+export function clearLandLayer(map: MapLibreMap): void {
+  const source = map.getSource(LAND_SOURCE_ID) as GeoJSONSource | undefined;
+  source?.setData({ type: 'FeatureCollection', features: [] });
+}

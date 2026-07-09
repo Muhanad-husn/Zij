@@ -47,6 +47,17 @@
  * would push scheduler-driven status changes (spec §3/§4: badges "update
  * imperatively on `status:{domain}` / `snapshot:{domain}` store events").
  *
+ * RECONCILIATION (slice frontend/03-region-selector, issue #59): the app now
+ * unconditionally fetches `GET /api/regions` and `GET /api/regions/active`
+ * on load (region dropdown population + last-region restore). This test has
+ * no live FastAPI backend, so those unstubbed calls would leak through
+ * Vite's preview proxy to a connection refused, logging a browser
+ * `console.error` that would trip this test's "zero console errors" clause
+ * even though the badge behavior this test actually exercises works fine.
+ * `tests/e2e/helpers/stubRegionEndpoints.ts` is used below to answer both
+ * quietly; this test asserts nothing about regions (that's
+ * `region-selector.spec.ts`'s job).
+ *
  * REQUIRED TEST SEAMS (implementer must expose these — not the test-author's
  * to relax; each is independently asserted below):
  *
@@ -94,6 +105,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import { createServer, type Server, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AddressInfo, Socket } from 'node:net';
+import { stubRegionEndpoints } from './helpers/stubRegionEndpoints';
 
 // --- Status -> token color (tokens.css, verbatim) -------------------------
 // Duplicated here (not imported) so this test proves the ACTUAL rendered
@@ -308,6 +320,7 @@ test(
       // Route interception MUST be registered before goto.
       await stubEvents(page, fixtureUrl);
       await stubRestFallback(page);
+      await stubRegionEndpoints(page);
 
       await page.goto('/');
       await fixture.connected;

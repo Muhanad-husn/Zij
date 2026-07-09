@@ -13,6 +13,7 @@ import {
   LAND_RAIL_LAYER_ID,
   LAND_ROADS_LAYER_ID,
   LAND_SOURCE_ID,
+  clearLandLayer,
   initLandLayer,
 } from '../../src/map/layers/land';
 import type { LayerSnapshot } from '../../src/state/types';
@@ -194,5 +195,25 @@ describe('initLandLayer — source wiring', () => {
     expect(map.sources[LAND_SOURCE_ID]).toBeDefined();
     const data = map.sources[LAND_SOURCE_ID].serialize().data as { features: unknown[] };
     expect(data.features).toHaveLength(1);
+  });
+});
+
+describe('clearLandLayer — plan unit #5 (region_changed): the "land" source is emptied, not merely re-fetched', () => {
+  it('replaces a populated source with an empty FeatureCollection', () => {
+    const map = new FakeMap();
+    initLandLayer(map as never, SNAPSHOT);
+    expect((map.sources[LAND_SOURCE_ID].serialize().data as { features: unknown[] }).features).toHaveLength(1);
+
+    clearLandLayer(map as never);
+
+    const data = map.sources[LAND_SOURCE_ID].serialize().data as { type: string; features: unknown[] };
+    expect(data.type).toBe('FeatureCollection');
+    expect(data.features).toHaveLength(0);
+  });
+
+  it('is a no-op when the source was never added (map not yet loaded / layer never initialized)', () => {
+    const map = new FakeMap();
+    expect(() => clearLandLayer(map as never)).not.toThrow();
+    expect(map.sources[LAND_SOURCE_ID]).toBeUndefined();
   });
 });

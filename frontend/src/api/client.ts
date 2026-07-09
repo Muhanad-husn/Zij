@@ -3,7 +3,7 @@
 // slices add regions/estimate/activate/toggle/caveats/raw-feature/presets.
 
 import { API_BASE } from '../config';
-import type { Domain, LayerSnapshot } from '../state/types';
+import type { Domain, EstimateResult, LayerSnapshot, RegionInfo } from '../state/types';
 
 /** `GET /api/layers/{domain}/snapshot` (air/land only touch this slice). */
 export async function fetchSnapshot(domain: Domain): Promise<LayerSnapshot> {
@@ -20,4 +20,60 @@ export async function refreshAll(): Promise<void> {
   if (!res.ok) {
     throw new Error(`Zij: refreshAll() failed with ${res.status}`);
   }
+}
+
+/** `GET /api/regions` — predefined regions + saved presets (spec §6, FR1/FR11). */
+export async function fetchRegions(): Promise<{ regions: RegionInfo[] }> {
+  const res = await fetch(`${API_BASE}/regions`);
+  if (!res.ok) {
+    throw new Error(`Zij: fetchRegions() failed with ${res.status}`);
+  }
+  return (await res.json()) as { regions: RegionInfo[] };
+}
+
+/** `GET /api/regions/active` — currently active region, if any. */
+export async function fetchActiveRegion(): Promise<{ active_region: RegionInfo | null }> {
+  const res = await fetch(`${API_BASE}/regions/active`);
+  if (!res.ok) {
+    throw new Error(`Zij: fetchActiveRegion() failed with ${res.status}`);
+  }
+  return (await res.json()) as { active_region: RegionInfo | null };
+}
+
+/** `POST /api/regions/activate` — activate a predefined region/preset (by id)
+ * or a validated custom bbox (spec §6). */
+export async function activateRegion(
+  payload: { region_id: string } | { bbox: number[]; label: string; save_as_preset?: boolean },
+): Promise<{ active_region: RegionInfo }> {
+  const res = await fetch(`${API_BASE}/regions/activate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    throw new Error(`Zij: activateRegion() failed with ${res.status}`);
+  }
+  return (await res.json()) as { active_region: RegionInfo };
+}
+
+/** `POST /api/regions/estimate` — validates + prices a custom bbox before
+ * activation (spec §6). A `422` is not a transport error: the response body
+ * carries the same `EstimateResult` shape (under `error.details`) with
+ * `valid:false` and per-layer `message`s — resolve with that so the caller's
+ * normal render path handles the over-cap case. Only genuinely unexpected
+ * statuses throw. */
+export async function estimateRegion(bbox: number[]): Promise<EstimateResult> {
+  const res = await fetch(`${API_BASE}/regions/estimate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ bbox }),
+  });
+  if (res.ok) {
+    return (await res.json()) as EstimateResult;
+  }
+  if (res.status === 422) {
+    const json = (await res.json()) as { error: { details: EstimateResult } };
+    return json.error.details;
+  }
+  throw new Error(`Zij: estimateRegion() failed with ${res.status}`);
 }

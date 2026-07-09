@@ -1,0 +1,24 @@
+
+[1m[7m[36m RUN [39m[27m[22m [36mv2.1.9 [39m[90mD:/zij-wt/frontend-59/frontend[39m
+
+ [32m✓[39m tests/unit/wireToGeoJson.test.ts [2m([22m[2m5 tests[22m[2m)[22m[90m 9[2mms[22m[39m
+ [32m✓[39m tests/unit/loadLayers.test.ts [2m([22m[2m4 tests[22m[2m)[22m[90m 17[2mms[22m[39m
+ [32m✓[39m tests/unit/store.test.ts [2m([22m[2m5 tests[22m[2m)[22m[90m 14[2mms[22m[39m
+ [32m✓[39m tests/unit/formatAge.test.ts [2m([22m[2m6 tests[22m[2m)[22m[90m 15[2mms[22m[39m
+ [32m✓[39m tests/unit/sse-client.test.ts [2m([22m[2m9 tests[22m[2m)[22m[90m 24[2mms[22m[39m
+ [32m✓[39m tests/unit/controls.test.ts [2m([22m[2m6 tests[22m[2m)[22m[90m 72[2mms[22m[39m
+ [32m✓[39m tests/unit/formatUtc.test.ts [2m([22m[2m6 tests[22m[2m)[22m[90m 16[2mms[22m[39m
+ [32m✓[39m tests/unit/client.test.ts [2m([22m[2m13 tests[22m[2m)[22m[90m 40[2mms[22m[39m
+ [32m✓[39m tests/unit/map-factory.test.ts [2m([22m[2m3 tests[22m[2m)[22m[33m 402[2mms[22m[39m
+   [33m[2m✓[22m[39m initMap (map factory) — plan unit #1: centered on the Hormuz bbox center at the expected zoom[2m > [22mpasses the real MapLibre constructor the Hormuz bbox center (~56.25E, 26.25N) and INITIAL_ZOOM [33m306[2mms[22m[39m
+ [32m✓[39m tests/unit/build-style.test.ts [2m([22m[2m5 tests[22m[2m)[22m[33m 303[2mms[22m[39m
+ [32m✓[39m tests/unit/aviation.test.ts [2m([22m[2m8 tests[22m[2m)[22m[90m 162[2mms[22m[39m
+ [32m✓[39m tests/unit/land.test.ts [2m([22m[2m8 tests[22m[2m)[22m[90m 196[2mms[22m[39m
+ [32m✓[39m tests/unit/badges.test.ts [2m([22m[2m23 tests[22m[2m)[22m[90m 275[2mms[22m[39m
+ [32m✓[39m tests/unit/regionSelector.test.ts [2m([22m[2m7 tests[22m[2m)[22m[90m 298[2mms[22m[39m
+
+[2m Test Files [22m [1m[32m14 passed[39m[22m[90m (14)[39m
+[2m      Tests [22m [1m[32m108 passed[39m[22m[90m (108)[39m
+[2m   Start at [22m 23:55:17
+[2m   Duration [22m 5.89s[2m (transform 2.43s, setup 0ms, collect 4.66s, tests 1.84s, environment 51.93s, prepare 8.12s)[22m
+
