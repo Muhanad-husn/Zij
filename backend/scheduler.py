@@ -205,6 +205,15 @@ class Scheduler:
                 self._status[domain] = LayerStatus.LOADING
                 if self._events is not None:
                     snap = self._stream.snapshot()
+                    # The adapter's snapshot() hardcodes status=LIVE (it has
+                    # no notion of the scheduler's enable/disable state) --
+                    # the scheduler is the sole writer of LayerStatus
+                    # (spec "Status ownership"), so stamp the authoritative
+                    # value onto the published meta before it goes out.
+                    # snapshot() returns a freshly constructed LayerSnapshot
+                    # on every call, so mutating this meta in place carries
+                    # no aliasing risk against the adapter's internal table.
+                    snap.meta.status = LayerStatus.LOADING
                     self._events.publish_layer_status(snap.meta)
             else:
                 await self._stream.stop()
@@ -275,12 +284,14 @@ class Scheduler:
         assert self._store is not None
         row = await self._store.get_land_cache(region.id)
         if row is None:
+            self._status[Domain.LAND] = LayerStatus.LOADING
             return
 
         cadence_s = self._cadence_s.get(Domain.LAND, 0)
         now = datetime.now(timezone.utc)
         age_s = (now - row.fetched_at).total_seconds()
         if cadence_s and age_s >= cadence_s:
+            self._status[Domain.LAND] = LayerStatus.LOADING
             return  # stale -- leave it to the next scheduled fetch
 
         layer_cfg = self._cfg.layers.get(Domain.LAND.value)
@@ -302,6 +313,7 @@ class Scheduler:
         assert self._store is not None
         fallback = await self._store.get_fallback(domain.value)
         if fallback is None or fallback.meta.region_id != region.id:
+            self._status[domain] = LayerStatus.LOADING
             return
         if self._registry is not None:
             self._registry[domain] = fallback

@@ -353,3 +353,146 @@ async def test_set_enabled_marine_true_starts_stream_and_reports_loading():
 
     assert stream.start_calls == 1
     assert scheduler.current_status(Domain.MARINE) == LayerStatus.LOADING
+
+
+# ---------------------------------------------------------------------------
+# 4. Region-switch status reset on no-repopulation (scheduler.md "Region-
+#    switch sequence" step 3, "else, loading"; "Status ownership": the
+#    scheduler is the sole writer). Regression coverage for the "second
+#    region switch shows stale status" bug: a layer that was previously
+#    live/cached-fallback must not keep reporting that status after a switch
+#    to a region for which no fresh cache/fallback repopulates it.
+# ---------------------------------------------------------------------------
+
+
+async def test_activate_region_marine_no_repopulation_resets_stale_status_to_loading():
+    """A marine fallback row tagged region A does not repopulate a switch to
+    region B (mismatched-region gate, section 1 above) -- and per step 3
+    ("else, loading") the scheduler must also overwrite whatever status it
+    was reporting before the switch, not leave the prior live/cached-fallback
+    value stuck on screen."""
+    from backend.scheduler import Scheduler
+
+    stream = FakeStreamAdapter()
+    registry = Registry()
+    marine_fallback_a = _make_snapshot(Domain.MARINE, REGION_A)
+    store = FakeStore(fallback_by_layer={"marine": marine_fallback_a})
+    cfg = _make_cfg()
+
+    scheduler = Scheduler(
+        cfg, {}, REGION_A, registry=registry, store=store, stream=stream
+    )
+    # Arrange: seed a prior `live` status directly on the scheduler's own
+    # state -- standing in for a first successful fetch/repopulation before
+    # this second switch (see module docstring: writing `_status` directly
+    # is the documented arrange step when pre-seeding through the public
+    # surface would require a full fetch cycle).
+    scheduler._status[Domain.MARINE] = LayerStatus.LIVE
+
+    # The fallback row is tagged REGION_A -- mismatched against this switch.
+    await scheduler.activate_region(REGION_B)
+
+    assert scheduler.current_status(Domain.MARINE) == LayerStatus.LOADING
+
+
+async def test_activate_region_marine_no_fallback_row_resets_stale_status_to_loading():
+    """Same bug, `None` case: no fallback row at all (not just a mismatched
+    one) must also clear a prior `cached-fallback` status to `loading`."""
+    from backend.scheduler import Scheduler
+
+    stream = FakeStreamAdapter()
+    registry = Registry()
+    store = FakeStore(fallback_by_layer={})
+    cfg = _make_cfg()
+
+    scheduler = Scheduler(
+        cfg, {}, REGION_A, registry=registry, store=store, stream=stream
+    )
+    scheduler._status[Domain.MARINE] = LayerStatus.CACHED_FALLBACK
+
+    await scheduler.activate_region(REGION_B)
+
+    assert scheduler.current_status(Domain.MARINE) == LayerStatus.LOADING
+
+
+async def test_activate_region_land_no_repopulation_resets_stale_status_to_loading():
+    """Land equivalent: `get_land_cache` returning `None` for the new region
+    must clear a prior non-loading land status to `loading`, not leave it
+    stuck at whatever it reported for the old region."""
+    from backend.scheduler import Scheduler
+
+    registry = Registry()
+    store = FakeStore(land_row=None)
+    cfg = _make_cfg(land=_land_layer(cadence_s=86400, cadence_floor_s=3600))
+
+    scheduler = Scheduler(
+        cfg,
+        {Domain.LAND: _NoOpAirAdapter()},
+        REGION_A,
+        registry=registry,
+        store=store,
+    )
+    scheduler._status[Domain.LAND] = LayerStatus.CACHED_FALLBACK
+
+    await scheduler.activate_region(REGION_B)
+
+    assert scheduler.current_status(Domain.LAND) == LayerStatus.LOADING
+
+
+async def test_activate_region_land_stale_cache_resets_stale_status_to_loading():
+    """Land equivalent, stale-row case: a cached row older than
+    `land.cadence_s` is left alone by the repopulation gate (section 2
+    above) -- but the prior status must still be reset to `loading`, since
+    the layer is genuinely awaiting its next scheduled fetch under the new
+    region, not still showing the old region's data."""
+    from backend.scheduler import Scheduler
+
+    now = datetime.now(timezone.utc)
+    stale_row = _make_land_row(REGION_B, fetched_at=now - timedelta(days=2))
+    registry = Registry()
+    store = FakeStore(land_row=stale_row)
+    cfg = _make_cfg(land=_land_layer(cadence_s=86400, cadence_floor_s=3600))
+
+    scheduler = Scheduler(
+        cfg,
+        {Domain.LAND: _NoOpAirAdapter()},
+        REGION_A,
+        registry=registry,
+        store=store,
+    )
+    scheduler._status[Domain.LAND] = LayerStatus.LIVE
+
+    await scheduler.activate_region(REGION_B)
+
+    assert scheduler.current_status(Domain.LAND) == LayerStatus.LOADING
+
+
+# ---------------------------------------------------------------------------
+# 5. Marine-enable event carries the scheduler's authoritative status, not
+#    the adapter's hardcoded one (scheduler.md "Status ownership": the
+#    scheduler is the ONLY writer of LayerStatus). `FakeStreamAdapter.
+#    snapshot()` (via `_make_snapshot`) hardcodes `status=LIVE` -- the
+#    adapter has no notion of the scheduler's enable/disable state -- so the
+#    published `layer_status` event must carry `loading`, stamped by the
+#    scheduler, not the adapter's raw snapshot value. `current_status` alone
+#    does not prove this: it is the on-the-wire event that must be correct.
+# ---------------------------------------------------------------------------
+
+
+async def test_set_enabled_marine_true_publishes_authoritative_loading_status():
+    """Subscribes a real `EventBus` queue, enables marine, and asserts the
+    emitted `layer_status` event's `data["status"]` is `loading`, not the
+    adapter's hardcoded `live`."""
+    from backend.scheduler import Scheduler
+
+    stream = FakeStreamAdapter()
+    cfg = _make_cfg()
+    events = EventBus()
+    subscriber = events.subscribe()
+    scheduler = Scheduler(cfg, {}, REGION_A, stream=stream, events=events)
+
+    await scheduler.set_enabled(Domain.MARINE, True)
+
+    event = await subscriber.get()
+    assert event["event"] == "layer_status"
+    assert event["data"]["status"] == LayerStatus.LOADING.value
