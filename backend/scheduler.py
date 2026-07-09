@@ -147,6 +147,21 @@ class Scheduler:
         self._inflight[domain] = fut
         try:
             result = await self._adapters[domain].fetch(self._region)
+        except asyncio.CancelledError as exc:
+            # Cancellation (app shutdown, or a sibling layer's TaskGroup
+            # tearing down) must short-circuit to a clean re-raise *before*
+            # any failure write-path work -- it is not a fetch failure, so
+            # it must never run `_handle_fetch_failure` (no superfluous
+            # `store.get_fallback` call, no `_status[domain]` mutation, and
+            # no risk of a store-closing error replacing/masking the
+            # original `CancelledError`). The future still needs its
+            # exception set/retrieved for the same "never retrieved"
+            # log-on-GC reason as the genuine-error branch below, so a
+            # joiner's `await fut` still observes cancellation correctly.
+            if not fut.done():
+                fut.set_exception(exc)
+                fut.exception()
+            raise
         except BaseException as exc:  # noqa: BLE001 - propagate to caller
             if not fut.done():
                 fut.set_exception(exc)
