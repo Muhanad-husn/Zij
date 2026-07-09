@@ -47,14 +47,84 @@
   min-width: 160px;
 }
 
+.zij-badge__header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
 .zij-badge__title {
   font-family: var(--font-ui);
   font-weight: 600;
-  margin-bottom: 4px;
+}
+
+.zij-badge__status-label {
+  color: var(--zij-text-muted);
 }
 
 .zij-badge__label {
   color: var(--zij-text-muted);
+}
+
+.zij-badge__controls {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.zij-badge__controls button {
+  font-family: var(--font-ui);
+  font-size: 0.75rem;
+  background: var(--zij-ink);
+  color: var(--zij-text);
+  border: 1px solid var(--zij-text-muted);
+  border-radius: 3px;
+  padding: 3px 8px;
+  cursor: pointer;
+}
+
+/* Status indicator dot — REQUIRED TEST SEAM #3 (badges.spec.ts): its
+   *computed* background-color must resolve to the current status's
+   `--status-*` token. Driven off the badge container's `data-status`
+   attribute (set by `ui/badges.ts#update()`) rather than a JS-computed
+   inline style, so the mapping lives in one place alongside the rest of the
+   visual identity tokens (spec §8). `reconnecting` inherits `--status-loading`
+   via the token alias in tokens.css — no separate rule needed here. */
+.zij-badge__indicator {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--zij-text-muted);
+}
+
+.zij-badge[data-status='live'] .zij-badge__indicator {
+  background: var(--status-live);
+}
+
+.zij-badge[data-status='stale'] .zij-badge__indicator {
+  background: var(--status-stale);
+}
+
+.zij-badge[data-status='loading'] .zij-badge__indicator {
+  background: var(--status-loading);
+}
+
+.zij-badge[data-status='rate-limited'] .zij-badge__indicator {
+  background: var(--status-rate-limited);
+}
+
+.zij-badge[data-status='error'] .zij-badge__indicator {
+  background: var(--status-error);
+}
+
+.zij-badge[data-status='cached-fallback'] .zij-badge__indicator {
+  background: var(--status-cached-fallback);
+}
+
+.zij-badge[data-status='reconnecting'] .zij-badge__indicator {
+  background: var(--status-reconnecting);
 }
 
 /* Connection-lost banner (spec §3/§7): a slim, non-blocking strip overlaying

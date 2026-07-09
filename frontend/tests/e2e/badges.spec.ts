@@ -10,22 +10,19 @@
  *   And   the Caveats button is present and enabled in every status,
  *         including error
  *
- * `test.fail()` below is this web slice's analog to a strict pytest xfail
- * (DEC-33 — see `layers-refresh.spec.ts` for the precedent this repo
- * standardized on): it marks the scenario "expected to fail." An unexpected
- * *pass* fails the run, so once the implementer greens the behavior, this
- * file must flip to failing-the-run until the test-author removes the
- * `test.fail()` marker in the final pass — mirroring
- * "xfail(strict=True) turned XPASS, blocking commits until the marker is
- * removed."
+ * `test.fail()` was this web slice's analog to a strict pytest xfail (DEC-33
+ * — see `layers-refresh.spec.ts` for the precedent this repo standardized
+ * on) from the slice's red commit until the implementer greened every clause
+ * below. The test-author confirmed each assertion passes for real (a plain
+ * `test()` run: `✓ ... (3.0s)`, `1 passed`) and removed the `test.fail()`
+ * marker in this final pass, so this now runs as a normal `test(...)`.
  *
  * SCOPE NOTE (marine badge, no marine map layer): `design/specs/frontend.md`
  * has no marine map-layer builder yet (deferred to slice 06 per the plan's
  * "Out of scope" list). This test mounts/asserts the marine BADGE only (via
  * `snapshot:marine` / `status:marine` store events) — it never touches
- * `window.__zijMap.getSource('marine')`. Today `main.ts` mounts only
- * air/land badges — the marine badge assertions below are the sharpest part
- * of the red: they fail until the implementer adds a third badge.
+ * `window.__zijMap.getSource('marine')`. `main.ts` mounts a third
+ * (`marine`) badge alongside air/land as of this slice.
  *
  * WHICH DOMAIN CARRIES WHICH STATUS: the Gherkin says "a layer transitions
  * through each of the seven ... values," not "every layer through every
@@ -90,7 +87,8 @@
  *      `[data-testid="feature-count"]`.
  *
  * This test is not the test-author's to loosen and not the implementer's to
- * touch.
+ * touch. The `test.fail()` marker was removed only once every assertion
+ * below passed for real, in the test-author's final marker-removal pass.
  */
 
 import { test, expect, type Page } from '@playwright/test';
@@ -289,7 +287,7 @@ function meta(layer: Meta['layer'], overrides: Partial<Meta> = {}): Meta {
   };
 }
 
-test.fail(
+test(
   'per-domain badges render every LayerStatus with distinct color+label, UTC timestamps, a rate-limited countdown, and an always-enabled Caveats button',
   async ({ page }) => {
     const fixture = startEventsFixtureServer();
