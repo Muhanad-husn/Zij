@@ -89,8 +89,18 @@ import math
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+import pytest
+
 from backend.integrity import Integrity, IntegrityCfg, PrevPos
-from backend.models import Domain, Feature, GeometryType, IntegrityFlag
+from backend.models import (
+    Domain,
+    Feature,
+    GeometryType,
+    IntegrityFlag,
+    LayerSnapshot,
+    LayerSnapshotMeta,
+    LayerStatus,
+)
 
 LANDMASK_FIXTURE = Path(__file__).parent / "fixtures" / "landmask_test.geojson"
 
@@ -293,3 +303,231 @@ def test_apply_flags_spoof_suspect_on_land_and_implausible_kinematics():
         IntegrityFlag.IMPLAUSIBLE_KINEMATICS
         not in by_source_id[marine_dt_zero.source_id].integrity_flags
     )
+
+
+# =============================================================================
+# Slice 02 (issue #44): static per-layer caveat text (`CAVEATS`) + the
+# active-flag counting helper backing `GET /api/layers/{domain}/caveats`
+# (api.md: `{"domain":..., "caveats":[...], "active_flags": {...}}`).
+#
+# Given the integrity module
+# When  CAVEATS[domain] is read for air, marine, and land
+# Then  each returns the exact caveat bullet list from the spec (verbatim,
+#       not paraphrased -- design/specs/integrity.md "Static caveat text")
+# When  the active-flag counter runs over a snapshot with flagged features
+# Then  it returns a count per known IntegrityFlag, tallied from those
+#       features (plan: "{spoof_suspect_on_land: n, implausible_kinematics: m}")
+# And   an empty (or unflagged) snapshot yields zero counts for every flag
+# And   a feature carrying BOTH flags increments both counters
+#
+# Transcribed from plans/integrity/02-caveats.md ("Acceptance criterion
+# (outer loop)") and design/specs/integrity.md ("Static caveat text (per
+# layer, FR9 / api.md caveats)").
+#
+# **Design decision this test locks (test-author's choice, per the task's
+# "critical design point")**: the counting helper is
+#
+#     def active_flag_counts(snapshot: LayerSnapshot) -> dict[str, int]: ...
+#
+# -- it takes the full `LayerSnapshot` (not a bare `list[Feature]`), because
+# the caveats endpoint (api-core, out of scope here) will hold a
+# `LayerSnapshot` straight from the registry and should be able to pass it
+# through unchanged. The return dict is keyed by `IntegrityFlag.value`
+# (plain strings: "spoof_suspect_on_land", "implausible_kinematics") rather
+# than by the enum member itself, because that is exactly api.md's
+# `active_flags` wire shape -- the implementer's future endpoint can return
+# this dict as JSON with zero key translation. Every known `IntegrityFlag`
+# is always present in the returned dict, at 0 if unflagged, so an empty or
+# entirely-unflagged snapshot still yields a dict with a zero for every flag
+# (not an empty dict) -- this matches the plan's "zero counts for every
+# flag", not "no counts at all".
+#
+# It was authored and committed red by the test-author before any
+# implementation existed (strict xfail, DEC-33): `CAVEATS` and
+# `active_flag_counts` do not exist in `backend.integrity` yet, so importing
+# them inside the test body raises `ImportError`/`AttributeError` and the
+# test xfails cleanly under the tests-green gate.
+# =============================================================================
+
+
+def _flagged_feature(
+    *,
+    domain: Domain,
+    source: str,
+    source_id: str,
+    lat: float,
+    lon: float,
+    flags: list[IntegrityFlag],
+) -> Feature:
+    feature = _feature(
+        domain=domain,
+        source=source,
+        source_id=source_id,
+        lat=lat,
+        lon=lon,
+        timestamp_source=T0,
+    )
+    feature.integrity_flags = list(flags)
+    return feature
+
+
+def _snapshot(domain: Domain, features: list[Feature]) -> LayerSnapshot:
+    return LayerSnapshot(
+        meta=LayerSnapshotMeta(
+            layer=domain,
+            region_id="hormuz",
+            status=LayerStatus.LIVE,
+            timestamp_fetched=T0,
+            timestamp_source=T0,
+            cadence_s=60,
+            stale_after_s=120,
+            feature_count=len(features),
+        ),
+        features=features,
+    )
+
+
+@pytest.mark.xfail(
+    reason="integrity CAVEATS + active-flag counts not yet implemented",
+    strict=True,
+)
+def test_caveats_text_matches_spec_verbatim():
+    from backend.integrity import CAVEATS
+
+    # =========================================================================
+    # Given the integrity module
+    # When CAVEATS[domain] is read for air, marine, and land
+    # Then each returns the exact caveat bullet list from the spec, verbatim
+    # (design/specs/integrity.md "Static caveat text (per layer, FR9 /
+    # api.md caveats)") -- not paraphrased, not reordered, not truncated.
+    # =========================================================================
+    assert CAVEATS[Domain.AIR] == [
+        "Shows only aircraft broadcasting ADS-B/Mode S within receiver coverage.",
+        "Military and state aircraft with transponders switched off are invisible here.",
+        "Mode S-only aircraft broadcast no position; altitude/position gaps are expected.",
+    ]
+    assert CAVEATS[Domain.MARINE] == [
+        "Terrestrial AIS coverage in the Persian Gulf is receiver-dependent and uneven.",
+        "Dark-fleet vessels routinely disable AIS and will not appear.",
+        "GPS jamming in the region produces on-land and circular ghost tracks; "
+        "positions may be spoofed.",
+    ]
+    assert CAVEATS[Domain.LAND] == [
+        "This layer is mapped infrastructure state, not live telemetry.",
+        "Positions reflect OpenStreetMap data at the shown osm_base timestamp, "
+        "not current ground truth.",
+        "Absence of a feature means it is unmapped, not necessarily absent on the ground.",
+    ]
+
+
+@pytest.mark.xfail(
+    reason="integrity CAVEATS + active-flag counts not yet implemented",
+    strict=True,
+)
+def test_active_flag_counts_tallies_flags_across_a_snapshot():
+    from backend.integrity import active_flag_counts
+
+    # =========================================================================
+    # Given a marine snapshot whose features carry a mix of integrity flags:
+    # two flagged SPOOF_SUSPECT_ON_LAND only, one flagged
+    # IMPLAUSIBLE_KINEMATICS only, one flagged with BOTH, and one unflagged.
+    # =========================================================================
+    spoof_only_1 = _flagged_feature(
+        domain=Domain.MARINE,
+        source="aisstream",
+        source_id="111111111",
+        lat=ON_LAND_LAT,
+        lon=ON_LAND_LON,
+        flags=[IntegrityFlag.SPOOF_SUSPECT_ON_LAND],
+    )
+    spoof_only_2 = _flagged_feature(
+        domain=Domain.MARINE,
+        source="aisstream",
+        source_id="222222222",
+        lat=ON_LAND_LAT,
+        lon=ON_LAND_LON,
+        flags=[IntegrityFlag.SPOOF_SUSPECT_ON_LAND],
+    )
+    kinematics_only = _flagged_feature(
+        domain=Domain.MARINE,
+        source="aisstream",
+        source_id="333333333",
+        lat=MARINE_CURR_LAT,
+        lon=MARINE_CURR_LON,
+        flags=[IntegrityFlag.IMPLAUSIBLE_KINEMATICS],
+    )
+    # A single feature carrying BOTH flags must increment both counters.
+    both_flags = _flagged_feature(
+        domain=Domain.MARINE,
+        source="aisstream",
+        source_id="444444444",
+        lat=ON_LAND_LAT,
+        lon=ON_LAND_LON,
+        flags=[
+            IntegrityFlag.SPOOF_SUSPECT_ON_LAND,
+            IntegrityFlag.IMPLAUSIBLE_KINEMATICS,
+        ],
+    )
+    unflagged = _flagged_feature(
+        domain=Domain.MARINE,
+        source="aisstream",
+        source_id="555555555",
+        lat=MARINE_PREV_LAT,
+        lon=MARINE_PREV_LON,
+        flags=[],
+    )
+    snapshot = _snapshot(
+        Domain.MARINE,
+        [spoof_only_1, spoof_only_2, kinematics_only, both_flags, unflagged],
+    )
+
+    # =========================================================================
+    # When the active-flag counter runs over this snapshot
+    # Then it returns a count per known IntegrityFlag, keyed by flag value
+    # (api.md active_flags wire shape): 3 x spoof_suspect_on_land (2 solo +
+    # 1 from the both-flags feature), 2 x implausible_kinematics (1 solo + 1
+    # from the both-flags feature).
+    # =========================================================================
+    counts = active_flag_counts(snapshot)
+
+    assert counts == {
+        IntegrityFlag.SPOOF_SUSPECT_ON_LAND.value: 3,
+        IntegrityFlag.IMPLAUSIBLE_KINEMATICS.value: 2,
+    }
+
+
+@pytest.mark.xfail(
+    reason="integrity CAVEATS + active-flag counts not yet implemented",
+    strict=True,
+)
+def test_active_flag_counts_empty_or_unflagged_snapshot_yields_zero_for_every_flag():
+    from backend.integrity import active_flag_counts
+
+    # =========================================================================
+    # Given an entirely empty snapshot (no features at all)
+    # Then the counter returns zero counts for EVERY known flag -- a dict
+    # with a 0 for each IntegrityFlag, not an empty dict.
+    # =========================================================================
+    empty_snapshot = _snapshot(Domain.AIR, [])
+    assert active_flag_counts(empty_snapshot) == {
+        IntegrityFlag.SPOOF_SUSPECT_ON_LAND.value: 0,
+        IntegrityFlag.IMPLAUSIBLE_KINEMATICS.value: 0,
+    }
+
+    # =========================================================================
+    # And: a snapshot whose features carry no integrity flags at all yields
+    # the same all-zero result.
+    # =========================================================================
+    unflagged_feature = _flagged_feature(
+        domain=Domain.LAND,
+        source="overpass",
+        source_id="way/1",
+        lat=25.0,
+        lon=56.0,
+        flags=[],
+    )
+    unflagged_snapshot = _snapshot(Domain.LAND, [unflagged_feature])
+    assert active_flag_counts(unflagged_snapshot) == {
+        IntegrityFlag.SPOOF_SUSPECT_ON_LAND.value: 0,
+        IntegrityFlag.IMPLAUSIBLE_KINEMATICS.value: 0,
+    }
