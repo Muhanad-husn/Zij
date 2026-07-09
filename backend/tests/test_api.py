@@ -1792,3 +1792,260 @@ def test_caveats_raw_and_presets(tmp_path, monkeypatch):
         # --- Then: 204, and the preset is gone ---
         assert delete_resp.status_code == 204
         assert client.get("/api/presets").json() == {"presets": []}
+
+
+# ===========================================================================
+# api-core slice 02 (issue #54): region endpoints -- list, estimate, activate.
+#
+# Locked outer acceptance test (DEC-1), transcribed from
+# plans/api-core/02-region-endpoints.md ("Acceptance criterion") and
+# design/contracts/api.md ("GET /api/regions", "POST /api/regions/estimate",
+# "POST /api/regions/activate", "Error envelope"). Committed RED first
+# (strict xfail, DEC-33, commit d5c305c): none of `/api/regions`,
+# `/api/regions/estimate`, `/api/regions/activate` existed yet in
+# backend/main.py (they fell through to the `/api/{rest:path}` catch-all ->
+# 404), and `create_app` did not yet accept a `scheduler=` keyword at all (an
+# unexpected-kwarg `TypeError`), so the assertions below failed and this test
+# xfailed cleanly under the tests-green gate. The implementer has since built
+# `backend/main.py` to satisfy this exact seam -- the test now genuinely
+# passes and the marker has been removed to finalize the contract. The
+# assertions above are never weakened.
+#
+# Design seam this test locks in for the implementer (backend/main.py):
+#
+#   def create_app(*, static_dir, config, secrets,
+#                   air_adapter=None, land_adapter=None, store=None,
+#                   registry=None, events=None,
+#                   scheduler: Scheduler | None = None) -> FastAPI: ...
+#
+# `scheduler` is a new optional keyword-only param, the same "extend without
+# a rewrite" shape as every prior collaborator (air_adapter/land_adapter/
+# store/registry/events) -- every existing `create_app(...)` call in this
+# file keeps working unmodified. `POST /api/regions/activate` calls
+# `await scheduler.activate_region(region)` (backend/scheduler.py, already
+# built in the scheduler/04 slice, issue #52/PR #85) with a real
+# `backend.sources.base.Region` resolved from the requested predefined id
+# (or a re-validated custom bbox, out of scope for this test). This test
+# injects an `AsyncMock`-spy scheduler -- mirroring the established pattern
+# in test_scheduler_write_path.py -- so the delegation is assertable without
+# a real Scheduler's poll loops running.
+# ===========================================================================
+
+
+def test_region_list_estimate_and_activate(tmp_path, monkeypatch):
+    """Given the app with the 7 predefined regions loaded (bundled
+    config.toml) and a spy `scheduler` collaborator injected via
+    `create_app`:
+
+    When  GET /api/regions is called
+    Then  200 lists each of the 7 predefined regions, each carrying its
+          `aviation_credit_cost` (config.md credit-tier table over the
+          region's own bbox, computed independently here via
+          `backend.config.estimate_credits` -- not a hardcoded literal) and
+          `kind == "predefined"`.
+
+    When  POST /api/regions/estimate {bbox} is called with an in-cap bbox
+          (well under every layer's `custom_bbox_cap_sq_deg`)
+    Then  200 returns `valid: true`, the exact `area_sq_deg`, the
+          `aviation_credit_cost` from the same credit-tier function, and
+          every `layer_caps` entry `ok: true` with no `message` key (api.md:
+          "message is present only when ok:false").
+
+    When  POST /api/regions/estimate {bbox} is called with a bbox whose area
+          exceeds the land/marine `custom_bbox_cap_sq_deg` (40) but stays
+          within the air cap (100) -- a deliberately differential bbox, so a
+          handler that flags every layer identically (all ok:true or all
+          ok:false) fails this test
+    Then  422 with the api.md envelope `code: "validation_error"`; the
+          `details` body carries `layer_caps.land.ok == false` and
+          `layer_caps.marine.ok == false`, each with a `message` naming the
+          exceeded cap, while `layer_caps.air.ok == true` (air is unaffected).
+
+    When  POST /api/regions/activate {"region_id": "gulf-of-oman"} is called
+    Then  200 returns `{"active_region": {...}}` for the `gulf-of-oman`
+          region, AND the injected `scheduler.activate_region` was awaited
+          exactly once with a real `backend.sources.base.Region` whose
+          `id == "gulf-of-oman"` and `bbox`/`label` match the configured
+          region -- proving the route actually delegates the region-switch
+          to the scheduler rather than merely echoing the request back.
+
+    Why this is not satisfiable by a stub or a tautology:
+      - The `aviation_credit_cost` values in the /api/regions list and both
+        /estimate responses are cross-checked against `estimate_credits`
+        called independently in this test on the SAME bbox, not against a
+        hardcoded literal -- a handler that fabricates a plausible-looking
+        cost (e.g. always 1) fails as soon as a region/bbox whose real tier
+        differs is checked.
+      - The cap-violation bbox is deliberately differential (over land/marine
+        cap, under air cap): an implementation that ANDs a single cap check
+        across all three layers (or hardcodes `valid: false` unconditionally)
+        fails either the "air still ok:true" assertion or the "land/marine
+        ok:false" assertion; only a genuinely per-layer cap comparison
+        against each layer's own `custom_bbox_cap_sq_deg` passes both.
+      - The activate assertion inspects the scheduler spy's actual
+        `await_args` and the real `Region` instance passed to it -- a handler
+        that returns 200 without calling `scheduler.activate_region` at all
+        (or calls it with the wrong region) fails this half even though the
+        HTTP response might look fine.
+    """
+    # --- Given: known secrets (NFR5 env-only; air+marine both enabled in the
+    # bundled config.toml, so both secret gates must be satisfied) ---
+    monkeypatch.setenv("OPENSKY_CLIENT_ID", "outer-test-opensky-client-id-54")
+    monkeypatch.setenv("OPENSKY_CLIENT_SECRET", "outer-test-opensky-client-secret-54")
+    monkeypatch.setenv("AISSTREAM_API_KEY", "outer-test-aisstream-api-key-54")
+    monkeypatch.delenv("AISHUB_USERNAME", raising=False)
+    monkeypatch.delenv("ZIJ_CONFIG_PATH", raising=False)
+
+    from unittest.mock import AsyncMock
+
+    from backend.config import estimate_credits, load_config
+    from backend.main import create_app
+    from backend.sources.base import Region
+    from backend.store import Store
+
+    cfg, secrets = load_config()
+
+    # --- Given: the credit-tier caps this test's bboxes are chosen against
+    # (locked premises -- if the bundled config.toml ever changes these, the
+    # bboxes below need re-deriving, not just this assertion) ---
+    air_cap = cfg.layers["air"].custom_bbox_cap_sq_deg
+    land_cap = cfg.layers["land"].custom_bbox_cap_sq_deg
+    marine_cap = cfg.layers["marine"].custom_bbox_cap_sq_deg
+    assert air_cap == 100
+    assert land_cap == 40
+    assert marine_cap == 40
+
+    static_dir = tmp_path / "dist"
+    static_dir.mkdir()
+    (static_dir / "index.html").write_text(
+        "<!doctype html><html><body>Zij</body></html>", encoding="utf-8"
+    )
+    store = Store(db_path=tmp_path / "regions.db")
+
+    scheduler = AsyncMock()
+
+    app = create_app(
+        static_dir=static_dir,
+        config=cfg,
+        secrets=secrets,
+        store=store,
+        scheduler=scheduler,
+    )
+
+    with TestClient(app) as client:
+        # --- When: GET /api/regions ---
+        regions_resp = client.get("/api/regions")
+
+        # --- Then: 200, all 7 predefined regions, each with its own
+        # aviation_credit_cost (config credit-tier table) and kind ---
+        assert regions_resp.status_code == 200
+        regions_body = regions_resp.json()
+        assert "regions" in regions_body
+        by_id = {region["id"]: region for region in regions_body["regions"]}
+        predefined_ids = {
+            "hormuz",
+            "persian-gulf",
+            "gulf-of-oman",
+            "iraq-corridor",
+            "syria-corridor",
+            "eastern-med",
+            "suez-canal",
+        }
+        assert predefined_ids <= by_id.keys()
+        for region_cfg in cfg.regions:
+            entry = by_id[region_cfg.id]
+            assert entry["kind"] == "predefined"
+            assert entry["label"] == region_cfg.label
+            assert list(entry["bbox"]) == list(region_cfg.bbox)
+            assert entry["aviation_credit_cost"] == estimate_credits(region_cfg.bbox)
+
+        # --- When: POST /api/regions/estimate with an in-cap bbox (area 12
+        # sq deg -- well under every layer's cap) ---
+        in_cap_bbox = [52.0, 26.0, 56.0, 29.0]
+        expected_in_cap_area = 12.0
+        assert expected_in_cap_area <= land_cap
+        assert expected_in_cap_area <= marine_cap
+        assert expected_in_cap_area <= air_cap
+
+        estimate_ok_resp = client.post(
+            "/api/regions/estimate", json={"bbox": in_cap_bbox}
+        )
+
+        # --- Then: 200, valid, exact area/cost, every layer_caps ok:true
+        # with no message key ---
+        assert estimate_ok_resp.status_code == 200
+        estimate_ok_body = estimate_ok_resp.json()
+        assert estimate_ok_body["valid"] is True
+        assert estimate_ok_body["area_sq_deg"] == expected_in_cap_area
+        assert estimate_ok_body["aviation_credit_cost"] == estimate_credits(
+            tuple(in_cap_bbox)
+        )
+        for domain in ("air", "land", "marine"):
+            layer_cap_entry = estimate_ok_body["layer_caps"][domain]
+            assert layer_cap_entry["ok"] is True
+            assert "message" not in layer_cap_entry
+
+        # --- When: POST /api/regions/estimate with a bbox exceeding the
+        # land/marine cap (area 50 sq deg) but staying within the air cap
+        # (100) -- deliberately differential across layers ---
+        over_cap_bbox = [40.0, 20.0, 50.0, 25.0]
+        expected_over_cap_area = 50.0
+        assert expected_over_cap_area > land_cap
+        assert expected_over_cap_area > marine_cap
+        assert expected_over_cap_area <= air_cap
+
+        estimate_fail_resp = client.post(
+            "/api/regions/estimate", json={"bbox": over_cap_bbox}
+        )
+
+        # --- Then: 422 validation_error, with the estimate body under
+        # details -- air still ok:true, land/marine ok:false + cap-naming
+        # message ---
+        assert estimate_fail_resp.status_code == 422
+        estimate_fail_body = estimate_fail_resp.json()
+        assert estimate_fail_body["error"]["code"] == "validation_error"
+        assert "message" in estimate_fail_body["error"]
+        details = estimate_fail_body["error"]["details"]
+        assert details["valid"] is False
+        assert details["area_sq_deg"] == expected_over_cap_area
+        assert details["aviation_credit_cost"] == estimate_credits(tuple(over_cap_bbox))
+
+        air_entry = details["layer_caps"]["air"]
+        assert air_entry["ok"] is True
+        assert "message" not in air_entry
+
+        for domain in ("land", "marine"):
+            failing_entry = details["layer_caps"][domain]
+            assert failing_entry["ok"] is False
+            assert "message" in failing_entry
+            # Cap-naming message (api.md example: "Land bbox 180.0 sq°
+            # exceeds the 40 sq° cap.") -- names the exceeded cap, not a
+            # generic "invalid" string.
+            assert "cap" in failing_entry["message"].lower()
+            assert domain in failing_entry["message"].lower()
+
+        # --- When: POST /api/regions/activate {"region_id": "gulf-of-oman"} ---
+        activate_resp = client.post(
+            "/api/regions/activate", json={"region_id": "gulf-of-oman"}
+        )
+
+        # --- Then: 200, the active RegionInfo for gulf-of-oman ---
+        assert activate_resp.status_code == 200
+        activate_body = activate_resp.json()
+        assert "active_region" in activate_body
+        active_region = activate_body["active_region"]
+        assert active_region["id"] == "gulf-of-oman"
+        gulf_of_oman_cfg = next(r for r in cfg.regions if r.id == "gulf-of-oman")
+        assert active_region["label"] == gulf_of_oman_cfg.label
+        assert list(active_region["bbox"]) == list(gulf_of_oman_cfg.bbox)
+
+        # --- And: scheduler.activate_region was awaited exactly once with a
+        # real Region matching gulf-of-oman -- delegation, not just a
+        # plausible-looking HTTP response ---
+        scheduler.activate_region.assert_awaited_once()
+        call = scheduler.activate_region.await_args
+        region_arg = call.args[0] if call.args else call.kwargs.get("region")
+        assert isinstance(region_arg, Region)
+        assert region_arg.id == "gulf-of-oman"
+        assert region_arg.label == gulf_of_oman_cfg.label
+        assert tuple(region_arg.bbox) == tuple(gulf_of_oman_cfg.bbox)
