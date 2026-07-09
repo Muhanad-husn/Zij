@@ -1,0 +1,19 @@
+[WebServer] 
+[WebServer] (!) Some chunks are larger than 500 kB after minification. Consider:
+[WebServer] - Using dynamic import() to code-split the application
+[WebServer] - Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+[WebServer] - Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+
+Running 3 tests using 3 workers
+
+  ✓  1 [chromium] › tests\e2e\map-init.spec.ts:112:1 › Hormuz map boots in night-ink with OSM + OpenFreeMap attribution and no console errors (1.3s)
+  ✓  2 [chromium] › tests\e2e\layers-refresh.spec.ts:400:1 › air + land snapshots render (rotated brass aircraft, dun land, UTC freshness + count) and Refresh re-renders from new snapshots (1.9s)
+  ✓  3 [chromium] › tests\e2e\sse-client.spec.ts:300:1 › SSE client dispatches full-state-on-connect, shows Reconnecting… on drop, and Connection failed — Retry on fatal close (2.8s)
+Error: worker-1 process did not exit within 300000ms after stop, force-killed it
+Error: worker-0 process did not exit within 300000ms after stop, force-killed it
+Error: worker-2 process did not exit within 300000ms after stop, force-killed it
+Error: worker-2 process did not exit within 300000ms after stop, force-killed it
+
+  3 passed (5.2m)
+  4 errors were not a part of any test, see above for details
+e2e exit: 1

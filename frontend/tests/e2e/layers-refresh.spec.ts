@@ -32,6 +32,21 @@
  * explicitly out of scope for this slice (see the plan) — only the two REST
  * snapshot endpoints and the manual refresh endpoint are exercised.
  *
+ * RECONCILIATION (slice frontend/01-sse-client, issue #57): the app now
+ * unconditionally opens `EventSource('/api/events')` on load (spec §3). This
+ * test has no live FastAPI backend, so an unstubbed `/api/events` would
+ * error through Vite's preview proxy, logging a `console.error` this test
+ * doesn't check for directly but which is still a genuine regression to the
+ * app's boot post-condition — the same class of reconciliation
+ * `map-init.spec.ts` already documents for the snapshot endpoints.
+ * `tests/e2e/helpers/quietSseStub.ts` (a real, held-open streaming stub — see
+ * its own comment for why a `page.route().fulfill()` stub can't safely stand
+ * in here) is used below; this test doesn't exercise SSE and asserts nothing
+ * about the connection banner. The banner's own non-blocking
+ * `pointer-events: none` (layout.css) is what already keeps a
+ * connection-lost state from swallowing the Refresh button's clicks, should
+ * the stream ever error mid-test.
+ *
  * REQUIRED TEST SEAMS (implementer must expose these — not the test-author's
  * to relax; each is independently asserted below):
  *
@@ -84,6 +99,7 @@
  */
 
 import { test, expect, type Page } from '@playwright/test';
+import { startQuietSseStub } from './helpers/quietSseStub';
 
 // --- Fixtures ----------------------------------------------------------
 // Modeled on design/contracts/feature-schema.md "Wire examples". Kept small
@@ -387,6 +403,10 @@ test(
     const consoleErrors: string[] = [];
     const pageErrors: string[] = [];
 
+    // RECONCILIATION (frontend/01-sse-client, #57) — see file-header comment.
+    const sseStub = await startQuietSseStub();
+
+    try {
     // Registered BEFORE navigation so nothing fired during initial load is missed.
     page.on('console', (msg) => {
       if (msg.type() === 'error') {
@@ -401,6 +421,7 @@ test(
     // FastAPI backend in this e2e run (playwright.config.ts serves the built
     // static bundle only).
     await stubApi(page);
+    await sseStub.attachTo(page);
 
     await page.goto('/');
 
@@ -541,5 +562,8 @@ test(
     // --- Clause: no uncaught console error / page error during load/refresh
     expect(pageErrors, `page errors: ${JSON.stringify(pageErrors)}`).toHaveLength(0);
     expect(consoleErrors, `console errors: ${JSON.stringify(consoleErrors)}`).toHaveLength(0);
+    } finally {
+      await sseStub.close();
+    }
   },
 );
