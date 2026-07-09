@@ -29,6 +29,7 @@ if (!badgesContainer) {
   throw new Error('Zij: #badges container not found');
 }
 const airBadge = mountBadge(badgesContainer, 'air');
+const marineBadge = mountBadge(badgesContainer, 'marine');
 const landBadge = mountBadge(badgesContainer, 'land');
 
 const store = new Store();
@@ -47,6 +48,17 @@ let airLayerInitialized = false;
 let landLayerInitialized = false;
 let pendingAirSnapshot: LayerSnapshot | null = null;
 let pendingLandSnapshot: LayerSnapshot | null = null;
+
+// Set the moment any SSE event lands for a domain (snapshot OR status —
+// spec §3 ADR-12: full-state-on-connect means SSE always re-emits a fresh
+// `snapshot` per enabled layer on (re)connect, so SSE is the canonical live
+// source once it has spoken). Guards the one-time cold-start REST fetch
+// below from clobbering an already-live SSE view with a possibly older REST
+// response race — SSE and REST are not guaranteed to resolve in a fixed
+// order (map `style.load` timing is network-dependent), so "last write wins"
+// is not safe here; "SSE always wins once it has spoken" is.
+let airSseReceived = false;
+let landSseReceived = false;
 
 function renderAirSnapshot(snapshot: LayerSnapshot): void {
   airBadge.update(snapshot.meta);
@@ -78,10 +90,28 @@ function renderLandSnapshot(snapshot: LayerSnapshot): void {
 
 // Mutators are the only writers (spec §9); renderers + badges are pure
 // subscribers to the store's `snapshot:*`/`status:*` events.
-store.on('snapshot:air', (payload) => renderAirSnapshot(payload as LayerSnapshot));
-store.on('snapshot:land', (payload) => renderLandSnapshot(payload as LayerSnapshot));
-store.on('status:air', (payload) => airBadge.update(payload as LayerSnapshotMeta));
-store.on('status:land', (payload) => landBadge.update(payload as LayerSnapshotMeta));
+store.on('snapshot:air', (payload) => {
+  airSseReceived = true;
+  renderAirSnapshot(payload as LayerSnapshot);
+});
+store.on('snapshot:land', (payload) => {
+  landSseReceived = true;
+  renderLandSnapshot(payload as LayerSnapshot);
+});
+store.on('status:air', (payload) => {
+  airSseReceived = true;
+  airBadge.update(payload as LayerSnapshotMeta);
+});
+store.on('status:land', (payload) => {
+  landSseReceived = true;
+  landBadge.update(payload as LayerSnapshotMeta);
+});
+
+// Marine badge only this slice — no marine map source/layer yet (deferred to
+// step). It updates from meta alone on both full snapshots and meta-only
+// status transitions (e.g. `reconnecting` on a dropped aisstream websocket).
+store.on('snapshot:marine', (payload) => marineBadge.update((payload as LayerSnapshot).meta));
+store.on('status:marine', (payload) => marineBadge.update(payload as LayerSnapshotMeta));
 
 // Exactly one EventSource for the app's lifetime (spec §3) — the Retry
 // action (below) re-runs `connect()`, which is the one sanctioned exception
@@ -95,10 +125,13 @@ mountConnectionBanner(document.body, store, () => {
 // independent `LayerLoadTask` run through `loadLayers`, so one domain
 // rejecting never blocks the other from rendering (see `app/loadLayers.ts`).
 // This REST fetch runs alongside the SSE push above (not instead of it): it
-// is what serves a cold start whose SSE snapshot hasn't arrived yet, and it
-// is reconciled through the same `renderAirSnapshot`/`renderLandSnapshot`
-// idempotent paths, so whichever of SSE-push or REST-fetch lands first wins
-// the initial render and the other is a harmless no-op `setData`.
+// is what serves a cold start whose SSE snapshot hasn't arrived yet. SSE and
+// REST are not guaranteed to resolve in a fixed order (map `style.load`
+// timing is network-dependent), so each task's `render` is skipped if SSE
+// has already spoken for that domain by the time the REST fetch resolves —
+// otherwise a slow-resolving cold-start REST fetch could clobber an
+// already-live SSE view with stale data (ADR-12: SSE is the canonical live
+// source once connected).
 map.on('style.load', () => {
   mapLoaded = true;
   if (pendingAirSnapshot) {
@@ -116,12 +149,20 @@ map.on('style.load', () => {
     {
       label: 'air',
       load: () => fetchSnapshot('air'),
-      render: (snapshot) => renderAirSnapshot(snapshot as LayerSnapshot),
+      render: (snapshot) => {
+        if (!airSseReceived) {
+          renderAirSnapshot(snapshot as LayerSnapshot);
+        }
+      },
     },
     {
       label: 'land',
       load: () => fetchSnapshot('land'),
-      render: (snapshot) => renderLandSnapshot(snapshot as LayerSnapshot),
+      render: (snapshot) => {
+        if (!landSseReceived) {
+          renderLandSnapshot(snapshot as LayerSnapshot);
+        }
+      },
     },
   ];
   void loadLayers(initialLoadTasks);
