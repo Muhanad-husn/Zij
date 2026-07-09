@@ -12,7 +12,13 @@
  */
 import { beforeEach, describe, expect, it } from 'vitest';
 
-import { AIR_LAYER_ID, AIR_SOURCE_ID, initAviationLayer, updateAviationLayer } from '../../src/map/layers/aviation';
+import {
+  AIR_LAYER_ID,
+  AIR_SOURCE_ID,
+  clearAviationLayer,
+  initAviationLayer,
+  updateAviationLayer,
+} from '../../src/map/layers/aviation';
 import type { LayerSnapshot } from '../../src/state/types';
 
 interface RecordedLayer {
@@ -168,5 +174,25 @@ describe('updateAviationLayer — plan unit #5 (refresh idempotency): re-applyin
       features: Array<{ properties: { source_id: string } }>;
     };
     expect(data.features.map((f) => f.properties.source_id)).toEqual(['896451', '896453']);
+  });
+});
+
+describe('clearAviationLayer — plan unit #5 (region_changed): the "air" source is emptied, not merely re-fetched', () => {
+  it('replaces a populated source with an empty FeatureCollection', () => {
+    const map = new FakeMap();
+    initAviationLayer(map as never, SNAPSHOT);
+    expect((map.sources[AIR_SOURCE_ID].serialize().data as { features: unknown[] }).features).toHaveLength(1);
+
+    clearAviationLayer(map as never);
+
+    const data = map.sources[AIR_SOURCE_ID].serialize().data as { type: string; features: unknown[] };
+    expect(data.type).toBe('FeatureCollection');
+    expect(data.features).toHaveLength(0);
+  });
+
+  it('is a no-op when the source was never added (map not yet loaded / layer never initialized)', () => {
+    const map = new FakeMap();
+    expect(() => clearAviationLayer(map as never)).not.toThrow();
+    expect(map.sources[AIR_SOURCE_ID]).toBeUndefined();
   });
 });

@@ -7,7 +7,11 @@
   top: 0;
   left: 0;
   right: 0;
-  z-index: 10;
+  /* Above #badges (z-index 10, later in DOM order — would otherwise win the
+     tie and paint over #topbar's own content, including the region-selector
+     dropdown panel) but below the connection banner (z-index 20), which must
+     always overlay the top bar. */
+  z-index: 15;
   display: flex;
   align-items: center;
   gap: 12px;
@@ -165,4 +169,68 @@
   padding: 4px 10px;
   cursor: pointer;
   pointer-events: auto;
+}
+
+/* Region selector (spec §6/§7). `#topbar` is a non-wrapping flex row — the
+   bbox panel MUST be taken out of that flow (`position: absolute`, anchored
+   to this `position: relative` container) and given a bounded width. Without
+   this, the panel's coordinate/label/estimate/cap-message content simply
+   grows the topbar row unbounded, pushing later fields (and Confirm) beyond
+   the fixed-position topbar's right edge — a region with no scrollable
+   ancestor to reveal it, so it becomes genuinely unreachable to a click, not
+   just visually clipped. */
+.zij-region-selector {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.zij-region-selector select {
+  font-family: var(--font-ui);
+}
+
+.zij-region-selector__cost {
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+}
+
+.zij-bbox-panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  z-index: 20;
+  width: 280px;
+  padding: 12px;
+  background: var(--zij-ink-raised);
+  border-radius: 4px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+
+.zij-bbox-panel__field {
+  display: block;
+  font-family: var(--font-ui);
+  font-size: 0.85rem;
+  margin-bottom: 6px;
+}
+
+.zij-bbox-panel__field input {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 2px;
+}
+
+.zij-bbox-panel__estimate {
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  margin-bottom: 6px;
+  display: flex;
+  gap: 8px;
+}
+
+.zij-bbox-panel__cap-message {
+  color: var(--status-error);
+  font-size: 0.8rem;
+  margin-bottom: 6px;
 }
