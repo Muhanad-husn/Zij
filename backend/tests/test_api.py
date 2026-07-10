@@ -301,23 +301,45 @@ def test_module_level_app_imports_and_builds_without_a_frontend_build(monkeypatc
     than relying on whatever the ambient `.env`/environment happens to
     contain, so this test proves "builds without a frontend/dist" on its own
     terms, independent of a checked-in `.env`.
+
+    `frontend/dist` is a normal gitignored build artifact: it does not exist
+    in a fresh checkout, but it DOES appear after `npm run build` or a
+    Playwright e2e run, and nothing in this repo cleans it up afterward. So
+    this test cannot assume its absence -- it must arrange its own
+    precondition. If `frontend/dist` exists when this test runs, it is
+    temporarily renamed out of the way (and restored in `finally`) so that
+    "the fallback static-dir branch was taken" holds deterministically,
+    regardless of ambient build artifacts (issue #103).
     """
     import importlib
 
     monkeypatch.setenv("OPENSKY_CLIENT_ID", "reload-test-opensky-client-id")
     monkeypatch.setenv("OPENSKY_CLIENT_SECRET", "reload-test-opensky-client-secret")
 
-    import backend.main as main_module
+    real_dist = Path(__file__).resolve().parent.parent.parent / "frontend" / "dist"
+    hidden_dist = real_dist.with_name("dist.__hidden_by_test__")
+    dist_was_hidden = False
+    if real_dist.is_dir():
+        real_dist.rename(hidden_dist)
+        dist_was_hidden = True
 
-    importlib.reload(main_module)
+    try:
+        import backend.main as main_module
 
-    from fastapi import FastAPI
+        importlib.reload(main_module)
 
-    assert isinstance(main_module.app, FastAPI)
-    # `frontend/dist` genuinely does not exist in this checkout, so
-    # `_build_default_app` must have taken the fallback static-dir branch
-    # (asserted directly rather than merely relying on the app having built).
-    assert not main_module._FRONTEND_DIST.is_dir()
+        from fastapi import FastAPI
+
+        assert isinstance(main_module.app, FastAPI)
+        # This test hides any ambient `frontend/dist` above, so this holds
+        # by the test's own arrangement, not by an assumption about the
+        # checkout's state -- `_build_default_app` must have taken the
+        # fallback static-dir branch (asserted directly rather than merely
+        # relying on the app having built).
+        assert not main_module._FRONTEND_DIST.is_dir()
+    finally:
+        if dist_was_hidden:
+            hidden_dist.rename(real_dist)
 
 
 def test_module_level_app_fails_fast_when_required_secret_missing(monkeypatch):
