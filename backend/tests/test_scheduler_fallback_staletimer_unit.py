@@ -258,7 +258,16 @@ async def test_handle_fetch_failure_repeated_rate_limited_with_warm_matched_cach
     warm cache | cached-fallback`. A layer already `rate-limited` that fails
     again with `RateLimitedError` while a warm, region-matched fallback row
     exists must degrade to `cached-fallback` -- serving the cache rather
-    than parking indefinitely at `rate-limited`."""
+    than parking indefinitely at `rate-limited`.
+
+    feature-schema.md: `retry_after_s: float | None = None  # set when
+    status == rate-limited` -- once the status is no longer `rate-limited`
+    (here, degraded to `cached-fallback`), the published event's
+    `retry_after_s` must be `None`, not a leftover leak of the
+    `RateLimitedError`'s own `retry_after` value. The sibling non-rate-
+    limited failure gate (`test_scheduler_backoff_stale_unit.py`'s
+    `ParseError`/`cached-fallback` tests) already behaves this way; this
+    branch must match it."""
     from backend.scheduler import Scheduler
 
     adapter = _NoOpAdapter(Domain.LAND)
@@ -281,6 +290,7 @@ async def test_handle_fetch_failure_repeated_rate_limited_with_warm_matched_cach
     assert scheduler.current_status(Domain.LAND) == LayerStatus.CACHED_FALLBACK
     event = await _first_matching_event(subscriber, "layer_status", timeout=1.0)
     assert event["data"]["status"] == "cached-fallback"
+    assert event["data"]["retry_after_s"] is None
 
 
 async def test_handle_fetch_failure_repeated_rate_limited_without_warm_cache_stays_rate_limited():
@@ -308,6 +318,9 @@ async def test_handle_fetch_failure_repeated_rate_limited_without_warm_cache_sta
     assert scheduler.current_status(Domain.LAND) == LayerStatus.RATE_LIMITED
     event = await _first_matching_event(subscriber, "layer_status", timeout=1.0)
     assert event["data"]["status"] == "rate-limited"
+    # Still `rate-limited` -> the event must carry the real retry_after_s
+    # (feature-schema.md: "set when status == rate-limited"), not None.
+    assert event["data"]["retry_after_s"] == pytest.approx(9.0)
 
 
 async def test_handle_fetch_failure_repeated_rate_limited_with_mismatched_region_cache_stays_rate_limited():
@@ -339,6 +352,9 @@ async def test_handle_fetch_failure_repeated_rate_limited_with_mismatched_region
     assert scheduler.current_status(Domain.LAND) == LayerStatus.RATE_LIMITED
     event = await _first_matching_event(subscriber, "layer_status", timeout=1.0)
     assert event["data"]["status"] == "rate-limited"
+    # Still `rate-limited` -> the event must carry the real retry_after_s
+    # (feature-schema.md: "set when status == rate-limited"), not None.
+    assert event["data"]["retry_after_s"] == pytest.approx(9.0)
 
 
 # =============================================================================

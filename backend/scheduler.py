@@ -629,7 +629,9 @@ class Scheduler:
             self._publish_status_event(
                 domain,
                 status,
-                retry_after_s=exc.retry_after,
+                retry_after_s=(
+                    exc.retry_after if status == LayerStatus.RATE_LIMITED else None
+                ),
                 detail=detail,
             )
             return
