@@ -11,18 +11,31 @@
  *   When  the panel is closed and reopened from the badge
  *   Then  it opens again from the badge in every status, including error
  *
- * RED MECHANISM (DEC-33): `test.fail()` is this repo's web-slice analog to a
- * strict pytest xfail — precedent: `badges.spec.ts`, `layers-refresh.spec.ts`,
- * `region-selector.spec.ts`, `toggles-refresh.spec.ts`. Today, `caveatPanel.ts`
- * does not exist and the badges' Caveats button is a no-op
- * (`frontend/src/ui/badges.ts`'s click handler is just a `console.debug`), so
- * every clause below fails for real — `test.fail()` makes that an EXPECTED
- * failure: pytest-equivalent, the suite reports it `expected fail` and exits
- * 0, and this red commit lands under the tests-green gate. This test is not
- * the test-author's to loosen from here and not the implementer's to touch.
- * The test-author will confirm each assertion passes for real (a plain
- * `test()` run) and remove the `test.fail()` marker in a final pass once the
- * implementer greens it — never before.
+ * `test.fail()` was this web slice's analog to a strict pytest xfail (DEC-33
+ * — precedent: `badges.spec.ts`, `layers-refresh.spec.ts`,
+ * `region-selector.spec.ts`, `toggles-refresh.spec.ts`) from the slice's red
+ * commit — when `caveatPanel.ts` did not exist and the badges' Caveats
+ * button was a no-op (`frontend/src/ui/badges.ts`'s click handler was just a
+ * `console.debug`), so every clause below failed for real — until the
+ * implementer greened every clause. The test-author confirmed the assertions
+ * pass for real via Playwright's own unexpected-pass artifact: under
+ * `test.fail()`, an all-clauses-passing run is *reported* as a failure
+ * (`✘ … expected to fail but passed`) and Playwright writes an on-failure
+ * screenshot but — critically — no `error-context.md` (no assertion ever
+ * threw). That screenshot showed the panel OPEN from the AIR badge while AIR
+ * was in `error` status, with the AIR domain header, a Close button, both
+ * verbatim `AIR-ONLY-CAVEAT` bullets, and the footer's `air_unique_flag_x: 7`
+ * count — i.e. the run walked every clause below, including the final
+ * "reopen in error status" step, and every assertion held. That is an XPASS,
+ * so the `test.fail()` marker is removed in this final pass; this now runs
+ * as a normal `test(...)`.
+ *
+ * CHROMIUM TEARDOWN CAVEAT (this box): per this repo's DURABLE
+ * Playwright-in-sandbox lesson (see `badges.spec.ts` merge notes), the
+ * chromium worker's teardown can hang for minutes *after* the test itself
+ * has already passed/failed and printed its result line — a slow or
+ * seemingly-hanging run is not evidence this test is broken; read the
+ * per-test result line / artifacts, not wall-clock time or exit code alone.
  *
  * REQUIRED TEST SEAMS (implementer must expose these — locked here, not the
  * implementer's to relax; each is independently asserted below):
@@ -269,7 +282,7 @@ async function expectNoPersistentDismiss(panel: ReturnType<Page['locator']>): Pr
   await expect(panel.locator('[data-testid*="dismiss-forever" i]')).toHaveCount(0);
 }
 
-test.fail(
+test(
   'the caveat panel opens from any badge, shows that domain\'s verbatim bullets + active-flag counts, ' +
     'has no persistent-dismiss control, reuses one instance across domain swaps, and reopens from the ' +
     'badge in every status including error',
