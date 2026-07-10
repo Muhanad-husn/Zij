@@ -17,6 +17,8 @@ Index:
 - [ADR-10 — SQLite access: stdlib + to_thread](#adr-10--sqlite-access)
 - [ADR-11 — Geometry wire format: GeoJSON](#adr-11--geometry-wire-format-geojson)
 - [ADR-12 — SSE reconnection: full-state-on-connect](#adr-12--sse-reconnection)
+- [ADR-13 — v2 is desktop-only; mobile (OQ3) deferred](#adr-13--v2-desktop-only)
+- [ADR-14 — Auto-update via Tauri updater + signed GitHub Releases manifest](#adr-14--auto-update)
 
 ---
 
@@ -115,6 +117,24 @@ Index:
 **Decision:** **Full-state-on-connect.** On every `/api/events` connection the server first emits the current `snapshot` for each enabled layer from the in-memory registry, then streams incremental events. `Last-Event-ID` is accepted but treated as advisory only — we do **not** maintain an event replay buffer.
 **Consequences:** Reconnect logic is trivial and always correct: the registry *is* the latest projection (matches the "latest available projection" principle, PRD §1), so replaying history is meaningless — we only ever want current state. No server-side event log (aligns with the no-history non-goal, §4). Costs one snapshot burst per connect; cheap at our feature counts.
 **Rejected:** `Last-Event-ID` replay buffer (implies retained history — contradicts §4 non-goals and NFR2; complexity with no user value for a latest-only monitor).
+
+---
+
+## ADR-13 — v2 desktop-only
+
+**Status:** Accepted 2026-07-10 (later than the ADR-1–12 batch; dated on its own decision).
+**Context:** [PRD §11](zij_prd.md) scopes v2 as "installables" and names both Tauri desktop and Capacitor mobile. But [FR12](zij_prd.md) marks mobile "hosted or on-device service (open question OQ3)," and [OQ3](zij_prd.md) is genuinely unresolved: bundling the Python service on-device (heavier, offline-capable) versus a personally hosted backend the mobile app consumes (thin client, needs a host). Resolving OQ3 well requires measurement and a hosting decision that desktop does not. Shipping desktop does not depend on it.
+**Decision:** **v2 targets desktop only** — Windows, macOS, Linux via Tauri. Mobile (Capacitor), on-device mobile Python, and the OQ3 hosting question are **out of scope for v2** and slip to a later phase (the roadmap does not yet name it; call it v3 or a v2.1 point release). OQ3 is thereby **resolved-by-deferral for v2**: it remains open, but it no longer blocks v2. The governing spec is [`design/specs/v2-packaging.md`](../specs/v2-packaging.md).
+**Consequences:** v2 has one shell to build, not two, and no unresolved architecture question in its critical path. The [D1 shell-boundary promise](ARCHITECTURE.md#6-the-shell-boundary-d1-no-rewrite-promise) is unaffected — deferring mobile changes no backend code, and the same `sources/`/`models.py`/`store.py`/`scheduler.py`/`config.py` still power a future mobile shell whenever OQ3 is settled. The Rust toolchain ([PRD §7.2](zij_prd.md)) is the only added dev prerequisite for v2; the Android/iOS SDKs are not needed until the deferred phase.
+**Rejected:** Building both shells in v2 as the PRD sketch implied (couples v2 delivery to an unresolved hosting decision and doubles the packaging surface for no v2 user — the primary user is a laptop analyst, [PRD §3](zij_prd.md)). Resolving OQ3 now by fiat (measurement-first per CLAUDE.md; on-device vs. hosted is a real trade to test, not to guess).
+
+## ADR-14 — Auto-update
+
+**Status:** Accepted 2026-07-10.
+**Context:** Distributed desktop builds need an update path, and [PRD §11](zij_prd.md) explicitly deferred the mechanism to "a separate short spec." [Success criterion #6](zij_prd.md) forbids any hosted/cloud dependency in the default deployment. So the update path must not introduce a server we operate.
+**Decision:** **Tauri's built-in updater**, pulling a **signature-verified static manifest and bundles from GitHub Releases**. No update service runs. The updater keypair is Tauri's own: the **public key is embedded in the app** (`tauri.conf.json`), the **private key is an operator/release secret** used at release time to sign each bundle. On launch the app checks a stable GitHub Releases manifest URL; a newer, correctly-signed version prompts the user, and installs **only on user confirmation**. No network → silent no-op, the app runs on its installed version. Details and failure modes in [`design/specs/v2-packaging.md`](../specs/v2-packaging.md).
+**Consequences:** Update hosting is static file hosting (GitHub Releases assets), consistent with success-criterion #6 — nothing to run, nothing to pay for, nothing to keep up. Signature verification means a tampered or unsigned bundle is rejected before install, so static hosting carries no integrity risk. The one operational burden is keeping the signing private key safe (a release secret, never in the repo or a bundle — same discipline as NFR5 credentials).
+**Rejected:** A self-hosted update server / Tauri update endpoint service (violates success-criterion #6; a box to run for a single-operator tool). Unsigned auto-update (a tampered static asset would install silently — unacceptable). No auto-update at all (manual re-download is friction the built-in updater removes for free).
 
 ---
 
