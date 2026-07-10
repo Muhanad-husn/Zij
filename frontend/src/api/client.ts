@@ -22,6 +22,29 @@ export async function refreshAll(): Promise<void> {
   }
 }
 
+/** `POST /api/layers/{domain}/toggle {enabled}` — enable/disable one layer
+ * (spec §7 FR5). `200 -> { layer, enabled }`. */
+export async function toggleLayer(domain: Domain, enabled: boolean): Promise<{ layer: Domain; enabled: boolean }> {
+  const res = await fetch(`${API_BASE}/layers/${domain}/toggle`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ enabled }),
+  });
+  if (!res.ok) {
+    throw new Error(`Zij: toggleLayer(${domain}) failed with ${res.status}`);
+  }
+  return (await res.json()) as { layer: Domain; enabled: boolean };
+}
+
+/** `POST /api/layers/{domain}/refresh` — fire-and-forget force refresh of one
+ * layer (spec §7 FR6); the resulting status rides SSE, never polled here. */
+export async function refreshLayer(domain: Domain): Promise<void> {
+  const res = await fetch(`${API_BASE}/layers/${domain}/refresh`, { method: 'POST' });
+  if (!res.ok) {
+    throw new Error(`Zij: refreshLayer(${domain}) failed with ${res.status}`);
+  }
+}
+
 /** `GET /api/regions` — predefined regions + saved presets (spec §6, FR1/FR11). */
 export async function fetchRegions(): Promise<{ regions: RegionInfo[] }> {
   const res = await fetch(`${API_BASE}/regions`);

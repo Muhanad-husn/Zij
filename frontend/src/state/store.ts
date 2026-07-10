@@ -7,6 +7,7 @@
 // solved problem" the way SSE framing is — a tiny in-memory event bus has no
 // sharp edges worth pulling a dependency for).
 
+import { toggleLayer as postToggleLayer } from '../api/client';
 import type { Domain, LayerSnapshot, LayerSnapshotMeta } from './types';
 
 export type Connection = 'connecting' | 'open' | 'lost' | 'failed';
@@ -77,6 +78,12 @@ export class Store {
    * it is the first snapshot or a re-emitted one after reconnect.
    */
   applySnapshot(domain: Domain, snap: LayerSnapshot): void {
+    // A disabled layer expects no further SSE (spec §7 FR5) — a stray
+    // snapshot (e.g. a race with an in-flight toggle) must not resurrect it;
+    // `toggleLayer` is the only path back to `enabled:true`.
+    if (!this.state.layers[domain].enabled) {
+      return;
+    }
     this.state.layers[domain] = {
       enabled: true,
       meta: snap.meta,
@@ -89,9 +96,32 @@ export class Store {
   /** Meta-only update (no feature payload) — e.g. loading/rate-limited/error
    * status transitions between snapshots. */
   applyLayerStatus(domain: Domain, meta: LayerSnapshotMeta): void {
+    if (!this.state.layers[domain].enabled) {
+      return;
+    }
     const prev = this.state.layers[domain];
     this.state.layers[domain] = { ...prev, meta };
     this.emit(`status:${domain}`, meta);
+  }
+
+  /**
+   * Layer toggle (spec §7 FR5, §9 sketch): optimistic local set — flip
+   * `enabled` and emit `enabled:{domain}` immediately, so the badge/map
+   * source react without waiting on the network — then fire the `POST`
+   * (fire-and-forget; a real backend confirms via the next SSE status event,
+   * per §9 "reconciled by next status event"). A failed POST is logged, not
+   * rolled back — the emitted `enabled:{domain}` state (and, on disable,
+   * `applySnapshot`/`applyLayerStatus`'s guard above) is what actually stops
+   * the frontend from expecting further updates, independent of whether the
+   * backend request itself succeeds.
+   */
+  toggleLayer(domain: Domain, enabled: boolean): void {
+    const prev = this.state.layers[domain];
+    this.state.layers[domain] = { ...prev, enabled };
+    this.emit(`enabled:${domain}`, enabled);
+    void postToggleLayer(domain, enabled).catch((err) => {
+      console.warn(`[zij] toggleLayer(${domain}) failed:`, err);
+    });
   }
 
   /** Clears every layer's last-known state (spec §6: "all layer panes clear

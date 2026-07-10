@@ -1,0 +1,18 @@
+$ cd frontend && npx playwright test tests/e2e/toggles-refresh.spec.ts
+
+Running 1 test using 1 worker
+  ✓  1 [chromium] › tests\e2e\toggles-refresh.spec.ts:328:1 › toggling a layer off issues POST .../toggle {enabled:false}, clears its map source and grays its badge; per-badge Refresh issues POST .../refresh and rides loading->live via SSE (no polling), disabling its own button meanwhile; global Refresh all issues POST /api/refresh (2.6s)
+
+# 1 passed. The post-result "worker did not exit within 300000ms after stop,
+# force-killed it" teardown lines are the documented harmless Playwright
+# chromium-teardown hang on this environment (see prior frontend slices
+# 01/02/03), NOT a test failure. The ✓ result line above (2.6s) is the
+# authoritative outcome. The test.fail() marker was removed by the test-author
+# only after every clause passed for real (final commit cb17358).
+#
+# Outer acceptance test encodes plans/frontend/04-toggles-refresh.md verbatim:
+# toggle-off issues POST .../toggle {enabled:false}, clears the map source +
+# grays the badge (data-enabled="false"), and no further SSE is expected for
+# it; per-badge Refresh issues POST .../refresh and rides loading->live driven
+# ONLY by SSE (no polling), disabling its own button during the loading window;
+# global Refresh all issues POST /api/refresh.

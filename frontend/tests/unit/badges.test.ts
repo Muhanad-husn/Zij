@@ -258,3 +258,124 @@ describe('mountBadge — plan/frontend/02-badges.md unit: status-detail carries 
     expect(detailEl.dataset.detail).toBe('');
   });
 });
+
+describe(
+  'mountBadge — plan/frontend/04-toggles-refresh.md unit #1/#3: data-enabled seam ' +
+    '(REQUIRED TEST SEAM #1) + Toggle/Refresh wiring',
+  () => {
+    it('defaults to data-enabled="true" on mount, before any update()', () => {
+      const parent = document.createElement('div');
+      mountBadge(parent, 'air');
+
+      const container = parent.querySelector('[data-testid="badge-air"]') as HTMLElement;
+      expect(container.dataset.enabled).toBe('true');
+    });
+
+    it('setEnabled(false) flips data-enabled to "false"; setEnabled(true) flips it back', () => {
+      const parent = document.createElement('div');
+      const badge = mountBadge(parent, 'land');
+      const container = parent.querySelector('[data-testid="badge-land"]') as HTMLElement;
+
+      badge.setEnabled(false);
+      expect(container.dataset.enabled).toBe('false');
+
+      badge.setEnabled(true);
+      expect(container.dataset.enabled).toBe('true');
+    });
+
+    it('setEnabled() never touches data-status — independent of the wire LayerStatus', () => {
+      const parent = document.createElement('div');
+      const badge = mountBadge(parent, 'air');
+      badge.update(meta({ status: 'live' }));
+
+      badge.setEnabled(false);
+
+      const container = parent.querySelector('[data-testid="badge-air"]') as HTMLElement;
+      expect(container.dataset.status).toBe('live');
+      expect(container.dataset.enabled).toBe('false');
+    });
+
+    it('clicking [data-testid="toggle-button"] invokes the injected onToggle callback exactly once', () => {
+      const parent = document.createElement('div');
+      const onToggle = vi.fn();
+      mountBadge(parent, 'land', { onToggle });
+
+      const toggleButton = parent.querySelector(
+        '[data-testid="badge-land"] [data-testid="toggle-button"]',
+      ) as HTMLButtonElement;
+      toggleButton.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+      expect(onToggle).toHaveBeenCalledTimes(1);
+    });
+
+    it('clicking [data-testid="refresh-button"] invokes the injected onRefresh callback exactly once', () => {
+      const parent = document.createElement('div');
+      const onRefresh = vi.fn();
+      mountBadge(parent, 'air', { onRefresh });
+
+      const refreshButton = parent.querySelector(
+        '[data-testid="badge-air"] [data-testid="refresh-button"]',
+      ) as HTMLButtonElement;
+      refreshButton.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+      expect(onRefresh).toHaveBeenCalledTimes(1);
+    });
+  },
+);
+
+describe(
+  'mountBadge — plan/frontend/04-toggles-refresh.md unit #3: refresh-button disables while ' +
+    'data-status="loading" and re-enables on the next non-loading update (REQUIRED TEST SEAM #5)',
+  () => {
+    it('refresh-button is enabled by default (initial live status)', () => {
+      const parent = document.createElement('div');
+      const badge = mountBadge(parent, 'air');
+      badge.update(meta({ status: 'live' }));
+
+      const refreshButton = parent.querySelector(
+        '[data-testid="badge-air"] [data-testid="refresh-button"]',
+      ) as HTMLButtonElement;
+      expect(refreshButton.disabled).toBe(false);
+    });
+
+    it('update() with status "loading" disables the refresh-button', () => {
+      const parent = document.createElement('div');
+      const badge = mountBadge(parent, 'air');
+      badge.update(meta({ status: 'live' }));
+
+      badge.update(meta({ status: 'loading', timestamp_fetched: null, timestamp_source: null }));
+
+      const refreshButton = parent.querySelector(
+        '[data-testid="badge-air"] [data-testid="refresh-button"]',
+      ) as HTMLButtonElement;
+      expect(refreshButton.disabled).toBe(true);
+    });
+
+    it('a subsequent non-loading update (e.g. live) re-enables the refresh-button', () => {
+      const parent = document.createElement('div');
+      const badge = mountBadge(parent, 'air');
+      badge.update(meta({ status: 'loading', timestamp_fetched: null, timestamp_source: null }));
+
+      badge.update(meta({ status: 'live', feature_count: 3 }));
+
+      const refreshButton = parent.querySelector(
+        '[data-testid="badge-air"] [data-testid="refresh-button"]',
+      ) as HTMLButtonElement;
+      expect(refreshButton.disabled).toBe(false);
+    });
+
+    it('the disabled state is independently re-derived per domain — a loading air badge does not disable land\'s button', () => {
+      const parent = document.createElement('div');
+      const airBadge = mountBadge(parent, 'air');
+      const landBadge = mountBadge(parent, 'land');
+      landBadge.update(meta({ status: 'live', layer: 'land' }));
+
+      airBadge.update(meta({ status: 'loading', timestamp_fetched: null, timestamp_source: null }));
+
+      const landRefresh = parent.querySelector(
+        '[data-testid="badge-land"] [data-testid="refresh-button"]',
+      ) as HTMLButtonElement;
+      expect(landRefresh.disabled).toBe(false);
+    });
+  },
+);
