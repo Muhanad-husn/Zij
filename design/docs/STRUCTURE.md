@@ -16,6 +16,8 @@ D:\Zij/                              (repo root)
 │   ├── __init__.py
 │   ├── main.py                      # FastAPI app: REST + SSE, wiring, startup/shutdown
 │   ├── scheduler.py                 # per-layer cadence, coalescing, backoff, status FSM
+│   ├── registry.py                  # in-memory snapshot registry: Registry(dict[Domain, LayerSnapshot])
+│   ├── events.py                    # EventBus — the in-process SSE publish seam
 │   ├── models.py                    # Feature / LayerSnapshot / enums (feature-schema.md, verbatim)
 │   ├── store.py                     # SQLite wrapper: land_cache, fallback_snapshots, config_presets
 │   ├── integrity.py                 # landmask point-in-polygon + kinematics plausibility flags
@@ -127,6 +129,8 @@ Distribution name (`[project].name` in pyproject.toml, what you'd `pip install`)
 | `sources/aisstream.py` | The websocket connection, the in-memory latest-position-per-MMSI table, re-subscribe on region switch. | SQLite persistence (that's `store.py` via the scheduler), the frontend. |
 | `sources/overpass.py` | Tag-whitelisted queries, mirror/backoff selection, Douglas-Peucker simplification, `osm_base` capture. | SQLite writes directly — it returns a snapshot; `store.py`/scheduler persists it. |
 | `scheduler.py` | Per-layer cadence timers, manual-refresh coalescing, backoff, and **all** `LayerStatus` transitions ([ARCHITECTURE §5](ARCHITECTURE.md#5-failure-isolation-fr10-and-the-layer-status-state-machine)). | The wire format of the API (that's `main.py`); how a specific adapter talks to its upstream. |
+| `registry.py` | The in-memory snapshot registry `Registry(dict[Domain, LayerSnapshot])` — the single latest projection every reader (SSE full-state, `GET /api/layers/{domain}/snapshot`) pulls from (ARCHITECTURE §3). | SQLite, HTTP routing, sources — it only holds `LayerSnapshot`s the scheduler puts there. |
+| `events.py` | The `EventBus`: the in-process SSE publish seam that fans `snapshot`/`layer_status`/`region_changed` out to connected clients. | Sources, SQLite, the scheduler's internals — it only carries already-built payloads. |
 | `integrity.py` | The FR9 landmask point-in-polygon and kinematics-jump checks, run at snapshot time. | Sources, SQLite, or the API — it is a pure function over features in, flagged features out. |
 | `store.py` | The 3-table SQLite responsibility: `land_cache`, `fallback_snapshots`, `config_presets` (NFR2). **Never parses source payloads** — it only serializes/deserializes `Feature`/`LayerSnapshot` it's handed. | Overpass tags, OpenSky OAuth, aisstream messages — anything upstream-shaped. |
 | `config.py` | Merging code defaults < bundled `config.toml` < user `config.toml` < env < `config_presets` overrides (ADR-6); secrets from env only. | Runtime application state (registry, scheduler tick state) — config is loaded once, not mutated by the app. |
@@ -143,8 +147,10 @@ Distribution name (`[project].name` in pyproject.toml, what you'd `pip install`)
 | `sources/{opensky,aisstream,overpass}.py` | `sources.base`, `models` | `store`, `scheduler`, `main`, each other |
 | `integrity.py` | `models`, shapely | `sources.*`, `store`, `main` |
 | `store.py` | `models` | `sources.*`, `scheduler`, `main` |
+| `registry.py` | `models` | `sources.*`, `store`, `scheduler`, `config`, `main` |
+| `events.py` | `models` | `sources.*`, `store`, `scheduler`, `config`, `main` |
 | `config.py` | `models` (Cfg types), pydantic-settings | `sources.*`, `store`, `scheduler`, `main` |
-| `scheduler.py` | `sources.*`, `store`, `integrity`, `models`, `config` | `main` |
+| `scheduler.py` | `sources.*`, `store`, `integrity`, `registry`, `events`, `models`, `config` | `main` |
 | `main.py` | everything above | — |
 | *(nothing)* | | `main.py` — no module ever imports it |
 

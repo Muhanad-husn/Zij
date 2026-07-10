@@ -103,9 +103,11 @@ Rules:
 | Error | Action | Backoff |
 |---|---|---|
 | `RateLimitedError` | retry | `retry_after` if present, else `overpass.backoff_base_s`/opensky default `min(60*2**n, 300)` |
-| `UpstreamError` | retry | exponential `min(base*2**n, max)`, capped at layer `max_attempts` then resume normal cadence |
+| `UpstreamError` | retry | exponential `min(base*2**n, backoff_max_s, cadence_s)` [†], capped at layer `max_attempts` then resume normal cadence |
 | `AuthError` | **surface, no auto-retry** | badge `error`, `detail` = credential message (NFR5); next scheduled tick may retry after operator fix |
 | `ParseError` | **surface, no retry** | keep last good snapshot; `error` (or retain prior `live`/`cached-fallback`); log for operator |
+
+[†] The `UpstreamError` backoff delay is additionally bounded by the layer's effective cadence, so a failing layer never polls *less* often than a healthy one would. `RateLimitedError` is **exempt** from the cadence bound: a 429 `Retry-After` longer than the cadence is still honored in full (FR2).
 
 Attempt counters reset on any success. Backoff never blocks other layers (each loop independent — FR10).
 

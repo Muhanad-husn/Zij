@@ -41,9 +41,7 @@ Effective non-secret config (regions, cadences, caps, mirrors — [config.md](co
     "land":   {"enabled": true, "cadence_s": 86400, "cadence_floor_s": 3600,
                "stale_multiplier": 2, "simplify_tolerance_deg": 0.0005,
                "max_rendered_features": 5000, "custom_bbox_cap_sq_deg": 40}
-  },
-  "stale_multiplier": 2,
-  "custom_bbox_caps": {"air": 100, "marine": 40, "land": 40}
+  }
 }
 ```
 
@@ -57,6 +55,12 @@ List predefined + saved presets (FR1, FR11).
    "aviation_credit_cost":1,"kind":"preset"}
 ]}
 ```
+Every `RegionInfo` carries `kind ∈ {predefined, preset, custom}`. `predefined` is a
+config-shipped region; `preset` is a saved custom bbox (`config_presets`). `custom`
+denotes an activated bounding box that was **not** saved as a preset — it exists only
+as the active region for this session. `GET /api/regions` lists only `predefined` and
+`preset`; a `custom` region never appears here, and is returned solely by
+`POST /api/regions/activate` and `GET /api/regions/active`.
 
 ### POST /api/regions/estimate
 Validate a custom bbox and price it **before** activation (FR1). No side effects.
