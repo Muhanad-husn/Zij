@@ -59,7 +59,7 @@ interface LineLayer {
 }
 
 describe('buildStyle — outer acceptance (#115): country borders in the base-map style', () => {
-  it.fails(
+  it(
     'adds a line layer over the boundary source-layer, filtered to admin_level 2, in a muted context color distinct from telemetry, without disturbing background/water/roads',
     async () => {
       const { buildStyle } = await import('../../src/map/map');
