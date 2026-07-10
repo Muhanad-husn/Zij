@@ -66,3 +66,8 @@ Then  it opens again from the badge in every status, including error
 ## Status / progress log
 
 - 2026-07-06 planned (sprint v1). Blocked-by: frontend/02, api-core/04.
+- 2026-07-10 ▸ PR #100 prepared into `main` (DONE_WITH_CONCERNS). Outer test
+  `caveat-panel.spec.ts` red `a62aae3` → green `4ca0d3e` (`1 passed`, plain `test()`);
+  143 Vitest green; reviewer Stage-1 PASS / Stage-2 done-with-concerns. Non-blocking
+  finding → follow-up #101 (domain-switch fetch-failure with no prior cache leaves
+  stale content). Awaiting founder merge approval.
