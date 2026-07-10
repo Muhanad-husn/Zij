@@ -51,6 +51,15 @@
  * load. `tests/e2e/helpers/stubRegionEndpoints.ts` answers both quietly, as
  * in every sibling spec since #59; this test asserts nothing about regions.
  *
+ * RECONCILIATION (slice frontend/06-marine-integrity, issue #62): the app
+ * now unconditionally fetches `GET /api/config` on load (the client tick
+ * reads de-emphasis/drop thresholds from it, spec §9). This test has no live
+ * FastAPI backend, so an unstubbed call would leak through Vite's preview
+ * proxy the same way the reconciliation above already documents.
+ * `tests/e2e/helpers/stubConfigEndpoint.ts` answers it quietly; this test
+ * asserts nothing about tick/de-emphasis behavior (that's
+ * `marine-integrity.spec.ts`'s job).
+ *
  * DEFENSIVE REST FALLBACK: `GET /api/layers/{air,marine,land}/snapshot` are
  * stubbed with empty fixtures (mirroring `badges.spec.ts`'s
  * `stubRestFallback`) purely so any cold-start or refresh-driven REST fetch
@@ -101,6 +110,7 @@ import { test, expect, type Page } from '@playwright/test';
 import { createServer, type Server, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AddressInfo, Socket } from 'node:net';
 import { stubRegionEndpoints } from './helpers/stubRegionEndpoints';
+import { stubConfigEndpoint } from './helpers/stubConfigEndpoint';
 
 // --- SSE fixture server ----------------------------------------------------
 // A real, held-open Node `http` server (see `badges.spec.ts`'s file-header
@@ -355,6 +365,7 @@ test(
       await stubEvents(page, fixtureUrl);
       await stubRestFallback(page);
       await stubRegionEndpoints(page);
+      await stubConfigEndpoint(page);
 
       await page.route('**/api/layers/land/toggle', async (route) => {
         expect(route.request().method()).toBe('POST');

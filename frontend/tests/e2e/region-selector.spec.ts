@@ -117,9 +117,19 @@
  *
  * This test is not the test-author's to loosen and not the implementer's to
  * touch.
+ *
+ * RECONCILIATION (slice frontend/06-marine-integrity, issue #62): the app
+ * now unconditionally fetches `GET /api/config` on load (the client tick
+ * reads de-emphasis/drop thresholds from it, spec §9). This test has no live
+ * FastAPI backend, so an unstubbed call would leak through Vite's preview
+ * proxy the same way the region/SSE reconciliations this slice's own
+ * predecessors document. `tests/e2e/helpers/stubConfigEndpoint.ts` answers
+ * it quietly (folded into `stubRest` below); this test asserts nothing about
+ * tick/de-emphasis behavior (that's `marine-integrity.spec.ts`'s job).
  */
 
 import { test, expect, type Page, type Route } from '@playwright/test';
+import { stubConfigEndpoint } from './helpers/stubConfigEndpoint';
 import { createServer, type Server, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AddressInfo, Socket } from 'node:net';
 
@@ -393,6 +403,8 @@ async function stubRest(page: Page): Promise<Recorded> {
   await page.route('**/api/refresh', async (route: Route) => {
     await route.fulfill({ status: 202, contentType: 'application/json', body: JSON.stringify({ queued: [] }) });
   });
+
+  await stubConfigEndpoint(page);
 
   return recorded;
 }

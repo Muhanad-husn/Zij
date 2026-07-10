@@ -88,11 +88,20 @@
  *
  * This test is not the test-author's to loosen and not the implementer's to
  * touch.
+ *
+ * RECONCILIATION (slice frontend/06-marine-integrity, issue #62): the app
+ * now unconditionally fetches `GET /api/config` on load (the client tick
+ * reads de-emphasis/drop thresholds from it, spec §9). This test only tracks
+ * `pageerror` (not `console.error`), so an unstubbed call here would not
+ * actually trip any assertion below — `stubConfigEndpoint` is still added
+ * for hygiene/consistency with every sibling spec, not because a locked
+ * clause depends on it.
  */
 
 import { test, expect, type Page } from '@playwright/test';
 import { createServer, type Server, type IncomingMessage, type ServerResponse } from 'node:http';
 import { AddressInfo } from 'node:net';
+import { stubConfigEndpoint } from './helpers/stubConfigEndpoint';
 
 // --- Fixtures ------------------------------------------------------------
 // Modeled on design/contracts/feature-schema.md "Wire examples" (kept small
@@ -314,6 +323,7 @@ test(
       // FastAPI backend in this e2e run.
       await stubEvents(page, fixtureUrl);
       await stubRestFallback(page);
+      await stubConfigEndpoint(page);
 
       await page.goto('/');
 
