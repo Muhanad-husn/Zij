@@ -4,10 +4,18 @@
  *
  * Pure state container, no DOM/network — exercised directly.
  */
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { Store } from '../../src/state/store';
 import type { LayerSnapshot } from '../../src/state/types';
+
+// plan/frontend/04-toggles-refresh.md unit #1/#3 mock the fire-and-forget POST
+// `Store.toggleLayer` makes via `api/client`'s `toggleLayer` wrapper — the
+// mock intercepts by resolved module id, so it applies regardless of the
+// relative specifier `store.ts` itself uses (`../api/client`).
+vi.mock('../../src/api/client', () => ({
+  toggleLayer: vi.fn().mockResolvedValue(undefined),
+}));
 
 function snapshot(overrides: Partial<LayerSnapshot['meta']> = {}, features: LayerSnapshot['features'] = []): LayerSnapshot {
   return {
@@ -111,3 +119,126 @@ describe('Store.applySnapshot — plan unit #3: idempotent full replace (full-st
     expect(land.features).toEqual([]);
   });
 });
+
+describe(
+  'Store.toggleLayer — plan/frontend/04-toggles-refresh.md unit #1: optimistic flip + ' +
+    'fire-and-forget POST, reconciled by next status event',
+  () => {
+    beforeEach(async () => {
+      vi.clearAllMocks();
+      const { toggleLayer: postToggleLayer } = await import('../../src/api/client');
+      // Safe default so any test that doesn't override it still resolves —
+      // overridden per-test below where the exact resolution matters.
+      (postToggleLayer as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
+    });
+
+    it('flips state.layers[domain].enabled and emits "enabled:{domain}" synchronously — ' +
+      'before the POST promise has any chance to resolve', async () => {
+      const { toggleLayer: postToggleLayer } = await import('../../src/api/client');
+      const postMock = postToggleLayer as unknown as ReturnType<typeof vi.fn>;
+      // Never resolves during this test — proves the state flip does not wait on it.
+      postMock.mockReturnValue(new Promise(() => undefined));
+
+      const store = new Store();
+      const listener = vi.fn();
+      store.on('enabled:land', listener);
+      expect(store.getState().layers.land.enabled).toBe(true);
+
+      store.toggleLayer('land', false);
+
+      expect(store.getState().layers.land.enabled).toBe(false);
+      expect(listener).toHaveBeenCalledTimes(1);
+      expect(listener).toHaveBeenCalledWith(false);
+    });
+
+    it('issues the POST via api/client.toggleLayer with the domain and the new enabled value', async () => {
+      const { toggleLayer: postToggleLayer } = await import('../../src/api/client');
+      const postMock = postToggleLayer as unknown as ReturnType<typeof vi.fn>;
+      postMock.mockResolvedValue({ layer: 'air', enabled: false });
+
+      const store = new Store();
+      store.toggleLayer('air', false);
+
+      expect(postMock).toHaveBeenCalledTimes(1);
+      expect(postMock).toHaveBeenCalledWith('air', false);
+    });
+
+    it('a rejected POST does not roll back the optimistic state (no un-toggle on failure)', async () => {
+      const { toggleLayer: postToggleLayer } = await import('../../src/api/client');
+      const postMock = postToggleLayer as unknown as ReturnType<typeof vi.fn>;
+      postMock.mockRejectedValue(new Error('network down'));
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+      const store = new Store();
+      store.toggleLayer('marine', false);
+      expect(store.getState().layers.marine.enabled).toBe(false);
+
+      // Let the rejected promise's `.catch` microtask run.
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(store.getState().layers.marine.enabled).toBe(false);
+      expect(warnSpy).toHaveBeenCalled();
+      warnSpy.mockRestore();
+    });
+
+    it('re-enabling (toggleLayer(domain, true)) flips enabled back to true', () => {
+      const store = new Store();
+      store.toggleLayer('land', false);
+      expect(store.getState().layers.land.enabled).toBe(false);
+
+      store.toggleLayer('land', true);
+      expect(store.getState().layers.land.enabled).toBe(true);
+    });
+  },
+);
+
+describe(
+  'Store.applySnapshot/applyLayerStatus — plan/frontend/04-toggles-refresh.md unit #1: ' +
+    'a disabled domain drops incoming SSE rather than resurrecting itself',
+  () => {
+    beforeEach(async () => {
+      vi.clearAllMocks();
+      const { toggleLayer: postToggleLayer } = await import('../../src/api/client');
+      (postToggleLayer as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
+    });
+
+    it('applySnapshot on a disabled domain is a no-op: no state write, no "snapshot:{domain}" emit', () => {
+      const store = new Store();
+      store.toggleLayer('land', false);
+      const listener = vi.fn();
+      store.on('snapshot:land', listener);
+
+      store.applySnapshot('land', snapshot({ layer: 'land' }, [FEATURE]));
+
+      expect(listener).not.toHaveBeenCalled();
+      expect(store.getState().layers.land.enabled).toBe(false);
+      expect(store.getState().layers.land.features).toEqual([]);
+    });
+
+    it('applyLayerStatus on a disabled domain is a no-op: no state write, no "status:{domain}" emit', () => {
+      const store = new Store();
+      store.toggleLayer('air', false);
+      const listener = vi.fn();
+      store.on('status:air', listener);
+
+      store.applyLayerStatus('air', snapshot({ status: 'loading' }).meta);
+
+      expect(listener).not.toHaveBeenCalled();
+      expect(store.getState().layers.air.meta).toBeNull();
+    });
+
+    it('once re-enabled, a subsequent applySnapshot is applied normally again', () => {
+      const store = new Store();
+      store.toggleLayer('air', false);
+      store.applySnapshot('air', snapshot({}, [FEATURE])); // dropped while disabled
+
+      store.toggleLayer('air', true);
+      const snap = snapshot({}, [FEATURE]);
+      store.applySnapshot('air', snap);
+
+      expect(store.getState().layers.air.enabled).toBe(true);
+      expect(store.getState().layers.air.features).toEqual(snap.features);
+    });
+  },
+);

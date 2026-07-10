@@ -13,6 +13,19 @@ export type BadgeDomain = 'air' | 'marine' | 'land';
 interface Badge {
   container: HTMLElement;
   update(meta: LayerSnapshotMeta): void;
+  /** Sets `data-enabled` (client-side toggle state, spec §7 FR5 — the wire
+   * `LayerSnapshotMeta` carries no `enabled` field, so this is written only
+   * by the toggle wiring, never by `update()`). */
+  setEnabled(enabled: boolean): void;
+}
+
+export interface MountBadgeOptions {
+  /** Called when the Toggle button is clicked; the caller (main.ts/store)
+   * decides the new enabled value and drives `setEnabled`/map-source
+   * clearing — this component stays a pure DOM builder (ADR-3). */
+  onToggle?: () => void;
+  /** Called when the Refresh button is clicked (fire-and-forget, spec §7 FR6). */
+  onRefresh?: () => void;
 }
 
 /** Renders the fixed (non-countdown) label text for a given status per
@@ -39,10 +52,12 @@ function staticLabelFor(meta: LayerSnapshotMeta): string {
 
 /** Builds one badge container (`[data-testid="badge-{domain}"]`) with its
  * status/freshness/count seams, and mounts it into `parent`. */
-export function mountBadge(parent: HTMLElement, domain: BadgeDomain): Badge {
+export function mountBadge(parent: HTMLElement, domain: BadgeDomain, options: MountBadgeOptions = {}): Badge {
   const container = document.createElement('div');
   container.className = 'zij-badge';
   container.dataset.testid = `badge-${domain}`;
+  // REQUIRED TEST SEAM #1: layers start enabled, independent of `data-status`.
+  container.dataset.enabled = 'true';
 
   const headerRow = document.createElement('div');
   headerRow.className = 'zij-badge__row zij-badge__header';
@@ -100,8 +115,10 @@ export function mountBadge(parent: HTMLElement, domain: BadgeDomain): Badge {
   container.appendChild(detailEl);
 
   // Controls row — spec §4/§7 layout: `[ Toggle ] [ Refresh ↻ ] [ Caveats ⓘ ]`.
-  // Toggle/Refresh are inert this slice (wiring deferred to step); Caveats
-  // must always be present and enabled, in every status (REQUIRED TEST SEAM #6).
+  // Caveats must always be present and enabled, in every status (REQUIRED TEST
+  // SEAM #6); Toggle/Refresh delegate to the caller via `options` (step) —
+  // this component only builds DOM + wires the click, never calls the store
+  // or the API client directly (keeps badges.ts a pure builder, ADR-3).
   const controlsRow = document.createElement('div');
   controlsRow.className = 'zij-badge__row zij-badge__controls';
 
@@ -109,12 +126,14 @@ export function mountBadge(parent: HTMLElement, domain: BadgeDomain): Badge {
   toggleButton.type = 'button';
   toggleButton.dataset.testid = 'toggle-button';
   toggleButton.textContent = 'Toggle';
+  toggleButton.addEventListener('click', () => options.onToggle?.());
   controlsRow.appendChild(toggleButton);
 
   const refreshButton = document.createElement('button');
   refreshButton.type = 'button';
   refreshButton.dataset.testid = 'refresh-button';
   refreshButton.textContent = 'Refresh ↻';
+  refreshButton.addEventListener('click', () => options.onRefresh?.());
   controlsRow.appendChild(refreshButton);
 
   const caveatsButton = document.createElement('button');
@@ -145,12 +164,20 @@ export function mountBadge(parent: HTMLElement, domain: BadgeDomain): Badge {
     }
   }
 
+  function setEnabled(enabled: boolean): void {
+    container.dataset.enabled = String(enabled);
+  }
+
   function update(meta: LayerSnapshotMeta): void {
     container.dataset.status = meta.status;
     fetchedValue.textContent = formatUtc(meta.timestamp_fetched);
     sourceValue.textContent = formatUtc(meta.timestamp_source);
     countValue.textContent = `${meta.feature_count} feature${meta.feature_count === 1 ? '' : 's'}`;
     detailEl.dataset.detail = meta.detail ?? '';
+    // REQUIRED TEST SEAM #5: disable Refresh for the brief `loading` window
+    // (spec §7 FR6 "make coalescing visible") — re-derived on every update so
+    // it tracks the badge's own status without separate toggle-state.
+    refreshButton.disabled = meta.status === 'loading';
 
     clearCountdown();
 
@@ -172,5 +199,5 @@ export function mountBadge(parent: HTMLElement, domain: BadgeDomain): Badge {
     }
   }
 
-  return { container, update };
+  return { container, update, setEnabled };
 }

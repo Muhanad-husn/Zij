@@ -15,6 +15,8 @@ import {
   fetchRegions,
   fetchSnapshot,
   refreshAll,
+  refreshLayer,
+  toggleLayer,
 } from '../../src/api/client';
 import type { EstimateResult } from '../../src/state/types';
 
@@ -260,5 +262,91 @@ describe('estimateRegion — POST /api/regions/estimate: 200 vs 422 branch', () 
     fetchMock.mockResolvedValueOnce({ ok: false, status: 500, json: async () => ({}) });
 
     await expect(estimateRegion([1, 2, 3, 4])).rejects.toThrow(/500/);
+  });
+});
+
+/**
+ * Inner unit tests — plan/frontend/04-toggles-refresh.md "Inner loop" units
+ * #1/#2/#4, against `src/api/client.ts`'s `toggleLayer`/`refreshLayer` as
+ * actually built.
+ */
+describe('toggleLayer — plan unit #1: POSTs /api/layers/{domain}/toggle {enabled}', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn());
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('issues a POST to a URL ending in /api/layers/land/toggle with body {enabled:false}', async () => {
+    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({ layer: 'land', enabled: false }),
+    });
+
+    const result = await toggleLayer('land', false);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, options] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toMatch(/\/api\/layers\/land\/toggle$/);
+    expect(options.method).toBe('POST');
+    expect(JSON.parse(options.body as string)).toEqual({ enabled: false });
+    expect(result).toEqual({ layer: 'land', enabled: false });
+  });
+
+  it('sends {enabled:true} to re-enable a layer', async () => {
+    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
+    fetchMock.mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ layer: 'air', enabled: true }) });
+
+    await toggleLayer('air', true);
+
+    const [, options] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(JSON.parse(options.body as string)).toEqual({ enabled: true });
+  });
+
+  it('throws when the backend responds with a non-ok status', async () => {
+    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
+    fetchMock.mockResolvedValueOnce({ ok: false, status: 500 });
+
+    await expect(toggleLayer('land', false)).rejects.toThrow(/500/);
+  });
+});
+
+describe('refreshLayer — plan unit #2/#4: fire-and-forget POST /api/layers/{domain}/refresh', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn());
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('issues a POST to a URL ending in /api/layers/air/refresh, no body required', async () => {
+    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
+    fetchMock.mockResolvedValueOnce({ ok: true, status: 202 });
+
+    await refreshLayer('air');
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, options] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toMatch(/\/api\/layers\/air\/refresh$/);
+    expect(options.method).toBe('POST');
+  });
+
+  it('resolves (does not return the response body) — the resulting status rides SSE, never a return value polled here', async () => {
+    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
+    fetchMock.mockResolvedValueOnce({ ok: true, status: 202, json: async () => ({ layer: 'air', queued: true }) });
+
+    const result = await refreshLayer('air');
+
+    expect(result).toBeUndefined();
+  });
+
+  it('throws when the backend responds with a non-ok status', async () => {
+    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
+    fetchMock.mockResolvedValueOnce({ ok: false, status: 503 });
+
+    await expect(refreshLayer('land')).rejects.toThrow(/503/);
   });
 });
