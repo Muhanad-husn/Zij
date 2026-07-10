@@ -2,7 +2,7 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 import './styles/tokens.css';
 import './styles/layout.css';
 import { initMap } from './map/map';
-import { fetchSnapshot, refreshAll } from './api/client';
+import { fetchSnapshot, refreshAll, refreshLayer } from './api/client';
 import { initAviationLayer, updateAviationLayer, clearAviationLayer } from './map/layers/aviation';
 import { initLandLayer, updateLandLayer, clearLandLayer } from './map/layers/land';
 import { mountBadge } from './ui/badges';
@@ -11,7 +11,7 @@ import { mountRegionSelector } from './ui/regionSelector';
 import { loadLayers, type LayerLoadTask } from './app/loadLayers';
 import { Store } from './state/store';
 import { SseClient } from './sse/client';
-import type { LayerSnapshot, LayerSnapshotMeta } from './state/types';
+import type { Domain, LayerSnapshot, LayerSnapshotMeta } from './state/types';
 
 // Entry point (spec §1): bootstrap store -> map -> SSE client -> UI mount.
 // The store is the single source of truth for layer state + connection
@@ -25,15 +25,66 @@ if (!container) {
 }
 const map = initMap(container);
 
+const store = new Store();
+
+// Toggle/Refresh (spec §7 FR5/FR6) — one pair of handlers per domain, wired
+// into each badge's buttons. Toggle reads the *current* enabled state off the
+// store (not the DOM) and asks for its flip; `Store.toggleLayer` is the sole
+// mutator (optimistic local set + fire-and-forget POST, §9). Refresh is
+// fire-and-forget too — the resulting `loading` -> `live` transition rides
+// SSE only (`store.on('status:*'/'snapshot:*')` below), never a REST re-fetch.
+function makeToggleHandler(domain: Domain): () => void {
+  return () => {
+    const current = store.getState().layers[domain].enabled;
+    store.toggleLayer(domain, !current);
+  };
+}
+function makeRefreshHandler(domain: Domain): () => void {
+  return () => {
+    void refreshLayer(domain).catch((err) => {
+      console.warn(`[zij] refreshLayer(${domain}) failed:`, err);
+    });
+  };
+}
+
 const badgesContainer = document.getElementById('badges');
 if (!badgesContainer) {
   throw new Error('Zij: #badges container not found');
 }
-const airBadge = mountBadge(badgesContainer, 'air');
-const marineBadge = mountBadge(badgesContainer, 'marine');
-const landBadge = mountBadge(badgesContainer, 'land');
+const airBadge = mountBadge(badgesContainer, 'air', {
+  onToggle: makeToggleHandler('air'),
+  onRefresh: makeRefreshHandler('air'),
+});
+const marineBadge = mountBadge(badgesContainer, 'marine', {
+  onToggle: makeToggleHandler('marine'),
+  onRefresh: makeRefreshHandler('marine'),
+});
+const landBadge = mountBadge(badgesContainer, 'land', {
+  onToggle: makeToggleHandler('land'),
+  onRefresh: makeRefreshHandler('land'),
+});
 
-const store = new Store();
+// Toggle-off (REQUIRED TEST SEAM #1/#3): reflect the store's optimistic
+// `enabled` flip onto the badge immediately, and clear the domain's live map
+// source so it renders zero features right away rather than waiting on a
+// status event that, per FR5, is not expected to arrive while disabled.
+// Re-enabling clears no source — the next `snapshot:{domain}` (resumed once
+// `Store.applySnapshot`'s enabled-guard opens back up) repopulates it.
+store.on('enabled:air', (payload) => {
+  airBadge.setEnabled(payload as boolean);
+  if (!payload) {
+    clearAviationLayer(map);
+  }
+});
+store.on('enabled:marine', (payload) => {
+  marineBadge.setEnabled(payload as boolean);
+});
+store.on('enabled:land', (payload) => {
+  landBadge.setEnabled(payload as boolean);
+  if (!payload) {
+    clearLandLayer(map);
+  }
+});
 
 const regionSelectorContainer = document.getElementById('region-selector');
 if (!regionSelectorContainer) {
@@ -167,7 +218,7 @@ map.on('style.load', () => {
       label: 'air',
       load: () => fetchSnapshot('air'),
       render: (snapshot) => {
-        if (!airSseReceived) {
+        if (!airSseReceived && store.getState().layers.air.enabled) {
           renderAirSnapshot(snapshot as LayerSnapshot);
         }
       },
@@ -176,7 +227,7 @@ map.on('style.load', () => {
       label: 'land',
       load: () => fetchSnapshot('land'),
       render: (snapshot) => {
-        if (!landSseReceived) {
+        if (!landSseReceived && store.getState().layers.land.enabled) {
           renderLandSnapshot(snapshot as LayerSnapshot);
         }
       },
@@ -198,12 +249,20 @@ refreshButton?.addEventListener('click', () => {
       {
         label: 'air',
         load: () => fetchSnapshot('air'),
-        render: (snapshot) => renderAirSnapshot(snapshot as LayerSnapshot),
+        render: (snapshot) => {
+          if (store.getState().layers.air.enabled) {
+            renderAirSnapshot(snapshot as LayerSnapshot);
+          }
+        },
       },
       {
         label: 'land',
         load: () => fetchSnapshot('land'),
-        render: (snapshot) => renderLandSnapshot(snapshot as LayerSnapshot),
+        render: (snapshot) => {
+          if (store.getState().layers.land.enabled) {
+            renderLandSnapshot(snapshot as LayerSnapshot);
+          }
+        },
       },
     ];
     await loadLayers(refreshTasks);

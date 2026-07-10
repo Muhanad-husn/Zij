@@ -13,14 +13,14 @@
  *   When  the global Refresh all is clicked
  *   Then  POST /api/refresh is issued for all enabled layers
  *
- * `test.fail()` is this repo's web-slice analog to a strict pytest xfail
+ * `test.fail()` was this repo's web-slice analog to a strict pytest xfail
  * (DEC-33 — precedent: `layers-refresh.spec.ts`, `badges.spec.ts`,
- * `region-selector.spec.ts`): it marks this scenario "expected to fail" so an
- * unexpected *pass* fails the run, which is how a not-yet-implemented outer
- * test lands as a genuine red-but-passing-suite commit. The test-author
- * confirms every clause below passes for real and removes the `test.fail()`
- * marker only once the implementer has greened the behavior; this test is not
- * the test-author's to loosen and not the implementer's to touch.
+ * `region-selector.spec.ts`) from the slice's red commit until the
+ * implementer greened every clause below. The test-author confirmed each
+ * assertion passes for real (a plain `test()` run) and removed the
+ * `test.fail()` marker in this final pass, so this now runs as a normal
+ * `test(...)`; this test is not the test-author's to loosen and not the
+ * implementer's to touch.
  *
  * SCOPE: `design/specs/frontend.md` §7 "Layer toggles (FR5)" / "Refresh
  * (FR6)". Toggle is exercised on `land` (a domain with a real map source, so
@@ -93,8 +93,8 @@
  *      `layers-refresh.spec.ts`) — clicking it issues `POST /api/refresh`.
  *
  * This test is not the test-author's to loosen and not the implementer's to
- * touch. The `test.fail()` marker will be removed only once every assertion
- * below passes for real, in the test-author's final marker-removal pass.
+ * touch. The `test.fail()` marker was removed only once every assertion
+ * below passed for real, in the test-author's final marker-removal pass.
  */
 
 import { test, expect, type Page } from '@playwright/test';
@@ -325,7 +325,7 @@ async function sourceFeatureCount(page: Page, id: 'air' | 'land'): Promise<numbe
   }, id);
 }
 
-test.fail(
+test(
   "toggling a layer off issues POST .../toggle {enabled:false}, clears its map source and grays its badge; per-badge Refresh issues POST .../refresh and rides loading->live via SSE (no polling), disabling its own button meanwhile; global Refresh all issues POST /api/refresh",
   async ({ page }) => {
     const fixture = startEventsFixtureServer();
