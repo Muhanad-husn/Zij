@@ -1,0 +1,50 @@
+
+ RUN  v2.1.9 D:/Zij/frontend
+
+ ✓ tests/unit/formatUtc.test.ts (6 tests) 8ms
+ ✓ tests/unit/wireToGeoJson.test.ts (5 tests) 12ms
+ ✓ tests/unit/formatAge.test.ts (6 tests) 12ms
+ ✓ tests/unit/loadLayers.test.ts (4 tests) 18ms
+ ✓ tests/unit/store.test.ts (12 tests) 37ms
+stderr | tests/unit/caveatPanel.test.ts > mountCaveatPanel — fetch-failure fallback caches last-known content per domain > a failed fetch on the FIRST open (no prior cache) leaves the panel hidden rather than throwing
+[zij] fetchCaveats(air) failed: Error: network down
+    at D:\Zij\frontend\tests\unit\caveatPanel.test.ts:224:55
+    at file:///D:/Zij/frontend/node_modules/@vitest/runner/dist/index.js:146:14
+    at file:///D:/Zij/frontend/node_modules/@vitest/runner/dist/index.js:533:11
+    at runWithTimeout (file:///D:/Zij/frontend/node_modules/@vitest/runner/dist/index.js:39:7)
+    at runTest (file:///D:/Zij/frontend/node_modules/@vitest/runner/dist/index.js:1056:17)
+    at processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at runSuite (file:///D:/Zij/frontend/node_modules/@vitest/runner/dist/index.js:1205:15)
+    at runSuite (file:///D:/Zij/frontend/node_modules/@vitest/runner/dist/index.js:1205:15)
+    at runFiles (file:///D:/Zij/frontend/node_modules/@vitest/runner/dist/index.js:1262:5)
+    at startTests (file:///D:/Zij/frontend/node_modules/@vitest/runner/dist/index.js:1271:3)
+
+ ✓ tests/unit/sse-client.test.ts (9 tests) 29ms
+stderr | tests/unit/caveatPanel.test.ts > mountCaveatPanel — fetch-failure fallback caches last-known content per domain > a failed fetch AFTER a prior successful open falls back to the cached content for that domain
+[zij] fetchCaveats(air) failed: Error: network down
+    at D:\Zij\frontend\tests\unit\caveatPanel.test.ts:234:82
+    at file:///D:/Zij/frontend/node_modules/@vitest/runner/dist/index.js:146:14
+    at file:///D:/Zij/frontend/node_modules/@vitest/runner/dist/index.js:533:11
+    at runWithTimeout (file:///D:/Zij/frontend/node_modules/@vitest/runner/dist/index.js:39:7)
+    at runTest (file:///D:/Zij/frontend/node_modules/@vitest/runner/dist/index.js:1056:17)
+    at processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at runSuite (file:///D:/Zij/frontend/node_modules/@vitest/runner/dist/index.js:1205:15)
+    at runSuite (file:///D:/Zij/frontend/node_modules/@vitest/runner/dist/index.js:1205:15)
+    at runFiles (file:///D:/Zij/frontend/node_modules/@vitest/runner/dist/index.js:1262:5)
+    at startTests (file:///D:/Zij/frontend/node_modules/@vitest/runner/dist/index.js:1271:3)
+
+ ✓ tests/unit/caveatPanel.test.ts (12 tests) 133ms
+ ✓ tests/unit/client.test.ts (19 tests) 68ms
+ ✓ tests/unit/controls.test.ts (6 tests) 87ms
+ ✓ tests/unit/build-style.test.ts (5 tests) 294ms
+ ✓ tests/unit/map-factory.test.ts (3 tests) 302ms
+ ✓ tests/unit/regionSelector.test.ts (7 tests) 238ms
+ ✓ tests/unit/aviation.test.ts (8 tests) 164ms
+ ✓ tests/unit/land.test.ts (8 tests) 171ms
+ ✓ tests/unit/badges.test.ts (33 tests) 286ms
+
+ Test Files  15 passed (15)
+      Tests  143 passed (143)
+   Start at  05:52:45
+   Duration  3.81s (transform 2.28s, setup 0ms, collect 4.56s, tests 1.86s, environment 33.79s, prepare 5.49s)
+
