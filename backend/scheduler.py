@@ -420,6 +420,11 @@ class Scheduler:
             self._events.publish_snapshot(snap)
         self._status[Domain.LAND] = snap.meta.status
 
+        # Event-driven stale timer (#88): a cache-repopulated layer must
+        # still flip live->stale on its own schedule with no new fetch,
+        # exactly like a fresh `_handle_fetch_success` write.
+        self._arm_stale_timer(Domain.LAND, snap)
+
     async def _repopulate_fallback(self, domain: Domain, region: Region) -> None:
         """Region-switch step 3, air/marine branch: the region-matched
         fallback gate. `store.get_fallback` is always consulted (so a
@@ -435,6 +440,11 @@ class Scheduler:
         if self._events is not None:
             self._events.publish_snapshot(fallback)
         self._status[domain] = fallback.meta.status
+
+        # Event-driven stale timer (#88): a cache-repopulated layer must
+        # still flip live->stale on its own schedule with no new fetch,
+        # exactly like a fresh `_handle_fetch_success` write.
+        self._arm_stale_timer(domain, fallback)
 
     async def refresh(self, domain: Domain) -> None:
         """FR6 manual kick: join the same single-flight fetch a scheduled
@@ -582,20 +592,43 @@ class Scheduler:
 
         `RateLimitedError` -> `rate-limited`, carrying `retry_after_s`/`detail`
         on a published `layer_status` event (the poll loop separately defers
-        the retry by `retry_after`). Every other error uses the "cached-fallback
-        beats error" gate: on a warm, region-matched fallback row show
-        `cached-fallback`, else `error`; either way (#38) a `layer_status`
-        event carrying a non-empty `detail` is published, so a manual
-        refresh's failure is never a silent success. That gate is a no-op
-        (status untouched, nothing published) when `store` was not supplied
-        -- preserving the slice-02 contract."""
+        the retry by `retry_after`) -- UNLESS the layer is already
+        `rate-limited` (a repeated 429), in which case it falls through to
+        the same "cached-fallback beats error" gate below (#87 spec row
+        `rate-limited | still failing, warm cache | cached-fallback`), so a
+        layer parked at `rate-limited` still degrades to the warm cache
+        rather than staying stuck. Every other error (and a repeated
+        rate-limited with no/mismatched cache) uses that gate: on a warm,
+        region-matched fallback row show `cached-fallback`, else `error`;
+        either way (#38) a `layer_status` event carrying a non-empty `detail`
+        is published, so a manual refresh's failure is never a silent
+        success. That gate is a no-op (status untouched, nothing published)
+        when `store` was not supplied -- preserving the slice-02 contract."""
         detail = str(exc) or f"{type(exc).__name__} while fetching {domain.value}"
 
         if isinstance(exc, RateLimitedError):
-            self._status[domain] = LayerStatus.RATE_LIMITED
+            if self._status.get(domain) != LayerStatus.RATE_LIMITED:
+                self._status[domain] = LayerStatus.RATE_LIMITED
+                self._publish_status_event(
+                    domain,
+                    LayerStatus.RATE_LIMITED,
+                    retry_after_s=exc.retry_after,
+                    detail=detail,
+                )
+                return
+
+            if self._store is None:
+                return
+
+            cached = await self._store.get_fallback(domain.value)
+            if cached is not None and cached.meta.region_id == self._region.id:
+                status = LayerStatus.CACHED_FALLBACK
+            else:
+                status = LayerStatus.RATE_LIMITED
+            self._status[domain] = status
             self._publish_status_event(
                 domain,
-                LayerStatus.RATE_LIMITED,
+                status,
                 retry_after_s=exc.retry_after,
                 detail=detail,
             )

@@ -1,18 +1,24 @@
 """Inner unit tests for two small adjudicated scheduler enhancements (issues
-#87, #88), authored red-first per DEC-1/DEC-33/DEC-34.
+#87, #88).
+
+Authored red-first per DEC-1/DEC-33/DEC-34: the red contract (all three gap
+tests below `xfail(strict=True)`, the rest of this file already green)
+landed at `a84f6b9`, before either behavior was implemented. The implementer
+then greened both in `backend/scheduler.py`; this pass removes the now-
+satisfied `xfail` markers, closing the contract (never loosening it).
 
 Issue #87 (design/specs/scheduler.md "Status transitions" table, row
-`rate-limited | still failing, warm cache | cached-fallback`): today
-`_handle_fetch_failure` maps EVERY `RateLimitedError` to `rate-limited` and
-returns immediately -- the `store.get_fallback` cached-fallback gate below it
-is only ever reached by non-`RateLimitedError` exceptions, so this spec row
-is unreachable. These tests pin:
+`rate-limited | still failing, warm cache | cached-fallback`):
+`_handle_fetch_failure` used to map EVERY `RateLimitedError` to
+`rate-limited` and return immediately -- the `store.get_fallback`
+cached-fallback gate below it was only ever reached by non-`RateLimitedError`
+exceptions, so this spec row was unreachable. It now falls through to that
+same gate on a REPEATED rate-limited failure. These tests pin:
   1. The FIRST rate-limited failure stays `rate-limited` even with a warm
      cache already sitting in the store (unchanged behavior -- spec row
      `live`/`cached-fallback` -> `RateLimitedError` -> `rate-limited`).
   2. A REPEATED rate-limited failure (layer already `rate-limited`) with a
-     warm, REGION-MATCHED fallback degrades to `cached-fallback` (the gap,
-     #87).
+     warm, REGION-MATCHED fallback degrades to `cached-fallback` (#87).
   3. A repeated rate-limited failure with NO warm cache stays
      `rate-limited` (no false degrade).
   4. A repeated rate-limited failure with a warm but MISMATCHED-region
@@ -23,14 +29,16 @@ is unreachable. These tests pin:
 
 Issue #88 (scheduler.md "Region-switch sequence" step 3 + "Status
 transitions" stale-timer rule): `_repopulate_land`/`_repopulate_fallback`
-write a LIVE snapshot into the registry/SSE on a region switch but never call
-`_arm_stale_timer` -- a repopulated layer never flips live->stale on its own
-schedule (up to 24h for land) until the next real fetch happens to land.
-These tests directly drive `_repopulate_land`/`_repopulate_fallback` with a
-deliberately backdated `timestamp_source` (same technique as
-`test_scheduler_backoff_stale_unit.py`'s `_backdated_snapshot`/`epsilon`) and
-assert the one-shot stale flip fires on schedule with NO new fetch, for the
-land cache-repopulate path and the air fallback-repopulate path.
+used to write a LIVE snapshot into the registry/SSE on a region switch
+without calling `_arm_stale_timer` -- a repopulated layer never flipped
+live->stale on its own schedule (up to 24h for land) until the next real
+fetch happened to land. Both now call `_arm_stale_timer` at the end of their
+write, exactly like `_handle_fetch_success`. These tests directly drive
+`_repopulate_land`/`_repopulate_fallback` with a deliberately backdated
+`timestamp_source` (same technique as `test_scheduler_backoff_stale_unit.py`'s
+`_backdated_snapshot`/`epsilon`) and assert the one-shot stale flip fires on
+schedule with NO new fetch, for the land cache-repopulate path and the air
+fallback-repopulate path.
 
 Direct calls to `_handle_fetch_failure`/`_repopulate_land`/
 `_repopulate_fallback`, and pre-seeding `scheduler._status[...]` directly as
@@ -245,15 +253,6 @@ async def test_handle_fetch_failure_first_rate_limited_stays_rate_limited_even_w
     assert event["data"]["retry_after_s"] == pytest.approx(9.0)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "#87: repeated 429 with a warm, region-matched cache does not yet "
-        "degrade rate-limited -> cached-fallback -- _handle_fetch_failure "
-        "returns on every RateLimitedError before ever consulting "
-        "store.get_fallback"
-    ),
-)
 async def test_handle_fetch_failure_repeated_rate_limited_with_warm_matched_cache_degrades_to_cached_fallback():
     """scheduler.md Status transitions row: `rate-limited | still failing,
     warm cache | cached-fallback`. A layer already `rate-limited` that fails
@@ -347,14 +346,6 @@ async def test_handle_fetch_failure_repeated_rate_limited_with_mismatched_region
 # =============================================================================
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "#88: _repopulate_land writes a LIVE snapshot into the registry/SSE "
-        "on a region switch but never calls _arm_stale_timer -- the "
-        "repopulated land layer never flips live->stale on schedule"
-    ),
-)
 async def test_repopulate_land_arms_the_stale_timer_so_it_flips_to_stale_on_schedule():
     from backend.scheduler import Scheduler
 
@@ -393,15 +384,6 @@ async def test_repopulate_land_arms_the_stale_timer_so_it_flips_to_stale_on_sche
     assert registry[Domain.LAND].meta.status == LayerStatus.STALE
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "#88: _repopulate_fallback writes a LIVE snapshot into the "
-        "registry/SSE on a region switch but never calls _arm_stale_timer "
-        "-- the repopulated air/marine fallback layer never flips "
-        "live->stale on schedule"
-    ),
-)
 async def test_repopulate_fallback_air_arms_the_stale_timer_so_it_flips_to_stale_on_schedule():
     from backend.scheduler import Scheduler
 
