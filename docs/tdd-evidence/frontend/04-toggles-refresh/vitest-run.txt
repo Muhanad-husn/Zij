@@ -1,0 +1,19 @@
+$ cd frontend && npx vitest run
+
+ ✓ tests/unit/formatAge.test.ts (6 tests) 18ms
+ ✓ tests/unit/formatUtc.test.ts (6 tests) 11ms
+ ✓ tests/unit/wireToGeoJson.test.ts (5 tests) 15ms
+ ✓ tests/unit/loadLayers.test.ts (4 tests) 25ms
+ ✓ tests/unit/store.test.ts (12 tests) 42ms
+ ✓ tests/unit/sse-client.test.ts (9 tests) 27ms
+ ✓ tests/unit/client.test.ts (19 tests) 44ms
+ ✓ tests/unit/map-factory.test.ts (3 tests) 335ms
+ ✓ tests/unit/build-style.test.ts (5 tests) 337ms
+ ✓ tests/unit/controls.test.ts (6 tests) 66ms
+ ✓ tests/unit/regionSelector.test.ts (7 tests) 182ms
+ ✓ tests/unit/badges.test.ts (32 tests) 263ms
+ ✓ tests/unit/land.test.ts (8 tests) 161ms
+ ✓ tests/unit/aviation.test.ts (8 tests) 154ms
+ Test Files  14 passed (14)
+      Tests  130 passed (130)
+   Duration  7.49s (transform 5.87s, setup 0ms, collect 9.37s, tests 1.68s, environment 70.18s, prepare 7.95s)
