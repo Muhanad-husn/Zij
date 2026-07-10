@@ -61,3 +61,11 @@ export interface EstimateResult {
   aviation_credit_cost: number;
   layer_caps: Record<'air' | 'land' | 'marine', LayerCap>;
 }
+
+/** `GET /api/layers/{domain}/caveats` response (spec §5, api.md). Static
+ * per-domain caveat bullets (verbatim) plus current active-flag counts. */
+export interface CaveatResponse {
+  domain: string;
+  caveats: string[];
+  active_flags: Record<string, number>;
+}

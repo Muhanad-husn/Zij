@@ -26,6 +26,11 @@ export interface MountBadgeOptions {
   onToggle?: () => void;
   /** Called when the Refresh button is clicked (fire-and-forget, spec §7 FR6). */
   onRefresh?: () => void;
+  /** Called when the Caveats button is clicked — the caller (main.ts) owns
+   * the single shared caveat panel instance and opens it for this domain;
+   * this component stays a pure DOM builder (ADR-3), never fetching or
+   * mounting the panel itself. */
+  onCaveats?: () => void;
 }
 
 /** Renders the fixed (non-countdown) label text for a given status per
@@ -140,10 +145,7 @@ export function mountBadge(parent: HTMLElement, domain: BadgeDomain, options: Mo
   caveatsButton.type = 'button';
   caveatsButton.dataset.testid = 'caveats-button';
   caveatsButton.textContent = 'Caveats ⓘ';
-  // No-op this slice — the caveat panel itself is step's job (spec §5).
-  caveatsButton.addEventListener('click', () => {
-    console.debug(`[zij] caveats button clicked for ${domain} (panel wiring: step)`);
-  });
+  caveatsButton.addEventListener('click', () => options.onCaveats?.());
   controlsRow.appendChild(caveatsButton);
 
   container.appendChild(controlsRow);

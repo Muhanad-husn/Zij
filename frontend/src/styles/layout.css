@@ -234,3 +234,74 @@
   font-size: 0.8rem;
   margin-bottom: 6px;
 }
+
+/* Caveat panel (spec §5/§7/§8) — ONE reused instance, slide-in from the
+   right on desktop (bottom-sheet on narrow viewports below). Its content is
+   swapped per domain via `--zij-caveat-accent`, set in caveatPanel.ts from
+   the same §8 domain tokens the badge chip / map icons already read. */
+.zij-caveat-panel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 25;
+  width: 320px;
+  max-width: 90vw;
+  overflow-y: auto;
+  background: var(--zij-ink-raised);
+  color: var(--zij-text);
+  font-family: var(--font-ui);
+  padding: 16px;
+  box-shadow: -4px 0 16px rgba(0, 0, 0, 0.4);
+  border-left: 4px solid var(--zij-caveat-accent, var(--zij-brass));
+}
+
+@media (max-width: 600px) {
+  .zij-caveat-panel {
+    top: auto;
+    left: 0;
+    right: 0;
+    width: auto;
+    max-width: none;
+    max-height: 60vh;
+    border-left: none;
+    border-top: 4px solid var(--zij-caveat-accent, var(--zij-brass));
+  }
+}
+
+.zij-caveat-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.zij-caveat-panel__domain {
+  font-weight: 600;
+  font-size: 1rem;
+}
+
+.zij-caveat-panel__close {
+  font-family: var(--font-ui);
+  background: var(--zij-ink);
+  color: var(--zij-text);
+  border: 1px solid var(--zij-text-muted);
+  border-radius: 3px;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+
+.zij-caveat-panel__bullets {
+  margin: 0 0 12px;
+  padding-left: 20px;
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+
+.zij-caveat-panel__footer {
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  color: var(--zij-text-muted);
+  border-top: 1px solid var(--zij-text-muted);
+  padding-top: 8px;
+}
