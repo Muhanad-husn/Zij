@@ -24,14 +24,31 @@ if ([string]::IsNullOrWhiteSpace($projRaw)) { $projRaw = (Get-Location).Path }
 # Spec-authoring mode: the founder-toggled flag file lifts the freeze entirely.
 if (Test-Path (Join-Path $projRaw '.claude/spec-mode')) { exit 0 }
 
-$proj = ($projRaw -replace '\\', '/').TrimEnd('/')
 $p = $path -replace '\\', '/'
 
-if ($p.ToLower().StartsWith(($proj.ToLower() + '/'))) {
-    $rel = $p.Substring($proj.Length + 1)
+# #71 / DEC-37 hooks rule 4: normalize against the TARGET's own git toplevel first —
+# CLAUDE_PROJECT_DIR stays bound to the launching checkout, so a design/ write inside
+# a git worktree never prefix-matched it, $rel stayed absolute, and the ^design/
+# anchor silently missed: worktree spec writes bypassed the freeze entirely.
+# The target may not exist yet (Write of a new file): walk up to the nearest
+# existing ancestor before asking git.
+$probe = Split-Path -Parent $path
+while (-not [string]::IsNullOrWhiteSpace($probe) -and -not (Test-Path -LiteralPath $probe)) {
+    $probe = Split-Path -Parent $probe
 }
-else {
-    $rel = $p
+$top = $null
+if (-not [string]::IsNullOrWhiteSpace($probe)) {
+    $top = (& git -C $probe rev-parse --show-toplevel 2>$null)
+}
+
+$rel = $p
+foreach ($rootRaw in @($top, $projRaw)) {
+    if ([string]::IsNullOrWhiteSpace($rootRaw)) { continue }
+    $root = ($rootRaw -replace '\\', '/').TrimEnd('/')
+    if ($p.ToLower().StartsWith(($root.ToLower() + '/'))) {
+        $rel = $p.Substring($root.Length + 1)
+        break
+    }
 }
 if ($rel.StartsWith('./')) { $rel = $rel.Substring(2) }
 $rel = $rel.TrimStart('/')
