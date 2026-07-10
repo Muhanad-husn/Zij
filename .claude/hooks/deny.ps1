@@ -64,17 +64,35 @@ if ([string]::IsNullOrWhiteSpace($path)) {
     exit 0
 }
 
-# Normalize to a project-relative, forward-slash path.
+# Normalize to a repo-relative, forward-slash path. #71 / DEC-37 hooks rule 4: prefer
+# the TARGET's own git toplevel over CLAUDE_PROJECT_DIR — the project dir stays bound
+# to the launching checkout, so a write inside a git worktree (D:/zij-wt/...) never
+# prefix-matched it and $rel stayed absolute, denying legitimate role writes (observed:
+# a spec pass in a worktree) and, worse, letting anchored patterns like ^design/ miss.
+# Fallback order: target's repo toplevel, then CLAUDE_PROJECT_DIR, then the raw path.
 $projRaw = $env:CLAUDE_PROJECT_DIR
 if ([string]::IsNullOrWhiteSpace($projRaw)) { $projRaw = (Get-Location).Path }
-$proj = ($projRaw -replace '\\', '/').TrimEnd('/')
 $p = $path -replace '\\', '/'
 
-if ($p.ToLower().StartsWith(($proj.ToLower() + '/'))) {
-    $rel = $p.Substring($proj.Length + 1)
+# The target may not exist yet (Write of a new file in a new dir): walk up to the
+# nearest existing ancestor before asking git.
+$probe = Split-Path -Parent $path
+while (-not [string]::IsNullOrWhiteSpace($probe) -and -not (Test-Path -LiteralPath $probe)) {
+    $probe = Split-Path -Parent $probe
 }
-else {
-    $rel = $p
+$top = $null
+if (-not [string]::IsNullOrWhiteSpace($probe)) {
+    $top = (& git -C $probe rev-parse --show-toplevel 2>$null)
+}
+
+$rel = $p
+foreach ($rootRaw in @($top, $projRaw)) {
+    if ([string]::IsNullOrWhiteSpace($rootRaw)) { continue }
+    $root = ($rootRaw -replace '\\', '/').TrimEnd('/')
+    if ($p.ToLower().StartsWith(($root.ToLower() + '/'))) {
+        $rel = $p.Substring($root.Length + 1)
+        break
+    }
 }
 if ($rel.StartsWith('./')) { $rel = $rel.Substring(2) }
 $rel = $rel.TrimStart('/')

@@ -77,12 +77,25 @@
  * `tests/e2e/helpers/stubConfigEndpoint.ts` answers it quietly; this test
  * asserts nothing about tick/de-emphasis behavior (that's
  * `marine-integrity.spec.ts`'s job).
+ *
+ * RECONCILIATION (slice frontend/06-marine-integrity, issue #62 — CI fix
+ * #107): that same slice also made the app fetch `GET
+ * /api/layers/marine/snapshot` on load, alongside the pre-existing air/land
+ * snapshot fetches this test already stubs above. That third call was missed
+ * when slice 06 landed, so it leaked through Vite's preview proxy
+ * (`ECONNREFUSED` against the backend-less preview server), logged a
+ * `console.error`, and tripped this test's "zero console errors" clause even
+ * though the map itself boots cleanly — the same class of issue every
+ * reconciliation above already documents. `tests/e2e/helpers/
+ * stubMarineSnapshot.ts` answers it quietly; this test asserts nothing about
+ * marine rendering (that's `marine-integrity.spec.ts`'s job).
  */
 
 import { test, expect } from '@playwright/test';
 import { startQuietSseStub } from './helpers/quietSseStub';
 import { stubRegionEndpoints } from './helpers/stubRegionEndpoints';
 import { stubConfigEndpoint } from './helpers/stubConfigEndpoint';
+import { stubMarineSnapshot } from './helpers/stubMarineSnapshot';
 
 /** Minimal valid empty LayerSnapshot per design/contracts/feature-schema.md
  * §"LayerSnapshot & metadata". Only used to keep the app's on-load snapshot
@@ -162,6 +175,7 @@ test(
       await sseStub.attachTo(page);
       await stubRegionEndpoints(page);
       await stubConfigEndpoint(page);
+      await stubMarineSnapshot(page);
 
       await page.goto('/');
 

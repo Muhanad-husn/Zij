@@ -3,7 +3,7 @@
 The outer acceptance test (test_store_corruption_acceptance.py) locks the
 one behavior named by the acceptance criterion: a corrupt DB file is
 detected and delete-and-recreated with a logged warning. Per that outer
-test's own scope note, two real behavior branches in
+test's own scope note, and per issue #94, several real behavior branches in
 `Store._open_healthy_connection` are deliberately left to inner unit tests:
 
 1. The healthy-DB-is-a-no-op path: when `PRAGMA integrity_check` returns
@@ -17,6 +17,12 @@ test's own scope note, two real behavior branches in
    `<path>-wal` and `<path>-shm` alongside the corrupt main file (schema.sql
    runs in WAL mode, per storage.md NFR1). The outer test's garbage file
    never has sidecars, so that branch is untouched without this test.
+3. The non-raising corruption trigger (issue #94, design/specs/store.md:44):
+   a DB file that still connects and queries cleanly -- `sqlite3.connect()`
+   and a plain `sqlite_master` query both succeed -- but whose `PRAGMA
+   integrity_check` reports something other than 'ok'. The outer test's
+   garbage-bytes fixture only ever exercises the raising
+   `sqlite3.DatabaseError` trigger; this trigger needs its own fixture.
 
 `backend.store` is imported inside each test body (never at module scope),
 per the durable project convention.
@@ -25,7 +31,12 @@ Written by the test-author (DEC-1); the implementer is path-guarded out of
 backend/tests/ and may not edit this file.
 """
 
+import logging
+import sqlite3
 from datetime import datetime, timezone
+from pathlib import Path
+
+import pytest
 
 HORMUZ_BBOX = (55.0, 25.0, 57.5, 27.5)
 LAND_GEOJSON = {
@@ -122,3 +133,117 @@ def test_corrupt_db_wal_and_shm_sidecars_are_cleaned_up(tmp_path):
     assert not shm_path.exists(), "stale -shm sidecar must be deleted on recovery"
 
     conn.close()
+
+
+def _build_page_corrupt_db(db_path: Path) -> None:
+    """Build a syntactically valid SQLite file whose header + page 1
+    (`sqlite_master`) are intact but whose page 2 (a `filler` table data
+    page) is corrupted: `sqlite3.connect()` and a plain `SELECT name FROM
+    sqlite_master` succeed (page 1 parses fine), while `PRAGMA
+    integrity_check` detects the damaged b-tree page and reports non-'ok'.
+
+    This is the trigger-2 case from design/specs/store.md:44 -- a file that
+    connects and queries cleanly but is still corrupt -- as distinct from
+    the garbage-bytes fixtures used elsewhere in this module (trigger 1:
+    `sqlite3.DatabaseError` on connect/query).
+    """
+    conn = sqlite3.connect(str(db_path))
+    conn.execute("PRAGMA page_size = 4096")
+    conn.execute("CREATE TABLE filler (id INTEGER PRIMARY KEY, blob TEXT)")
+    payload = "x" * 2000
+    for i in range(300):
+        conn.execute("INSERT INTO filler (blob) VALUES (?)", (payload + str(i),))
+    conn.commit()
+    conn.close()
+
+    data = bytearray(db_path.read_bytes())
+    page_size = 4096
+    # Page 1 (bytes 0..page_size-1) holds the file header + sqlite_master
+    # schema table and must stay intact. Page 2 (the second page on disk,
+    # a `filler` data page) is battered across its b-tree page header and
+    # cell-pointer array -- enough to break the tree structurally without
+    # touching page 1.
+    offset = 1 * page_size
+    for i in range(offset, offset + 64):
+        data[i] = 0xFF
+    db_path.write_bytes(bytes(data))
+
+
+async def test_page_corrupt_db_with_intact_header_is_recovered(tmp_path, caplog):
+    """Trigger 2 (store.md:44): a DB file that still connects and queries
+    cleanly -- `sqlite3.connect()` succeeds, `SELECT name FROM
+    sqlite_master` succeeds -- but whose `PRAGMA integrity_check` reports
+    something other than 'ok' must be recovered the same way as the
+    raising-`DatabaseError` case: deleted, recreated from `schema.sql`, with
+    a WARNING logged naming the path, and a clean round-trip afterward.
+
+    The two preconditions (clean connect+query, non-'ok' integrity_check)
+    are verified directly against the constructed file before `Store` ever
+    touches it; if either doesn't hold on this platform's SQLite build, the
+    fixture isn't exercising trigger 2 and this test skips rather than
+    asserting something it didn't actually set up.
+    """
+    db_path = tmp_path / "page-corrupt-store.db"
+    _build_page_corrupt_db(db_path)
+
+    # --- Verify the fixture actually hits trigger 2, not trigger 1 ---
+    probe = sqlite3.connect(str(db_path))
+    try:
+        names = probe.execute("SELECT name FROM sqlite_master").fetchall()
+    except sqlite3.DatabaseError:
+        probe.close()
+        pytest.skip(
+            "fixture connect/query raised DatabaseError -- this hits "
+            "trigger 1 (already covered elsewhere), not the non-raising "
+            "trigger 2 this test targets"
+        )
+    if not names:
+        probe.close()
+        pytest.skip("fixture's sqlite_master is unexpectedly empty")
+
+    integrity_result = probe.execute("PRAGMA integrity_check").fetchone()
+    probe.close()
+    if integrity_result is not None and integrity_result[0] == "ok":
+        pytest.skip(
+            "fixture's PRAGMA integrity_check reported 'ok' on this "
+            "platform's SQLite build -- the page-corruption recipe did not "
+            "produce a detectable non-'ok' result here"
+        )
+
+    from backend.store import LandCacheRow, Store
+
+    store = Store(db_path=db_path)
+
+    # --- When: Store() is constructed and init() is called (mirrors the
+    # outer acceptance test's flow, but against the page-corrupt fixture) ---
+    with caplog.at_level(logging.WARNING):
+        await store.init()  # Then: does NOT raise -- corruption is recovered
+
+    # --- And: a WARNING-level log record names the DB path ---
+    warning_messages = [
+        record.getMessage()
+        for record in caplog.records
+        if record.levelno >= logging.WARNING
+    ]
+    assert any(str(db_path) in message for message in warning_messages), (
+        f"expected a WARNING log naming {db_path!s}, got: {warning_messages!r}"
+    )
+
+    # --- And: the recovered DB round-trips normally -- a fresh, working
+    # schema was recreated from schema.sql (not just an empty/broken file) ---
+    row = LandCacheRow(
+        region_id="hormuz",
+        bbox=HORMUZ_BBOX,
+        geojson=LAND_GEOJSON,
+        feature_count=1234,
+        osm_base=None,
+        fetched_at=datetime(2026, 7, 5, 9, 0, 0, tzinfo=timezone.utc),
+    )
+    await store.put_land_cache(row)
+    fetched = await store.get_land_cache("hormuz")
+    assert fetched is not None
+    assert fetched.region_id == "hormuz"
+    assert fetched.feature_count == 1234
+    assert fetched.geojson == LAND_GEOJSON
+
+    await store.close()
