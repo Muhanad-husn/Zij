@@ -6,6 +6,7 @@ import { fetchSnapshot, refreshAll, refreshLayer } from './api/client';
 import { initAviationLayer, updateAviationLayer, clearAviationLayer } from './map/layers/aviation';
 import { initLandLayer, updateLandLayer, clearLandLayer } from './map/layers/land';
 import { mountBadge } from './ui/badges';
+import { mountCaveatPanel } from './ui/caveatPanel';
 import { mountConnectionBanner } from './ui/controls';
 import { mountRegionSelector } from './ui/regionSelector';
 import { loadLayers, type LayerLoadTask } from './app/loadLayers';
@@ -47,6 +48,17 @@ function makeRefreshHandler(domain: Domain): () => void {
   };
 }
 
+// Caveat panel (spec §5, FR9) — ONE instance for the app's lifetime, mounted
+// to `document.body` so it can overlay the whole screen (slide-in
+// right/bottom-sheet, §5/§7) rather than being clipped by #badges' layout.
+// Every badge's Caveats button opens this same instance for its own domain.
+const caveatPanel = mountCaveatPanel(document.body);
+function makeCaveatsHandler(domain: Domain): () => void {
+  return () => {
+    void caveatPanel.open(domain);
+  };
+}
+
 const badgesContainer = document.getElementById('badges');
 if (!badgesContainer) {
   throw new Error('Zij: #badges container not found');
@@ -54,14 +66,17 @@ if (!badgesContainer) {
 const airBadge = mountBadge(badgesContainer, 'air', {
   onToggle: makeToggleHandler('air'),
   onRefresh: makeRefreshHandler('air'),
+  onCaveats: makeCaveatsHandler('air'),
 });
 const marineBadge = mountBadge(badgesContainer, 'marine', {
   onToggle: makeToggleHandler('marine'),
   onRefresh: makeRefreshHandler('marine'),
+  onCaveats: makeCaveatsHandler('marine'),
 });
 const landBadge = mountBadge(badgesContainer, 'land', {
   onToggle: makeToggleHandler('land'),
   onRefresh: makeRefreshHandler('land'),
+  onCaveats: makeCaveatsHandler('land'),
 });
 
 // Toggle-off (REQUIRED TEST SEAM #1/#3): reflect the store's optimistic

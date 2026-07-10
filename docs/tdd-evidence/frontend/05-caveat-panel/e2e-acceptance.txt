@@ -1,0 +1,10 @@
+[WebServer] 
+
+Running 1 test using 1 worker
+
+  ✓  1 [chromium] › tests\e2e\caveat-panel.spec.ts:285:1 › the caveat panel opens from any badge, shows that domain's verbatim bullets + active-flag counts, has no persistent-dismiss control, reuses one instance across domain swaps, and reopens from the badge in every status including error (1.2s)
+Error: worker-0 process did not exit within 300000ms after stop, force-killed it
+Error: worker-0 process did not exit within 300000ms after stop, force-killed it
+
+  1 passed (5.1m)
+  2 errors were not a part of any test, see above for details

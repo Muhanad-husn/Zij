@@ -3,7 +3,7 @@
 // slices add regions/estimate/activate/toggle/caveats/raw-feature/presets.
 
 import { API_BASE } from '../config';
-import type { Domain, EstimateResult, LayerSnapshot, RegionInfo } from '../state/types';
+import type { CaveatResponse, Domain, EstimateResult, LayerSnapshot, RegionInfo } from '../state/types';
 
 /** `GET /api/layers/{domain}/snapshot` (air/land only touch this slice). */
 export async function fetchSnapshot(domain: Domain): Promise<LayerSnapshot> {
@@ -77,6 +77,16 @@ export async function activateRegion(
     throw new Error(`Zij: activateRegion() failed with ${res.status}`);
   }
   return (await res.json()) as { active_region: RegionInfo };
+}
+
+/** `GET /api/layers/{domain}/caveats` — static caveat bullets (verbatim) plus
+ * current `active_flags` counts (spec §5, FR9). */
+export async function fetchCaveats(domain: Domain): Promise<CaveatResponse> {
+  const res = await fetch(`${API_BASE}/layers/${domain}/caveats`);
+  if (!res.ok) {
+    throw new Error(`Zij: fetchCaveats(${domain}) failed with ${res.status}`);
+  }
+  return (await res.json()) as CaveatResponse;
 }
 
 /** `POST /api/regions/estimate` — validates + prices a custom bbox before

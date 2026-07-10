@@ -320,6 +320,20 @@ describe(
 
       expect(onRefresh).toHaveBeenCalledTimes(1);
     });
+
+    it('clicking [data-testid="caveats-button"] invokes the injected onCaveats callback exactly once ' +
+      '(plan/frontend/05-caveat-panel.md — the click-wiring behind the badge\'s entry point into the panel)', () => {
+      const parent = document.createElement('div');
+      const onCaveats = vi.fn();
+      mountBadge(parent, 'marine', { onCaveats });
+
+      const caveatsButton = parent.querySelector(
+        '[data-testid="badge-marine"] [data-testid="caveats-button"]',
+      ) as HTMLButtonElement;
+      caveatsButton.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+      expect(onCaveats).toHaveBeenCalledTimes(1);
+    });
   },
 );
 
