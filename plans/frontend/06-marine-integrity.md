@@ -5,7 +5,7 @@
 - **Issue:** #62
 - **Branch:** feat/frontend/06-marine-integrity
 - **Project directory:** `frontend`
-- **Status:** ▹ planned (sprint v1)
+- **Status:** ✔ PR prepared — [#104](https://github.com/Muhanad-husn/Zij/pull/104), awaiting founder merge approval
 - **Walking skeleton?** no
 
 > **Zij roles (DEC-1):** **test-author** commits the outer acceptance test (Playwright) **red**
@@ -64,11 +64,18 @@ Then  its hollow warning ring renders (never hidden) and the popup names the fla
 
 ## Definition of done
 
-- [ ] Outer Playwright test authored **RED before implementation** (DEC-1), seen red, now GREEN.
-- [ ] Inner Vitest behaviours covered; frontend test + lint green; refactor on green.
-- [ ] Evidence: Playwright screenshots (vessels rendered + de-emphasis + spoof-suspect ring).
+- [x] Outer Playwright test authored **RED before implementation** (DEC-1), seen red, now GREEN.
+- [x] Inner Vitest behaviours covered; frontend test + lint green; refactor on green.
+- [x] Evidence: Playwright screenshots (vessels rendered + de-emphasis + spoof-suspect ring).
       CI (`tdd-ci`, `working-directory: frontend`); PR into `main` (`safe-pr`).
 
 ## Status / progress log
 
 - 2026-07-06 planned (sprint v1). Blocked-by: frontend/01, integrity/01, api-core/01.
+- 2026-07-10 built: red `6b7f49a` → green `82efafd` (177 Vitest, outer 1 passed 16.2s),
+  evidence `6a0e841`, review PASS/PASS zero findings, PR
+  [#104](https://github.com/Muhanad-husn/Zij/pull/104) prepared. Notable: MapLibre
+  tiled-representation stringification constraint discovered + documented in
+  `wireToGeoJson.ts`; two green-time outer-test defects fixed (reviewer-confirmed
+  non-loosening); marker removal by orchestrator after verified pass (precedent #53);
+  follow-up #103 filed (dist-dependent backend test blocks commits).
