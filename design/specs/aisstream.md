@@ -44,7 +44,7 @@ _connected: bool
    "FilterMessageTypes":["PositionReport","ShipStaticData"]}
   ```
   Note aisstream corner order is `[lat,lon]` = `[[s,w],[n,e]]` — transform from `region.bbox=[w,s,e,n]`. `PositionReport` is the FR3 minimum; `ShipStaticData` is subscribed to enrich `name`/`callsign` (FR3 popup).
-- **Read loop** (`_read_task`): `async for raw in ws:` → parse JSON → dispatch by `MessageType`. Sets `_connected=True` after subscribe ack / first message.
+- **Read loop** (`_read_task`): `async for raw in ws:` → parse JSON → dispatch by `MessageType`. Sets `_connected=True` **once the subscribe payload is sent** — aisstream.io has no formal subscribe-ack frame, and a correct bbox over a quiet region can legitimately produce no messages, so waiting for a first message would leave `connected` permanently false and render a false `reconnecting`.
 
 ### Message handling
 - **PositionReport** → build/refresh `_Entry` for `MetaData.MMSI`:
@@ -70,7 +70,9 @@ _connected: bool
 A lightweight periodic coroutine inside the adapter (every `cfg.cadence_s`, i.e. 60 s, piggybacked on/parallel to the read loop) removes `_table`/`_prev_pos` entries with `age > drop_after_s`. Keeps memory bounded; `snapshot()` also filters defensively so sweep timing is not load-bearing for correctness.
 
 ### Reconnect (FR3)
-- On `ConnectionClosed`/read error: set `_connected=False`, then reconnect with **exponential backoff + full jitter**: `delay = random.uniform(0, min(cfg.reconnect_max_s, cfg.reconnect_base_s * 2**attempt))` (base 2 s, max 60 s). Reset `attempt=0` on a successful subscribe.
+- **Abnormal close / read error only** (`ConnectionClosedError` propagating from the read loop, or any other read exception): set `_connected=False`, then reconnect with **exponential backoff + full jitter**: `delay = random.uniform(0, min(cfg.reconnect_max_s, cfg.reconnect_base_s * 2**attempt))` (base 2 s, max 60 s). Reset `attempt=0` on a successful subscribe.
+- **Graceful close does NOT reconnect.** A clean close (`ConnectionClosedOK`, surfacing as a normal end of the `async for`) leaves `_connected=False` persistently, with an operator-visible `detail` — no reconnect loop (see Failure modes). Why: a bad API key surfaces as a graceful close, and unconditionally reconnecting would hammer aisstream with a known-bad key (a reconnect storm); persistent disconnect instead keeps the auth failure operator-visible.
+- A close-code-aware refinement — reconnect on a graceful close *only* after a session that had actually streamed data (distinguishing a bad key from a legitimate idle close) — was considered and deliberately deferred: it would require revising step's locked outer acceptance test, which drains a finite fixture and awaits the read task to completion.
 - **Table retention across reconnects: keep.** Data ages naturally via `last_heard`; dropping it would blank the map on every transient drop. `_connected=False` makes the scheduler render `reconnecting` while `snapshot()` still serves the aging table.
 - `_prev_pos` also retained (kinematics continuity survives a blip).
 
@@ -78,15 +80,15 @@ A lightweight periodic coroutine inside the adapter (every `cfg.cadence_s`, i.e.
 **Tear down and re-subscribe** (not dynamic add/remove): send a fresh subscribe message with the new bbox on the existing socket if open, else it applies on next connect. **Clear `_table` and `_prev_pos`** — the new region is a different vessel population (ARCHITECTURE §4.2). Chosen over dynamic bbox editing because aisstream's subscription model resends the full bbox set anyway and clearing is the correct UX (old-region ghosts must not linger).
 
 ## Failure modes
-- Websocket drop / network error → reconnect loop (above); layer shows `reconnecting` then `cached-fallback`/`live`. Never raises to the scheduler (stream health via `connected`).
-- Auth failure (bad API key → server closes/does not stream): surfaced by the read loop as persistent `_connected=False` and a `detail` string; operator-visible. No credit concept here.
+- Abnormal websocket drop / network error (`ConnectionClosedError` / read exception) → reconnect loop (Reconnect above); layer shows `reconnecting` then `cached-fallback`/`live`. Never raises to the scheduler (stream health via `connected`).
+- Auth failure (bad API key → server closes the socket, surfacing as a **graceful close** `ConnectionClosedOK`): the read loop ends and leaves persistent `_connected=False` with a `detail` string; **no reconnect** (Reconnect above), so a known-bad key does not trigger a reconnect storm. Operator-visible. No credit concept here.
 - Malformed single message → skip + log.
 
 ## Configuration consumed
 `[aisstream]` (`ws_url`, `reconnect_base_s`, `reconnect_max_s`); `[layers.marine]` (`cadence_s`, `deemphasize_after_s`, `drop_after_s`, `custom_bbox_cap_sq_deg`); secret `AISSTREAM_API_KEY` (config.md).
 
 ## Acceptance criteria
-- [ ] **FR3** — websocket drop triggers reconnect with exponential backoff + jitter; `connected` goes False so the scheduler shows `reconnecting`; `snapshot()` keeps serving.
+- [ ] **FR3** — an abnormal websocket drop / read error triggers reconnect with exponential backoff + jitter; `connected` goes False so the scheduler shows `reconnecting`; `snapshot()` keeps serving. A graceful close (`ConnectionClosedOK`, e.g. a bad API key) goes persistently disconnected with an operator-visible `detail` and does **not** reconnect.
 - [ ] **FR3** — a vessel silent >30 min renders de-emphasized (`FeatureStatus.STALE`); silent >2 h is dropped from `snapshot()` and evicted from the table.
 - [ ] **FR3** — `set_region` re-subscribes the new bbox and clears the table; no old-region vessels appear after switch.
 - [ ] **FR6** — `snapshot()` on the 60 s cadence and on refresh-now returns a point-in-time copy without I/O or raising.
