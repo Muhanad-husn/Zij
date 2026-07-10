@@ -1546,7 +1546,9 @@ def test_one_over_cap_boundary_drops_exactly_one_shortest_primary():
 # `UpstreamError` propagating out of `fetch()` for test 2 (406 is not yet a
 # rotation-triggering status) -- as the expected failure. Both are verified
 # below to fail for exactly those reasons against the current code, not for
-# an unrelated bug (e.g. a typo in the mirror URL or fixture).
+# an unrelated bug (e.g. a typo in the mirror URL or fixture). The
+# implementer has since made both genuinely pass; the xfail markers have
+# been removed to finalize the contract.
 #
 # Names this test requires the implementer to provide (spec-fixed unless
 # noted "test-author's plumbing choice"): no new names are required. Both
@@ -1556,10 +1558,6 @@ def test_one_over_cap_boundary_drops_exactly_one_shortest_primary():
 # adding `406`), per issue #114's own diagnosis of the two exact call sites.
 
 
-@pytest.mark.xfail(
-    reason="overpass User-Agent / 406 rotation not yet implemented",
-    strict=True,
-)
 async def test_user_agent_header_is_descriptive_not_httpx_default(monkeypatch):
     """Issue #114, behavior 1: every outgoing Overpass POST carries a
     descriptive `User-Agent` header identifying the project, and is NOT
@@ -1616,10 +1614,6 @@ async def test_user_agent_header_is_descriptive_not_httpx_default(monkeypatch):
         assert user_agent.lower().startswith("zij/")
 
 
-@pytest.mark.xfail(
-    reason="overpass User-Agent / 406 rotation not yet implemented",
-    strict=True,
-)
 async def test_406_rotates_to_next_mirror_then_fetch_succeeds(monkeypatch):
     """Issue #114, behavior 2: a 406 from one mirror rotates `_fetch_class`
     to the next mirror -- identically to how 429/504 already rotate --
