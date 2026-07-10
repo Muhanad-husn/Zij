@@ -68,3 +68,9 @@ Then  POST /api/refresh is issued for all enabled layers
 ## Status / progress log
 
 - 2026-07-06 planned (sprint v1). Blocked-by: frontend/02, api-core/03.
+- 2026-07-10 PR #99 prepared into `main` (branch `feat/frontend/04-toggles-refresh`).
+  Outer test red `8d50862` → final green `cb17358` (marker removed + inner Vitest);
+  evidence `d140ab8`. Vitest 130 green, outer Playwright ✓ (2.6s), backend 242 green.
+  Two-stage review PASS/PASS → DONE_WITH_CONCERNS; follow-up #98 filed
+  (region-change silently re-enables a toggled-off layer; badge `data-enabled` desync).
+  Awaiting founder merge approval.
