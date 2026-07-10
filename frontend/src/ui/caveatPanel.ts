@@ -96,6 +96,21 @@ export function mountCaveatPanel(parent: HTMLElement): CaveatPanel {
     }
   }
 
+  /** Honest fallback (#101, FR9): when the requested domain's fetch fails
+   * and it has no cached content, render an explicit unavailable state FOR
+   * THAT DOMAIN. Returning without rendering left whatever domain was shown
+   * before mislabeled under the requested domain's implied context — the one
+   * dishonest state an honesty panel must never occupy. */
+  function renderUnavailable(domain: Domain): void {
+    container.style.setProperty('--zij-caveat-accent', `var(${DOMAIN_ACCENT_VAR[domain]})`);
+    domainEl.textContent = DOMAIN_LABEL[domain];
+    bullets.innerHTML = '';
+    const li = document.createElement('li');
+    li.textContent = 'Caveats are unavailable right now (the server could not be reached). This layer’s standing caveats still apply.';
+    bullets.appendChild(li);
+    footer.textContent = 'Active integrity flag counts unavailable.';
+  }
+
   async function open(domain: Domain): Promise<void> {
     let data = cache[domain];
     try {
@@ -104,7 +119,9 @@ export function mountCaveatPanel(parent: HTMLElement): CaveatPanel {
     } catch (err) {
       console.warn(`[zij] fetchCaveats(${domain}) failed:`, err);
       if (!data) {
-        return; // nothing to show yet and no prior cache — leave panel as-is
+        renderUnavailable(domain);
+        container.style.display = 'block';
+        return;
       }
     }
     render(domain, data);

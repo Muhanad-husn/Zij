@@ -134,12 +134,17 @@ export class Store {
     });
   }
 
-  /** Clears every layer's last-known state (spec §6: "all layer panes clear
-   * immediately" on region change) and emits `region:changed`. */
+  /** Clears every layer's last-known DATA (spec §6: "all layer panes clear
+   * immediately" on region change) and emits `region:changed`. Each domain's
+   * `enabled` toggle is preserved (#98): a region change is not a path back
+   * to `enabled: true` — `toggleLayer` is the only such path (same principle
+   * as `applySnapshot`'s disabled-domain guard above). Resetting it silently
+   * re-opened the snapshot guard while the badge's `data-enabled` DOM stayed
+   * stale at "false". */
   applyRegionChanged(payload: RegionChangedPayload): void {
     this.state.activeRegion = payload;
     (Object.keys(this.state.layers) as Domain[]).forEach((domain) => {
-      this.state.layers[domain] = emptyLayerState();
+      this.state.layers[domain] = { ...emptyLayerState(), enabled: this.state.layers[domain].enabled };
     });
     this.emit('region:changed', payload);
   }

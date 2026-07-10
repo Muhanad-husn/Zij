@@ -17,6 +17,10 @@
  *     badge") shows it again.
  *   - Fetch-failure fallback: caches last-known content per domain, per the
  *     implementation's own `catch` branch in `caveatPanel.ts`.
+ *   - #101: a failed fetch for a domain with NO cache renders an explicit
+ *     unavailable state labeled for the REQUESTED domain (never leaves
+ *     another domain's content mislabeled on screen, and never leaves the
+ *     Caveats click looking like a dead button).
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -220,14 +224,16 @@ describe('mountCaveatPanel — close is session-only; badge reopens the same ins
 });
 
 describe('mountCaveatPanel — fetch-failure fallback caches last-known content per domain', () => {
-  it('a failed fetch on the FIRST open (no prior cache) leaves the panel hidden rather than throwing', async () => {
+  it('a failed fetch on the FIRST open (no prior cache) shows an honest unavailable state for the requested domain (#101)', async () => {
     mockedClient().fetchCaveats.mockRejectedValueOnce(new Error('network down'));
     const parent = document.createElement('div');
     const panel = mountCaveatPanel(parent);
 
     await expect(panel.open('air')).resolves.toBeUndefined();
     const container = testid(parent, 'caveat-panel');
-    expect(container.style.display).toBe('none');
+    expect(container.style.display).not.toBe('none');
+    expect(testid(parent, 'caveat-panel-domain').textContent?.toLowerCase()).toContain('air');
+    expect(testid(parent, 'caveat-bullets').textContent).toMatch(/unavailable/i);
   });
 
   it('a failed fetch AFTER a prior successful open falls back to the cached content for that domain', async () => {
@@ -248,5 +254,43 @@ describe('mountCaveatPanel — fetch-failure fallback caches last-known content 
     for (const bullet of AIR.caveats) {
       expect(bullets.textContent).toContain(bullet);
     }
+  });
+
+  it("#101 regression: domain-SWITCH failure with no cache for the new domain must NOT leave the previous domain's content mislabeled on screen", async () => {
+    mockedClient().fetchCaveats.mockResolvedValueOnce(AIR).mockRejectedValueOnce(new Error('network down'));
+    const parent = document.createElement('div');
+    const panel = mountCaveatPanel(parent);
+
+    await panel.open('air'); // panel open, showing AIR
+    // User clicks MARINE's Caveats button; marine has never loaded and the
+    // fetch fails — the pre-#101 bug left AIR's bullets visible here.
+    await expect(panel.open('marine')).resolves.toBeUndefined();
+
+    const container = testid(parent, 'caveat-panel');
+    expect(container.style.display).not.toBe('none');
+    expect(testid(parent, 'caveat-panel-domain').textContent?.toLowerCase()).toContain('marine');
+    const bullets = testid(parent, 'caveat-bullets');
+    for (const bullet of AIR.caveats) {
+      expect(bullets.textContent).not.toContain(bullet);
+    }
+    expect(bullets.textContent).toMatch(/unavailable/i);
+    expect(testid(parent, 'caveat-panel-footer').textContent).toMatch(/unavailable/i);
+  });
+
+  it('#101: a later successful open for that domain recovers from the unavailable state to real content', async () => {
+    mockedClient().fetchCaveats
+      .mockRejectedValueOnce(new Error('network down'))
+      .mockResolvedValueOnce(MARINE);
+    const parent = document.createElement('div');
+    const panel = mountCaveatPanel(parent);
+
+    await panel.open('marine'); // unavailable state
+    await panel.open('marine'); // network recovered
+
+    const bullets = testid(parent, 'caveat-bullets');
+    for (const bullet of MARINE.caveats) {
+      expect(bullets.textContent).toContain(bullet);
+    }
+    expect(bullets.textContent).not.toMatch(/unavailable/i);
   });
 });

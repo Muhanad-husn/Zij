@@ -242,3 +242,54 @@ describe(
     });
   },
 );
+
+describe(
+  'Store.applyRegionChanged — #98 regression: a region change clears DATA but preserves each ' +
+    "domain's enabled toggle (toggleLayer is the only path back to enabled:true)",
+  () => {
+    beforeEach(async () => {
+      vi.clearAllMocks();
+      const { toggleLayer: postToggleLayer } = await import('../../src/api/client');
+      (postToggleLayer as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
+    });
+
+    it('a toggled-off domain stays disabled across a region change; its data is still cleared', () => {
+      const store = new Store();
+      store.applySnapshot('land', snapshot({ layer: 'land' }, [FEATURE]));
+      store.toggleLayer('land', false);
+
+      store.applyRegionChanged({ region_id: 'red_sea', bbox: [32, 12, 44, 28] });
+
+      const land = store.getState().layers.land;
+      expect(land.enabled).toBe(false); // the #98 bug: this silently flipped back to true
+      expect(land.meta).toBeNull();
+      expect(land.features).toEqual([]);
+    });
+
+    it('domains the user never touched remain enabled (data cleared as before)', () => {
+      const store = new Store();
+      store.applySnapshot('air', snapshot({}, [FEATURE]));
+      store.toggleLayer('land', false);
+
+      store.applyRegionChanged({ region_id: 'red_sea', bbox: [32, 12, 44, 28] });
+
+      expect(store.getState().layers.air.enabled).toBe(true);
+      expect(store.getState().layers.marine.enabled).toBe(true);
+      expect(store.getState().layers.air.features).toEqual([]);
+    });
+
+    it("the disabled-domain SSE guard still holds after the region change — the new region's snapshot cannot resurrect a toggled-off layer", () => {
+      const store = new Store();
+      store.toggleLayer('land', false);
+      store.applyRegionChanged({ region_id: 'red_sea', bbox: [32, 12, 44, 28] });
+      const listener = vi.fn();
+      store.on('snapshot:land', listener);
+
+      store.applySnapshot('land', snapshot({ layer: 'land', region_id: 'red_sea' }, [FEATURE]));
+
+      expect(listener).not.toHaveBeenCalled();
+      expect(store.getState().layers.land.features).toEqual([]);
+      expect(store.getState().layers.land.enabled).toBe(false);
+    });
+  },
+);
