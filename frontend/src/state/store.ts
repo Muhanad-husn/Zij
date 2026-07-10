@@ -8,7 +8,12 @@
 // sharp edges worth pulling a dependency for).
 
 import { toggleLayer as postToggleLayer } from '../api/client';
-import type { Domain, LayerSnapshot, LayerSnapshotMeta } from './types';
+import { tickLayerFeatures } from './derive';
+import type { AppConfig, Domain, LayerSnapshot, LayerSnapshotMeta } from './types';
+
+/** Domains the client-tick recompute applies to (spec §9/§2) — land is the
+ * one domain exempt from ticking (rebuilt once per snapshot only). */
+const TICKED_DOMAINS = ['air', 'marine'] as const;
 
 export type Connection = 'connecting' | 'open' | 'lost' | 'failed';
 
@@ -50,6 +55,11 @@ export class Store {
   };
 
   private listeners = new Map<string, Set<Listener>>();
+
+  /** Per-layer de-emphasize/drop thresholds, sourced once from `GET
+   * /api/config` (spec §9 "GET /api/config layers shape") — `tick()` is a
+   * no-op until this has been set at least once. */
+  private tickConfig: AppConfig | null = null;
 
   /** Subscribes `fn` to `event`; returns an unsubscribe function. */
   on(event: string, fn: Listener): () => void {
@@ -137,5 +147,38 @@ export class Store {
   setConnection(c: Connection): void {
     this.state.connection = c;
     this.emit('connection', c);
+  }
+
+  /** Stores the config-sourced de-emphasize/drop thresholds `tick()` reads
+   * (spec §9). Safe to call more than once (e.g. a later `GET /api/config`
+   * refresh) — later calls simply replace the thresholds `tick()` sees next. */
+  setConfig(config: AppConfig): void {
+    this.tickConfig = config;
+  }
+
+  /**
+   * Client-tick recompute (spec §9 `tick(now)`): re-derives `deemphasized`
+   * for air + marine's currently-held features from the config-sourced
+   * thresholds, dropping marine vessels whose age exceeds
+   * `drop_after_s` entirely (spec §2 Marine; air has no drop threshold).
+   * Land is exempt (rebuilt once per snapshot only). No-op until
+   * `setConfig()` has supplied thresholds, or for a domain with zero
+   * currently-held features (nothing to recompute).
+   */
+  tick(now: number): void {
+    if (!this.tickConfig) {
+      return;
+    }
+    for (const domain of TICKED_DOMAINS) {
+      const layer = this.state.layers[domain];
+      if (!layer.enabled || layer.features.length === 0) {
+        continue;
+      }
+      const thresholds = this.tickConfig.layers[domain];
+      const dropAfterS = domain === 'marine' ? this.tickConfig.layers.marine.drop_after_s : undefined;
+      const nextFeatures = tickLayerFeatures(layer.features, now, thresholds.deemphasize_after_s, dropAfterS);
+      this.state.layers[domain] = { ...layer, features: nextFeatures };
+      this.emit(`tick:${domain}`, nextFeatures);
+    }
   }
 }

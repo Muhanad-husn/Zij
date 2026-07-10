@@ -3,7 +3,7 @@
 // slices add regions/estimate/activate/toggle/caveats/raw-feature/presets.
 
 import { API_BASE } from '../config';
-import type { CaveatResponse, Domain, EstimateResult, LayerSnapshot, RegionInfo } from '../state/types';
+import type { AppConfig, CaveatResponse, Domain, EstimateResult, LayerSnapshot, RegionInfo } from '../state/types';
 
 /** `GET /api/layers/{domain}/snapshot` (air/land only touch this slice). */
 export async function fetchSnapshot(domain: Domain): Promise<LayerSnapshot> {
@@ -87,6 +87,18 @@ export async function fetchCaveats(domain: Domain): Promise<CaveatResponse> {
     throw new Error(`Zij: fetchCaveats(${domain}) failed with ${res.status}`);
   }
   return (await res.json()) as CaveatResponse;
+}
+
+/** `GET /api/config` — bundled + region-independent per-layer config (spec §9
+ * "GET /api/config layers shape"). The client-tick reads
+ * `deemphasize_after_s`/`drop_after_s` thresholds from here once at
+ * bootstrap, the same way region config is read from `GET /api/regions`. */
+export async function fetchConfig(): Promise<AppConfig> {
+  const res = await fetch(`${API_BASE}/config`);
+  if (!res.ok) {
+    throw new Error(`Zij: fetchConfig() failed with ${res.status}`);
+  }
+  return (await res.json()) as AppConfig;
 }
 
 /** `POST /api/regions/estimate` — validates + prices a custom bbox before
