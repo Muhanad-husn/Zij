@@ -158,10 +158,22 @@ class Scheduler:
             self._stale_timer[domain] = None
 
         if stream is not None and stream.domain not in self._cancel_gen:
-            # Marine supervised purely via the stream adapter (no poll loop
-            # task, no `fetch`/cadence/enabled bookkeeping) -- still needs a
-            # generation slot (`activate_region` bumps every layer's) and a
-            # status/wake slot (`set_enabled`'s marine branch below).
+            # Marine supervised via `_stream_supervisor` (no poll loop task,
+            # no `fetch`/single-flight bookkeeping) -- still needs a
+            # generation slot (`activate_region` bumps every layer's), a
+            # status/wake slot (`set_enabled`'s marine branch below), an
+            # enabled flag (config-driven initial state, mirroring the poll
+            # layers' `_enabled`), and an effective cadence for its own
+            # sampling loop.
+            stream_layer_cfg = cfg.layers.get(stream.domain.value)
+            self._enabled[stream.domain] = (
+                stream_layer_cfg.enabled if stream_layer_cfg is not None else True
+            )
+            self._cadence_s[stream.domain] = (
+                effective_cadence_s(stream_layer_cfg)
+                if stream_layer_cfg is not None
+                else 1
+            )
             self._wake[stream.domain] = asyncio.Event()
             self._status[stream.domain] = LayerStatus.LOADING
             self._cancel_gen[stream.domain] = 0
@@ -176,11 +188,14 @@ class Scheduler:
     async def run(self) -> None:
         """Owns the `TaskGroup`; lifetime = app lifetime (spec "Task
         model"). One `_poll_loop(domain)` task per adapter this scheduler
-        was constructed with."""
+        was constructed with, plus one `_stream_supervisor()` task if a
+        marine `StreamAdapter` was injected."""
         try:
             async with asyncio.TaskGroup() as tg:
                 for domain in self._adapters:
                     tg.create_task(self._poll_loop(domain))
+                if self._stream is not None:
+                    tg.create_task(self._stream_supervisor())
         finally:
             # Shutdown (ARCHITECTURE §4.4): cancel any armed one-shot stale
             # timer so a stray `call_at` callback can't mutate status / publish
@@ -294,6 +309,85 @@ class Scheduler:
             int(section.get("max_attempts", max_attempts)),
         )
 
+    async def _stream_supervisor(self) -> None:
+        """One task if the marine source is a `StreamAdapter` (spec "Task
+        model"): owns `adapter.start()`, samples `snapshot()` on the marine
+        cadence, and watches `connected`. Mirrors `_poll_loop`'s cadence
+        timing (`asyncio.wait_for(_wake.wait(), timeout=cadence_s)`,
+        enable/disable parking on `_wake`) but samples the adapter's
+        in-memory table instead of awaiting a `fetch`. FR10 isolation: a
+        crashing sample must not kill the scheduler or a sibling layer."""
+        stream = self._stream
+        assert stream is not None
+        domain = stream.domain
+        wake = self._wake[domain]
+
+        if self._enabled.get(domain, True):
+            await stream.start()
+
+        while True:
+            cadence_s = self._cadence_s.get(domain, 1)
+            if self._enabled.get(domain, True):
+                try:
+                    await asyncio.wait_for(wake.wait(), timeout=cadence_s)
+                except TimeoutError:
+                    pass
+            else:
+                await wake.wait()
+            wake.clear()
+            if not self._enabled.get(domain, True):
+                continue
+            try:
+                await self._sample_stream(domain)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.exception(
+                    "marine stream: sample failed, will retry next cadence tick"
+                )
+
+    async def _sample_stream(self, domain: Domain) -> None:
+        """One sample of the marine stream (spec "Write path": `snap =
+        adapter.snapshot()`, then the same write path a successful poll
+        fetch runs). `connected == False` maps to `reconnecting` (or
+        `cached-fallback` if a warm, region-matched cache exists) per the
+        "Status transitions" table, rather than running the write path
+        against a possibly-stale table."""
+        stream = self._stream
+        assert stream is not None
+        if not stream.connected:
+            await self._handle_stream_disconnected(domain)
+            return
+        snap = stream.snapshot()
+        await self._handle_fetch_success(domain, snap)
+
+    async def _handle_stream_disconnected(self, domain: Domain) -> None:
+        """Marine-only `reconnecting` state (spec "Status transitions": `live
+        (marine) | connected == False -> reconnecting`; `reconnecting |
+        still down, warm cache -> cached-fallback`) -- reuses the same
+        "cached-fallback beats error" gate the poll write path uses on
+        failure, substituting `reconnecting` for `error` as the no-cache
+        fallback (a stream drop is a transient reconnect, not a hard
+        failure)."""
+        if self._store is not None:
+            cached = await self._store.get_fallback(domain.value)
+            if cached is not None and cached.meta.region_id == self._region.id:
+                if self._status.get(domain) != LayerStatus.CACHED_FALLBACK:
+                    self._status[domain] = LayerStatus.CACHED_FALLBACK
+                    self._publish_status_event(
+                        domain,
+                        LayerStatus.CACHED_FALLBACK,
+                        detail="marine stream disconnected",
+                    )
+                return
+        if self._status.get(domain) != LayerStatus.RECONNECTING:
+            self._status[domain] = LayerStatus.RECONNECTING
+            self._publish_status_event(
+                domain,
+                LayerStatus.RECONNECTING,
+                detail="marine stream disconnected",
+            )
+
     async def set_enabled(self, domain: Domain, enabled: bool) -> None:
         """FR5. Disabling parks the loop on `_wake` (checked on its next
         wake); enabling sets `_wake` for an immediate fetch.
@@ -309,6 +403,7 @@ class Scheduler:
             and domain == self._stream.domain
             and domain not in self._adapters
         ):
+            self._enabled[domain] = enabled
             if enabled:
                 await self._stream.start()
                 if domain in self._wake:

@@ -53,10 +53,11 @@ task at startup and cancel/await it cleanly at shutdown -- every existing
 `create_app(...)` call site in `test_api.py` keeps working unmodified
 because every new parameter is optional.
 
-Committed red before any implementation exists (DEC-1/DEC-33): today
-`create_app(..., marine_adapter=...)` raises `TypeError` on the unknown
-keyword, so this test fails immediately and xfails cleanly under the
-tests-green gate rather than erroring the suite.
+Committed red before any implementation existed (DEC-1/DEC-33): at that
+point `create_app(..., marine_adapter=...)` raised `TypeError` on the
+unknown keyword, so the tests failed immediately and xfailed cleanly under
+the tests-green gate. The implementer has since made both genuinely pass;
+the xfail markers have been removed to finalize the contract.
 """
 
 from __future__ import annotations
@@ -66,7 +67,6 @@ import contextlib
 import json
 
 import httpx
-import pytest
 import uvicorn
 
 # Fast, hermetic marine cadence (config.md "[layers.*]": `cadence_s`/
@@ -229,14 +229,6 @@ async def _find_marine_snapshot_frame(response: httpx.Response, *, timeout_s: fl
             return data
 
 
-@pytest.mark.xfail(
-    reason=(
-        "scheduler lifespan wiring not yet implemented (#113): create_app "
-        "has no marine_adapter parameter and its lifespan never calls "
-        "scheduler.run(), so the real app starts no background loops"
-    ),
-    strict=True,
-)
 async def test_marine_snapshot_and_sse_populate_via_real_app_lifespan_without_manual_refresh(
     tmp_path,
 ):
@@ -344,13 +336,6 @@ async def test_marine_snapshot_and_sse_populate_via_real_app_lifespan_without_ma
 # ===========================================================================
 
 
-@pytest.mark.xfail(
-    reason=(
-        "create_app does not yet build a default marine adapter/wire it "
-        "into the scheduler, and does not expose app.state.scheduler (#113)"
-    ),
-    strict=True,
-)
 def test_default_app_wires_a_marine_stream_adapter_from_config_and_secrets(
     tmp_path,
 ):
