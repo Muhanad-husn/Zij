@@ -19,6 +19,10 @@ export interface WireFeature {
   status: string;
   integrity_flags: string[];
   attrs: Record<string, unknown>;
+  /** Client-computed (spec §9 `state/derive.ts`) — set by `Store.tick`, never
+   * by the wire. Absent/false until a tick has actually aged this feature
+   * past its layer's `deemphasize_after_s`. */
+  deemphasized?: boolean;
 }
 
 export interface LayerSnapshotMeta {
@@ -68,4 +72,48 @@ export interface CaveatResponse {
   domain: string;
   caveats: string[];
   active_flags: Record<string, number>;
+}
+
+/** `GET /api/config` response (spec §9 "GET /api/config layers shape",
+ * api.md/config.md) — mirrors config.md's per-layer `[layers.*]` tables as
+ * JSON. The client-tick (`Store.tick`) reads `deemphasize_after_s`/
+ * `drop_after_s` from here rather than hardcoding thresholds. */
+export interface LayerConfigAir {
+  enabled: boolean;
+  cadence_s: number;
+  cadence_floor_s: number;
+  deemphasize_after_s: number;
+  stale_multiplier: number;
+  custom_bbox_cap_sq_deg: number;
+}
+
+export interface LayerConfigMarine {
+  enabled: boolean;
+  cadence_s: number;
+  cadence_floor_s: number;
+  deemphasize_after_s: number;
+  drop_after_s: number;
+  stale_multiplier: number;
+  custom_bbox_cap_sq_deg: number;
+}
+
+export interface LayerConfigLand {
+  enabled: boolean;
+  cadence_s: number;
+  cadence_floor_s: number;
+  stale_multiplier: number;
+  simplify_tolerance_deg: number;
+  max_rendered_features: number;
+  custom_bbox_cap_sq_deg: number;
+}
+
+export interface AppConfig {
+  regions: unknown[];
+  layers: {
+    air: LayerConfigAir;
+    marine: LayerConfigMarine;
+    land: LayerConfigLand;
+  };
+  stale_multiplier: number;
+  custom_bbox_caps: { air: number; marine: number; land: number };
 }

@@ -67,6 +67,23 @@
  * defensive per-domain snapshot/refresh fallbacks are ordinary
  * request/response GETs, stubbed with plain `page.route().fulfill()`.
  *
+ * TEST-AUTHOR MARKER-REMOVAL FIX NOTE (DEC-33 second pass, both corrections
+ * to test plumbing only — no locked assertion was loosened):
+ *   1. `icon-rotate` is read via `getLayoutProperty` only, not
+ *      `getPaintProperty` — it is a symbol LAYOUT property in maplibre-gl's
+ *      style spec (`getPaintProperty` on it throws inside MapLibre's own
+ *      `Transitionable.getValue`), mirroring `layers-refresh.spec.ts`'s
+ *      identical air-aircraft check.
+ *   2. V2 (the vessel tracked for de-emphasis/drop) carries an intentional
+ *      `position_age_s` HEAD START, and V1/V3/V4 are RENEWED (re-pushed with
+ *      a fresh timestamp) once V2's de-emphasized-but-present state is
+ *      confirmed. Without this, all four vessels share one push instant
+ *      under the same uniform client-tick age model (spec §9) and would age
+ *      out together — no faithful implementation could satisfy "the other
+ *      three vessels survive V2's drop" against the original uniform
+ *      fixture. See the inline comments at the two `fixture.push('snapshot',
+ *      ...)` call sites for the exact timing/margin reasoning.
+ *
  * REQUIRED TEST SEAMS (implementer must expose these — not the test-author's
  * to relax; each is independently asserted below). Naming mirrors the
  * existing `air`/`air-aircraft` and `land`/`land-roads`/`land-points`
@@ -315,6 +332,37 @@ function marineMeta(overrides: Record<string, unknown> = {}) {
   };
 }
 
+/**
+ * V1/V3/V4's fixture features, freshly timestamped (`timestamp_fetched` =
+ * call time, `position_age_s` default 0) on every call. Used for BOTH the
+ * initial push and the mid-test "renewal" push (see the de-emphasize/drop
+ * clause below) so the two payloads stay identical apart from timestamp —
+ * renewal resets these three vessels' age to ~0 so they cannot cross
+ * `drop_after_s` at the same wall-clock moment V2 does, which is what makes
+ * the final per-feature-removal assertion satisfiable at all (all four
+ * vessels sharing one push instant, with the SAME uniform age model, would
+ * otherwise all age out together — see the file-header defect-2 note).
+ */
+function otherVesselFeatures(v1: string, v3: string, v4: string) {
+  return {
+    v1: marineFeature(v1, { label: 'SHINE STAR', lat: 26.61, lon: 56.27, cogDeg: 341.0, sogKn: 12.4 }),
+    v3: marineFeature(v3, {
+      label: 'GHOST TANKER',
+      lat: 26.7,
+      lon: 56.4,
+      cogDeg: 200.0,
+      integrityFlags: ['spoof_suspect_on_land'],
+    }),
+    v4: marineFeature(v4, {
+      label: 'DOUBLE FLAG',
+      lat: 26.3,
+      lon: 56.5,
+      cogDeg: 15.0,
+      integrityFlags: ['spoof_suspect_on_land', 'implausible_kinematics'],
+    }),
+  };
+}
+
 // --- Map read helpers --------------------------------------------------
 
 async function marineSourceIds(page: Page): Promise<Set<string>> {
@@ -481,9 +529,9 @@ async function clickMapPoint(page: Page, point: { x: number; y: number }): Promi
 // interval included) is well under a minute total.
 test.setTimeout(200_000);
 
-test.fail(
-  'marine layer (source/symbol layer, client-tick de-emphasis/drop, integrity rings, popup) not yet implemented — ' +
-    'map/layers/marine.ts and map/popup.ts do not exist yet (main.ts mounts a marine BADGE only, per its own comment)',
+test(
+  'marine vessels render as teal rotated glyphs with MMSI/SOG/COG popups, client-tick de-emphasis/drop, ' +
+    'and never-hidden integrity rings (spoof + kinematics, concentric when both)',
   async ({ page }) => {
     const fixture = startEventsFixtureServer();
     const fixtureUrl = await listenEphemeral(fixture.server);
@@ -526,8 +574,12 @@ test.fail(
       );
 
       // === Given: a marine snapshot over SSE, four vessels =====================
-      // V1: fresh, no flags — proves initial glyph render + rotation + popup.
-      // V2: fresh at push time — tracked over real time for de-emphasis/drop.
+      // V1: fresh, no flags — proves initial glyph render + rotation + popup,
+      //     and (below) the "not already de-emphasized" default guard.
+      // V2: given a `position_age_s` HEAD START of TEST_DEEMPHASIZE_AFTER_S —
+      //     see the head-start comment below — tracked over real time for
+      //     de-emphasis/drop, in isolation from V1/V3/V4 (which get RENEWED
+      //     partway through, see the renewal push below).
       // V3: carries spoof_suspect_on_land only — ring + popup-names-the-flag.
       // V4: carries BOTH flags — concentric-ring data proof.
       const v1 = '422011111';
@@ -535,26 +587,29 @@ test.fail(
       const v3 = '422033333';
       const v4 = '422044444';
 
+      // V2's head start places its de-emphasized-but-not-yet-dropped age
+      // window (age in (deemphasize_after_s, drop_after_s]) at real elapsed
+      // time (0, TEST_DROP_AFTER_S - TEST_DEEMPHASIZE_AFTER_S] = (0, 12]s
+      // from THIS push — a 12s-wide window, still comfortably wider than the
+      // spec's own worst-case ~10s tick interval (same pigeonhole margin the
+      // file-header's 12s gap already relies on), just relocated to start at
+      // push time instead of push+4s. Kept as its own wire object (`v2Feature`)
+      // so the renewal push below can re-send V2 UNCHANGED — its age must
+      // keep accruing from this ORIGINAL timestamp_fetched, uninterrupted,
+      // for the client-tick drop mechanism under test to actually fire.
+      const v2Feature = marineFeature(v2, {
+        label: 'SILENT DRIFT',
+        lat: 26.5,
+        lon: 56.1,
+        cogDeg: 90.0,
+        sogKn: 5.0,
+        positionAgeS: TEST_DEEMPHASIZE_AFTER_S,
+      });
+
+      const initialOthers = otherVesselFeatures(v1, v3, v4);
       fixture.push('snapshot', {
         meta: marineMeta({ feature_count: 4 }),
-        features: [
-          marineFeature(v1, { label: 'SHINE STAR', lat: 26.61, lon: 56.27, cogDeg: 341.0, sogKn: 12.4 }),
-          marineFeature(v2, { label: 'SILENT DRIFT', lat: 26.5, lon: 56.1, cogDeg: 90.0, sogKn: 5.0, positionAgeS: 0 }),
-          marineFeature(v3, {
-            label: 'GHOST TANKER',
-            lat: 26.7,
-            lon: 56.4,
-            cogDeg: 200.0,
-            integrityFlags: ['spoof_suspect_on_land'],
-          }),
-          marineFeature(v4, {
-            label: 'DOUBLE FLAG',
-            lat: 26.3,
-            lon: 56.5,
-            cogDeg: 15.0,
-            integrityFlags: ['spoof_suspect_on_land', 'implausible_kinematics'],
-          }),
-        ],
+        features: [initialOthers.v1, v2Feature, initialOthers.v3, initialOthers.v4],
       });
 
       // === Then: the marine source/symbol layer renders =========================
@@ -564,12 +619,15 @@ test.fail(
 
       expect(await getLayerType(page, MARINE_LAYER_ID)).toBe('symbol');
 
-      const iconRotate = await getPaintProp(page, MARINE_LAYER_ID, 'icon-rotate');
-      const layoutIconRotate = await getLayoutProp(page, MARINE_LAYER_ID, 'icon-rotate');
-      const rotateSource = iconRotate ?? layoutIconRotate;
+      // icon-rotate is a symbol LAYOUT property (maplibre-gl style spec),
+      // not a paint property — read via getLayoutProperty only, mirroring
+      // layers-refresh.spec.ts's identical check for air-aircraft's
+      // icon-rotate/true_track_deg (getPaintProperty on a layout-only
+      // property throws inside MapLibre's Transitionable.getValue).
+      const iconRotate = await getLayoutProp(page, MARINE_LAYER_ID, 'icon-rotate');
       expect(
-        JSON.stringify(rotateSource),
-        `icon-rotate must be data-driven off cog_deg; got ${JSON.stringify(rotateSource)}`,
+        JSON.stringify(iconRotate),
+        `icon-rotate must be data-driven off cog_deg; got ${JSON.stringify(iconRotate)}`,
       ).toContain('cog_deg');
 
       const iconColor = await getPaintProp(page, MARINE_LAYER_ID, 'icon-color');
@@ -587,11 +645,18 @@ test.fail(
         `icon-opacity must be data-driven off a client-computed "deemphasized" property; got ${JSON.stringify(iconOpacity)}`,
       ).toContain('deemphasized');
 
-      // Guard against a tautological/broken default: V2 must NOT already be
-      // flagged de-emphasized moments after being pushed as "fresh."
-      const v2PropsInitial = await marineFeatureProps(page, v2);
+      // Guard against a tautological/broken default: a freshly-pushed vessel
+      // must NOT already be flagged de-emphasized moments after push. Checked
+      // against V1 (age 0, no head start) rather than V2 — V2 intentionally
+      // carries a head start (see above) so its own age is already past
+      // deemphasize_after_s from the moment of push; V1's own default-guard
+      // is a faithful stand-in since `wireToGeoJson` defaults `deemphasized`
+      // identically for every feature regardless of that feature's age (it
+      // is only ever recomputed by a client tick, never by the initial
+      // snapshot render itself).
+      const v1PropsInitial = await marineFeatureProps(page, v1);
       expect(
-        v2PropsInitial ? Boolean(v2PropsInitial.deemphasized) : null,
+        v1PropsInitial ? Boolean(v1PropsInitial.deemphasized) : null,
         'a freshly-pushed vessel must not already render de-emphasized',
       ).toBe(false);
 
@@ -687,6 +752,24 @@ test.fail(
 
       expect(await marineSourceIds(page), 'vessel must still be present once merely de-emphasized').toContain(v2);
 
+      // Renew V1/V3/V4 (fresh timestamp_fetched, age resets to ~0) now that
+      // V2's de-emphasized-but-present state is confirmed, so they cannot
+      // cross drop_after_s at the same wall-clock moment V2 does — without
+      // this, all four vessels share one push instant under the SAME uniform
+      // age model (spec §9), so they would all age out together and the
+      // "unrelated vessels survive" assertion below would be unsatisfiable
+      // by any faithful implementation. This is an ordinary `snapshot` event
+      // (idempotent full replace, ADR-12) like any other SSE push — NOT a
+      // substitute for the client-tick drop mechanism under test. V2 itself
+      // is re-sent as the SAME `v2Feature` object, UNCHANGED, so its age
+      // keeps accruing from its original timestamp_fetched exactly as
+      // before; only V1/V3/V4 are freshly timestamped.
+      const renewedOthers = otherVesselFeatures(v1, v3, v4);
+      fixture.push('snapshot', {
+        meta: marineMeta({ feature_count: 4 }),
+        features: [renewedOthers.v1, v2Feature, renewedOthers.v3, renewedOthers.v4],
+      });
+
       // === And: past drop_after_s it disappears from the map =====================
       await expect
         .poll(async () => !(await marineSourceIds(page)).has(v2), {
@@ -696,7 +779,7 @@ test.fail(
         .toBe(true);
 
       // Per-feature removal, not a blanket re-clear: the other three vessels
-      // (never touched again after their initial push) remain.
+      // (renewed above, but never dropped by any tick) remain.
       const idsAfterDrop = await marineSourceIds(page);
       expect(idsAfterDrop, 'unrelated vessels must survive another vessel being dropped').toEqual(
         new Set([v1, v3, v4]),

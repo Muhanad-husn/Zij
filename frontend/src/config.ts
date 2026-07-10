@@ -27,3 +27,8 @@ export const OPENFREEMAP_TILES_URL = 'https://tiles.openfreemap.org/planet';
 
 /** Backend base path (relative origin — ADR-7). */
 export const API_BASE = '/api';
+
+/** Client-tick interval (spec §9: "A setInterval (~5–10 s, config.ts) calls
+ * store.tick(Date.now())"). Chosen at the low end of that band so
+ * de-emphasis/drop transitions land on the map promptly. */
+export const TICK_INTERVAL_MS = 5_000;
