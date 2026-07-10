@@ -10,6 +10,7 @@ import type { Map as MapLibreMap } from 'maplibre-gl';
 
 export const AIRCRAFT_ICON_ID = 'zij-aircraft';
 export const LAND_POINT_ICON_ID = 'zij-land-point';
+export const MARINE_VESSEL_ICON_ID = 'zij-marine-vessel';
 
 interface RasterIcon {
   width: number;
@@ -50,6 +51,13 @@ function buildDot(size = 12): RasterIcon {
   });
 }
 
+/** Small filled diamond for marine vessels — visually distinct from the
+ * aircraft triangle/land dot while still cheap to build procedurally;
+ * `icon-rotate` rotates it per-feature the same way as the aircraft glyph. */
+function buildDiamond(size = 14): RasterIcon {
+  return buildIcon(size, (x, y, center) => Math.abs(x - center) + Math.abs(y - center) <= center);
+}
+
 /** Registers this slice's minimal SDF glyphs. Idempotent — safe to call from
  * more than one layer initializer. */
 export function registerIcons(map: MapLibreMap): void {
@@ -58,5 +66,8 @@ export function registerIcons(map: MapLibreMap): void {
   }
   if (!map.hasImage(LAND_POINT_ICON_ID)) {
     map.addImage(LAND_POINT_ICON_ID, buildDot(), { sdf: true });
+  }
+  if (!map.hasImage(MARINE_VESSEL_ICON_ID)) {
+    map.addImage(MARINE_VESSEL_ICON_ID, buildDiamond(), { sdf: true });
   }
 }

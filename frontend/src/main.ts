@@ -2,9 +2,11 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 import './styles/tokens.css';
 import './styles/layout.css';
 import { initMap } from './map/map';
-import { fetchSnapshot, refreshAll, refreshLayer } from './api/client';
+import { fetchConfig, fetchSnapshot, refreshAll, refreshLayer } from './api/client';
 import { initAviationLayer, updateAviationLayer, clearAviationLayer } from './map/layers/aviation';
 import { initLandLayer, updateLandLayer, clearLandLayer } from './map/layers/land';
+import { initMarineLayer, updateMarineLayer, tickMarineLayer, clearMarineLayer } from './map/layers/marine';
+import { initMarinePopup } from './map/popup';
 import { mountBadge } from './ui/badges';
 import { mountCaveatPanel } from './ui/caveatPanel';
 import { mountConnectionBanner } from './ui/controls';
@@ -12,7 +14,8 @@ import { mountRegionSelector } from './ui/regionSelector';
 import { loadLayers, type LayerLoadTask } from './app/loadLayers';
 import { Store } from './state/store';
 import { SseClient } from './sse/client';
-import type { Domain, LayerSnapshot, LayerSnapshotMeta } from './state/types';
+import { TICK_INTERVAL_MS } from './config';
+import type { Domain, LayerSnapshot, LayerSnapshotMeta, WireFeature } from './state/types';
 
 // Entry point (spec §1): bootstrap store -> map -> SSE client -> UI mount.
 // The store is the single source of truth for layer state + connection
@@ -93,6 +96,9 @@ store.on('enabled:air', (payload) => {
 });
 store.on('enabled:marine', (payload) => {
   marineBadge.setEnabled(payload as boolean);
+  if (!payload) {
+    clearMarineLayer(map);
+  }
 });
 store.on('enabled:land', (payload) => {
   landBadge.setEnabled(payload as boolean);
@@ -115,9 +121,10 @@ mountRegionSelector(regionSelectorContainer, store);
 store.on('region:changed', () => {
   clearAviationLayer(map);
   clearLandLayer(map);
+  clearMarineLayer(map);
 });
 
-// Air/land map sources+layers can only be added once the base style has
+// Air/land/marine map sources+layers can only be added once the base style has
 // fired `style.load` (map/map.ts uses the same event for `window.__zijMap`
 // — see its comment for why `style.load`, not the tile-fetch-bound `load`,
 // is the right readiness signal here). A `snapshot` event
@@ -129,8 +136,10 @@ store.on('region:changed', () => {
 let mapLoaded = false;
 let airLayerInitialized = false;
 let landLayerInitialized = false;
+let marineLayerInitialized = false;
 let pendingAirSnapshot: LayerSnapshot | null = null;
 let pendingLandSnapshot: LayerSnapshot | null = null;
+let pendingMarineSnapshot: LayerSnapshot | null = null;
 
 // Set the moment any SSE event lands for a domain (snapshot OR status —
 // spec §3 ADR-12: full-state-on-connect means SSE always re-emits a fresh
@@ -142,6 +151,7 @@ let pendingLandSnapshot: LayerSnapshot | null = null;
 // is not safe here; "SSE always wins once it has spoken" is.
 let airSseReceived = false;
 let landSseReceived = false;
+let marineSseReceived = false;
 
 function renderAirSnapshot(snapshot: LayerSnapshot): void {
   airBadge.update(snapshot.meta);
@@ -171,6 +181,26 @@ function renderLandSnapshot(snapshot: LayerSnapshot): void {
   }
 }
 
+// Marine gets the SAME cold-start REST fallback as air/land (the marine
+// source/layers must exist as soon as the map is ready, even with zero
+// features, so it can be populated purely by later SSE pushes — see the
+// `initialLoadTasks` comment below) even though its LIVE updates stream from
+// aisstream over SSE only.
+function renderMarineSnapshot(snapshot: LayerSnapshot): void {
+  marineBadge.update(snapshot.meta);
+  if (!mapLoaded) {
+    pendingMarineSnapshot = snapshot;
+    return;
+  }
+  if (!marineLayerInitialized) {
+    initMarineLayer(map, snapshot);
+    initMarinePopup(map);
+    marineLayerInitialized = true;
+  } else {
+    updateMarineLayer(map, snapshot);
+  }
+}
+
 // Mutators are the only writers (spec §9); renderers + badges are pure
 // subscribers to the store's `snapshot:*`/`status:*` events.
 store.on('snapshot:air', (payload) => {
@@ -190,11 +220,27 @@ store.on('status:land', (payload) => {
   landBadge.update(payload as LayerSnapshotMeta);
 });
 
-// Marine badge only this slice — no marine map source/layer yet (deferred to
-// step). It updates from meta alone on both full snapshots and meta-only
-// status transitions (e.g. `reconnecting` on a dropped aisstream websocket).
-store.on('snapshot:marine', (payload) => marineBadge.update((payload as LayerSnapshot).meta));
-store.on('status:marine', (payload) => marineBadge.update(payload as LayerSnapshotMeta));
+// Marine source/symbol/ring layers + popup (frontend/06-marine-integrity).
+// `status:marine` is meta-only (e.g. `reconnecting` on a dropped aisstream
+// websocket) — badge only, no map source change.
+store.on('snapshot:marine', (payload) => {
+  marineSseReceived = true;
+  renderMarineSnapshot(payload as LayerSnapshot);
+});
+store.on('status:marine', (payload) => {
+  marineSseReceived = true;
+  marineBadge.update(payload as LayerSnapshotMeta);
+});
+
+// Client-tick restyle (spec §9): `Store.tick` has already recomputed
+// `deemphasized`/dropped the marine source's features; this just re-renders
+// from that recomputed list. No-op before the marine layer/source exists.
+store.on('tick:marine', (payload) => {
+  if (!marineLayerInitialized) {
+    return;
+  }
+  tickMarineLayer(map, payload as WireFeature[]);
+});
 
 // Exactly one EventSource for the app's lifetime (spec §3) — the Retry
 // action (below) re-runs `connect()`, which is the one sanctioned exception
@@ -203,6 +249,22 @@ const sseClient = new SseClient(store);
 mountConnectionBanner(document.body, store, () => {
   sseClient.connect();
 });
+
+// Client-tick de-emphasis/drop (spec §9): thresholds are sourced from
+// `GET /api/config` once at bootstrap (`Store.setConfig`), then a
+// `setInterval` (~5-10s band, `config.ts`) drives `Store.tick` for the
+// lifetime of the app. `tick()` itself no-ops until `setConfig` has resolved,
+// so a slow/failed config fetch never throws from inside the interval.
+void fetchConfig()
+  .then((config) => {
+    store.setConfig(config);
+  })
+  .catch((err) => {
+    console.warn('[zij] fetchConfig() failed:', err);
+  });
+setInterval(() => {
+  store.tick(Date.now());
+}, TICK_INTERVAL_MS);
 
 // Failure isolation (spec FR10, issue #20): each domain's fetch+render is an
 // independent `LayerLoadTask` run through `loadLayers`, so one domain
@@ -227,6 +289,11 @@ map.on('style.load', () => {
     pendingLandSnapshot = null;
     renderLandSnapshot(snapshot);
   }
+  if (pendingMarineSnapshot) {
+    const snapshot = pendingMarineSnapshot;
+    pendingMarineSnapshot = null;
+    renderMarineSnapshot(snapshot);
+  }
 
   const initialLoadTasks: LayerLoadTask[] = [
     {
@@ -244,6 +311,15 @@ map.on('style.load', () => {
       render: (snapshot) => {
         if (!landSseReceived && store.getState().layers.land.enabled) {
           renderLandSnapshot(snapshot as LayerSnapshot);
+        }
+      },
+    },
+    {
+      label: 'marine',
+      load: () => fetchSnapshot('marine'),
+      render: (snapshot) => {
+        if (!marineSseReceived && store.getState().layers.marine.enabled) {
+          renderMarineSnapshot(snapshot as LayerSnapshot);
         }
       },
     },
@@ -276,6 +352,15 @@ refreshButton?.addEventListener('click', () => {
         render: (snapshot) => {
           if (store.getState().layers.land.enabled) {
             renderLandSnapshot(snapshot as LayerSnapshot);
+          }
+        },
+      },
+      {
+        label: 'marine',
+        load: () => fetchSnapshot('marine'),
+        render: (snapshot) => {
+          if (store.getState().layers.marine.enabled) {
+            renderMarineSnapshot(snapshot as LayerSnapshot);
           }
         },
       },

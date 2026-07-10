@@ -68,11 +68,21 @@
  * `tests/e2e/helpers/stubRegionEndpoints.ts` is used below to answer both
  * quietly; this test asserts nothing about regions (that's
  * `region-selector.spec.ts`'s job).
+ *
+ * RECONCILIATION (slice frontend/06-marine-integrity, issue #62): the app
+ * now unconditionally fetches `GET /api/config` on load (the client tick
+ * reads de-emphasis/drop thresholds from it, spec §9). This test has no live
+ * FastAPI backend, so an unstubbed call would leak through Vite's preview
+ * proxy the same way the region/SSE reconciliations above already document.
+ * `tests/e2e/helpers/stubConfigEndpoint.ts` answers it quietly; this test
+ * asserts nothing about tick/de-emphasis behavior (that's
+ * `marine-integrity.spec.ts`'s job).
  */
 
 import { test, expect } from '@playwright/test';
 import { startQuietSseStub } from './helpers/quietSseStub';
 import { stubRegionEndpoints } from './helpers/stubRegionEndpoints';
+import { stubConfigEndpoint } from './helpers/stubConfigEndpoint';
 
 /** Minimal valid empty LayerSnapshot per design/contracts/feature-schema.md
  * §"LayerSnapshot & metadata". Only used to keep the app's on-load snapshot
@@ -151,6 +161,7 @@ test(
       await stubApi(page);
       await sseStub.attachTo(page);
       await stubRegionEndpoints(page);
+      await stubConfigEndpoint(page);
 
       await page.goto('/');
 
