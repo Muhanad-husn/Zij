@@ -323,6 +323,13 @@ class Scheduler:
         wake = self._wake[domain]
 
         if self._enabled.get(domain, True):
+            # Push the active region onto the stream BEFORE start() so the very
+            # first subscribe carries the bbox (aisstream.md "set_region" pre-
+            # connect bootstrap). Without this the initial subscribe goes out
+            # with an empty BoundingBoxes list and the socket receives no
+            # vessels until a region switch happens to call set_region.
+            if self._region is not None:
+                await stream.set_region(self._region)
             await stream.start()
 
         while True:

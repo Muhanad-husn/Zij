@@ -337,9 +337,11 @@ async def test_activate_region_cancels_stale_fetch_clears_registry_gates_fallbac
         assert event["event"] == "region_changed"
         assert event["data"]["region_id"] == REGION_B.id
 
-        # ...the marine stream re-subscribed to B...
-        assert len(stream.set_region_calls) == 1
-        assert stream.set_region_calls[0].id == REGION_B.id
+        # ...the marine stream re-subscribed to B. Since #113 the supervisor
+        # also pushes the initial region A onto the stream before start()
+        # (so the first aisstream subscribe carries a bbox), so the full
+        # call sequence is [A (bootstrap), B (switch)].
+        assert [r.id for r in stream.set_region_calls] == [REGION_A.id, REGION_B.id]
 
         # ...and B was persisted as the active_region config override.
         assert ("active_region", {"region_id": REGION_B.id}) in (
@@ -385,3 +387,69 @@ async def test_activate_region_cancels_stale_fetch_clears_registry_gates_fallbac
         await scheduler.set_enabled(Domain.AIR, False)
         await asyncio.sleep(2.2)  # >> air's 1s cadence
         assert air_adapter.call_count == fetch_count_before_disable
+
+
+class _OrderRecordingStreamAdapter(StreamAdapter):
+    """A StreamAdapter double that records the ORDER of `set_region` vs
+    `start`, so the regression test below can prove the scheduler's initial
+    region reaches the stream BEFORE the first subscribe (#113)."""
+
+    domain = Domain.MARINE
+    source = "order-recording-stream"
+
+    def __init__(self) -> None:
+        self.events: list[tuple[str, str | None]] = []
+        self._connected = True
+
+    async def start(self) -> None:
+        self.events.append(("start", None))
+
+    async def stop(self) -> None:
+        pass
+
+    async def set_region(self, region: Region) -> None:
+        self.events.append(("set_region", region.id))
+
+    def snapshot(self) -> LayerSnapshot:
+        return _make_snapshot(Domain.MARINE, REGION_A)
+
+    @property
+    def connected(self) -> bool:
+        return self._connected
+
+
+async def test_stream_supervisor_pushes_initial_region_before_start():
+    """Regression (#113): the stream supervisor must push the scheduler's
+    initial region onto the marine stream BEFORE calling `start()`, so the
+    first aisstream subscribe carries the region bbox. Without it the socket
+    subscribes with an empty `BoundingBoxes` list and receives no vessels
+    until a later region switch happens to call `set_region` -- marine renders
+    live-but-empty forever (caught live against the real adapter, not the
+    fake used by the outer acceptance test, whose `snapshot()` ignores the
+    subscription)."""
+    from backend.scheduler import Scheduler
+
+    stream = _OrderRecordingStreamAdapter()
+    cfg = _make_cfg(air_cadence_s=1, air_enabled=False)
+    scheduler = Scheduler(
+        cfg,
+        {},
+        REGION_A,
+        registry=Registry(),
+        store=FakeStore(fallback_by_layer={}),
+        events=EventBus(),
+        stream=stream,
+    )
+
+    async with _running_scheduler(scheduler):
+        for _ in range(100):
+            if any(e == ("start", None) for e in stream.events):
+                break
+            await asyncio.sleep(0.02)
+
+    assert ("start", None) in stream.events, "supervisor never called start()"
+    start_idx = stream.events.index(("start", None))
+    before_start = [e for e in stream.events[:start_idx] if e[0] == "set_region"]
+    assert before_start == [("set_region", REGION_A.id)], (
+        f"expected set_region({REGION_A.id!r}) before start(), got {stream.events!r}"
+    )
