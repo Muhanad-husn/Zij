@@ -56,6 +56,20 @@ function Guard-Denies([string]$posixCwd) {
 
 $featRepo = New-Repo 'feat/test-119'
 $mainRepo = New-Repo 'main'
+
+# --- Integration: tests-green.ps1 also resolves the toplevel from a POSIX cwd ---
+# tests-green has its OWN resolution (`git -C $opDir rev-parse --show-toplevel`)
+# followed by `Set-Location $projectDir`. Without normalization, a POSIX $opDir
+# leaves $projectDir as `/d/..`, and `Set-Location '/d/..'` THROWS under
+# $ErrorActionPreference='Stop' — crashing the hook and blocking the commit. This
+# is the path that produced the real observed symptom (#119). Feed a docs-only
+# staged commit so the fast path exits 0 *before* any pytest run: post-fix that
+# fast-path message appears; pre-fix the script crashes at Set-Location first.
+$testsGreen = Join-Path $hooksDir 'tests-green.ps1'
+$docsRepo = New-Repo 'feat/docs-119'
+Set-Content -Path (Join-Path $docsRepo 'README.md') -Value 'doc' -NoNewline
+& git -C $docsRepo add README.md | Out-Null
+
 try {
     $featPosix = ToPosix $featRepo
     $mainPosix = ToPosix $mainRepo
@@ -63,9 +77,15 @@ try {
     Check "test feeds a posix cwd"        ($featPosix -match '^/[a-z]/')
     Check "feature-branch worktree: allowed" (-not (Guard-Denies $featPosix))
     Check "main worktree: still denied"      (Guard-Denies $mainPosix)
+
+    $payload = @{ cwd = (ToPosix $docsRepo); tool_input = @{ command = 'git commit -m x' } } | ConvertTo-Json -Compress
+    $tgOut = $payload | & pwsh -NoProfile -File $testsGreen 2>&1
+    $tgExit = $LASTEXITCODE
+    Check "tests-green: posix cwd resolves (no crash)" ($tgExit -eq 0)
+    Check "tests-green: docs-only fast path reached"   ("$tgOut" -match 'Docs-only')
 }
 finally {
-    Remove-Item -Recurse -Force $featRepo, $mainRepo -ErrorAction SilentlyContinue
+    Remove-Item -Recurse -Force $featRepo, $mainRepo, $docsRepo -ErrorAction SilentlyContinue
 }
 
 if ($fails -gt 0) { Write-Host "`n$fails check(s) FAILED"; exit 1 }
