@@ -23,6 +23,8 @@ param([string]$Scope = 'global')
 
 $ErrorActionPreference = 'Stop'
 
+. (Join-Path $PSScriptRoot 'lib.ps1')
+
 # Filler between tokens of one command segment: anything except a pipe, command
 # separator, or newline. Conservative on purpose — quoted separators inside one
 # segment still end the match window, which can only over-block, never under-block.
@@ -93,7 +95,7 @@ if ($isSubagent) {
 # in a worktree sitting on main, and block a feature-branch worktree commit whenever
 # the launching checkout happens to be on main). Same resolution tests-green.ps1 uses.
 if ($cmd -match '(?i)\bgit\s+commit\b') {
-    $opDir = "$($hook.cwd)"
+    $opDir = ConvertTo-HookPath "$($hook.cwd)"
     if ([string]::IsNullOrWhiteSpace($opDir)) { $opDir = $env:CLAUDE_PROJECT_DIR }
     if ([string]::IsNullOrWhiteSpace($opDir)) { $opDir = (Get-Location).Path }
     $branch = (& git -C $opDir rev-parse --abbrev-ref HEAD 2>$null)
