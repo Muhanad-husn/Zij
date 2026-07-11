@@ -12,6 +12,8 @@
 
 $ErrorActionPreference = 'Stop'
 
+. (Join-Path $PSScriptRoot 'lib.ps1')
+
 $raw = [Console]::In.ReadToEnd()
 try { $hook = $raw | ConvertFrom-Json } catch { exit 0 }
 $cmd = "$($hook.tool_input.command)"
@@ -20,7 +22,7 @@ if ($cmd -notmatch '(?i)\bgit\s+commit\b') { exit 0 }
 # Resolve the worktree this commit actually targets from the tool's cwd (DEC-37,
 # hooks rule 4): CLAUDE_PROJECT_DIR stays bound to the launching checkout and misfires
 # under git worktrees.
-$opDir = "$($hook.cwd)"
+$opDir = ConvertTo-HookPath "$($hook.cwd)"
 if ([string]::IsNullOrWhiteSpace($opDir)) { $opDir = $env:CLAUDE_PROJECT_DIR }
 if ([string]::IsNullOrWhiteSpace($opDir)) { $opDir = (Get-Location).Path }
 $projectDir = (& git -C $opDir rev-parse --show-toplevel 2>$null)
