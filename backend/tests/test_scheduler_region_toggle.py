@@ -453,3 +453,78 @@ async def test_stream_supervisor_pushes_initial_region_before_start():
     assert before_start == [("set_region", REGION_A.id)], (
         f"expected set_region({REGION_A.id!r}) before start(), got {stream.events!r}"
     )
+
+
+class _BootFailStreamAdapter(StreamAdapter):
+    """A StreamAdapter double whose initial `start()` raises (simulating a
+    DNS/refused/TLS failure connecting to aisstream at boot), then succeeds on
+    a later retry -- used to prove the supervisor isolates a boot-time connect
+    failure (#113) instead of letting it crash sibling poll loops."""
+
+    domain = Domain.MARINE
+    source = "boot-fail-stream"
+
+    def __init__(self, fail_times: int) -> None:
+        self._fail_times = fail_times
+        self.start_attempts = 0
+        self._connected = False
+
+    async def start(self) -> None:
+        self.start_attempts += 1
+        if self.start_attempts <= self._fail_times:
+            raise ConnectionError("simulated aisstream connect failure")
+        self._connected = True
+
+    async def stop(self) -> None:
+        self._connected = False
+
+    async def set_region(self, region: Region) -> None:
+        pass
+
+    def snapshot(self) -> LayerSnapshot:
+        return _make_snapshot(Domain.MARINE, REGION_A)
+
+    @property
+    def connected(self) -> bool:
+        return self._connected
+
+
+async def test_stream_start_failure_is_isolated_and_retried_not_crashing_siblings():
+    """Regression (#113, reviewer Finding 1): a marine `start()` that raises at
+    boot must NOT propagate out of `_stream_supervisor` -- that task runs
+    inside `run()`'s `asyncio.TaskGroup`, so an unhandled raise would cancel
+    the sibling air poll loop too (FR10 violation). The supervisor must catch
+    the failure, keep the air loop polling, and retry `start()` on a later
+    cadence tick (self-healing once aisstream is reachable again)."""
+    from backend.scheduler import Scheduler
+
+    air_adapter = FakeAdapter(Domain.AIR)
+    stream = _BootFailStreamAdapter(fail_times=1)
+
+    # air cadence 1s (keeps polling), marine defaults to 1s cadence too.
+    cfg = _make_cfg(air_cadence_s=1, air_enabled=True)
+    scheduler = Scheduler(
+        cfg,
+        {Domain.AIR: air_adapter},
+        REGION_A,
+        registry=Registry(),
+        store=FakeStore(fallback_by_layer={}),
+        events=EventBus(),
+        stream=stream,
+    )
+
+    async with _running_scheduler(scheduler):
+        # The air loop must keep issuing fetches despite marine's boot failure.
+        await asyncio.wait_for(air_adapter.fetch_started.wait(), timeout=3.0)
+        # And marine must retry start() (first attempt raised, a later tick
+        # attempts again) and eventually connect -- proof of self-healing.
+        for _ in range(200):
+            if stream.start_attempts >= 2 and stream.connected:
+                break
+            await asyncio.sleep(0.02)
+
+    assert air_adapter.call_count >= 1, (
+        "sibling air loop was killed by marine start failure"
+    )
+    assert stream.start_attempts >= 2, "supervisor did not retry a failed start()"
+    assert stream.connected, "supervisor never recovered the marine stream after retry"

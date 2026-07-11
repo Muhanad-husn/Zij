@@ -73,6 +73,33 @@ _TOKEN_RESPONSE = {
 }
 
 
+@pytest.fixture(autouse=True)
+def _neutralize_default_marine_stream(monkeypatch):
+    """Keep this module hermetic against the marine stream (#113).
+
+    Since #113 `create_app`'s lifespan starts `scheduler.run()`, which starts
+    the marine `StreamAdapter`. Tests here inject air/land/store doubles but
+    never a `marine_adapter`, so `create_app` builds a real `AisStreamAdapter`
+    that would open a live websocket to aisstream.io the moment an app is
+    driven through `with TestClient(app)` (the context-manager form runs the
+    ASGI lifespan). Patch the default adapter's lifecycle to no-ops and report
+    it perpetually disconnected so the supervisor takes its no-network
+    reconnecting path. Tests that inject their own marine double bypass the
+    default entirely and are unaffected; the real adapter is exercised in
+    test_aisstream.py, a separate module this fixture does not touch."""
+    from backend.sources.aisstream import AisStreamAdapter
+
+    async def _noop(self, *args, **kwargs):
+        return None
+
+    monkeypatch.setattr(AisStreamAdapter, "start", _noop, raising=True)
+    monkeypatch.setattr(AisStreamAdapter, "stop", _noop, raising=True)
+    monkeypatch.setattr(AisStreamAdapter, "set_region", _noop, raising=True)
+    monkeypatch.setattr(
+        AisStreamAdapter, "connected", property(lambda self: False), raising=True
+    )
+
+
 def test_health_and_config(tmp_path, monkeypatch):
     # --- Given: a real, known pair of OpenSky secret values wired through
     # env (config.py's Secrets is env/.env-only, NFR5) so the "never leaks"

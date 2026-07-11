@@ -322,15 +322,9 @@ class Scheduler:
         domain = stream.domain
         wake = self._wake[domain]
 
+        started = False
         if self._enabled.get(domain, True):
-            # Push the active region onto the stream BEFORE start() so the very
-            # first subscribe carries the bbox (aisstream.md "set_region" pre-
-            # connect bootstrap). Without this the initial subscribe goes out
-            # with an empty BoundingBoxes list and the socket receives no
-            # vessels until a region switch happens to call set_region.
-            if self._region is not None:
-                await stream.set_region(self._region)
-            await stream.start()
+            started = await self._bootstrap_stream(domain)
 
         while True:
             cadence_s = self._cadence_s.get(domain, 1)
@@ -344,6 +338,14 @@ class Scheduler:
             wake.clear()
             if not self._enabled.get(domain, True):
                 continue
+            # If the boot-time connect failed (isolated below), retry it before
+            # sampling so a transient outage at startup self-heals rather than
+            # parking marine in reconnecting forever. Once started, the
+            # adapter's own read loop owns mid-stream reconnects.
+            if not started:
+                started = await self._bootstrap_stream(domain)
+                if not started:
+                    continue
             try:
                 await self._sample_stream(domain)
             except asyncio.CancelledError:
@@ -352,6 +354,35 @@ class Scheduler:
                 logger.exception(
                     "marine stream: sample failed, will retry next cadence tick"
                 )
+
+    async def _bootstrap_stream(self, domain: Domain) -> bool:
+        """Push the active region onto the stream then `start()` it, isolating
+        any connect failure (FR10). The region is set BEFORE start() so the
+        first subscribe carries the bbox (aisstream.md "set_region" pre-connect
+        bootstrap) -- without it the initial subscribe goes out with an empty
+        `BoundingBoxes` list and the socket receives no vessels until a region
+        switch. A failed initial connect (DNS, refused, TLS) must NOT propagate
+        out of `_stream_supervisor`: that task runs inside `run()`'s
+        `TaskGroup`, and an unhandled raise there would cancel the sibling air/
+        land poll loops too (scheduler.md "Failure modes"). On failure this
+        maps the layer to reconnecting/cached-fallback and returns False so the
+        supervisor retries on the next cadence tick; returns True once
+        started."""
+        stream = self._stream
+        assert stream is not None
+        try:
+            if self._region is not None:
+                await stream.set_region(self._region)
+            await stream.start()
+            return True
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception(
+                "marine stream: start failed, will retry next cadence tick"
+            )
+            await self._handle_stream_disconnected(domain)
+            return False
 
     async def _sample_stream(self, domain: Domain) -> None:
         """One sample of the marine stream (spec "Write path": `snap =
@@ -412,6 +443,13 @@ class Scheduler:
         ):
             self._enabled[domain] = enabled
             if enabled:
+                # Same pre-connect bootstrap as _stream_supervisor: push the
+                # active region before start() so the re-enable subscribe
+                # carries the bbox. Without this a marine layer that booted
+                # disabled and is enabled via the API before any region switch
+                # would subscribe with an empty BoundingBoxes list (#113).
+                if self._region is not None:
+                    await self._stream.set_region(self._region)
                 await self._stream.start()
                 if domain in self._wake:
                     self._wake[domain].set()
