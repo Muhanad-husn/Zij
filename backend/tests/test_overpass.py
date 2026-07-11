@@ -917,7 +917,9 @@ def _simplify_now_and_osm_base():
     return now, osm_base
 
 
-def _synthetic_line_feature(source_id: str, attrs: dict, length_deg: float, lat_row: float):
+def _synthetic_line_feature(
+    source_id: str, attrs: dict, length_deg: float, lat_row: float
+):
     """A 3-vertex LINESTRING way: two endpoints `length_deg` apart, plus one
     midpoint offset 0.0001 deg perpendicular to the line -- strictly inside
     the 0.0005 deg simplify tolerance (see module-level rationale above)."""
@@ -988,9 +990,7 @@ def _build_synthetic_land_features() -> list:
         _synthetic_point_feature("node/port-1", {"harbour": "yes"}, 26.0, 56.0)
     )
     features.append(
-        _synthetic_point_feature(
-            "node/station-1", {"railway": "station"}, 27.0, 57.0
-        )
+        _synthetic_point_feature("node/station-1", {"railway": "station"}, 27.0, 57.0)
     )
 
     for i in range(_N_MOTORWAY):
@@ -1348,9 +1348,7 @@ def test_polygon_geometry_simplified_intact_and_still_closed():
         [0.0, 2.0],
         [0.0, 0.0],  # closes the ring
     ]
-    polygon = _synthetic_polygon_feature(
-        "way/polygon-1", {"landuse": "port"}, ring
-    )
+    polygon = _synthetic_polygon_feature("way/polygon-1", {"landuse": "port"}, ring)
     # A couple of unrelated features alongside it, well under any realistic
     # cap, so nothing here is at risk of being drop-cap-eligible.
     companion_point = _synthetic_point_feature(
@@ -1475,3 +1473,235 @@ def test_one_over_cap_boundary_drops_exactly_one_shortest_primary():
         "way/rail-1",
         "way/trunk-1",
     }
+
+
+# ---------------------------------------------------------------------------
+# overpass-user-agent (issue #114) outer acceptance tests (DEC-1).
+# ---------------------------------------------------------------------------
+#
+# Bug (issue #114): `OverpassAdapter.start`/`fetch` build the shared
+# `httpx.AsyncClient()` with no `headers=` argument (backend/sources/
+# overpass.py, `start`/`fetch`, ~line 224/238), so every outgoing request
+# carries httpx's own default `User-Agent: python-httpx/<version>` header.
+# overpass-api.de's mod_security module rejects that default UA with HTTP
+# 406 (verified live by the reporter: identical query, 406 with the default
+# UA, 200 with a descriptive one), so the land layer 502s
+# ("overpass endpoint returned 406") on every cold-cache fetch. Secondarily,
+# `_fetch_class`'s retry/rotate branch (~line 319: `if status in (429,
+# 504):`) does not include 406, so even if a single mirror happened to
+# recover, the first mirror's 406 currently kills the whole fetch instead of
+# rotating like a 429/504 would.
+#
+# Two behaviors are pinned here, transcribed directly from issue #114's
+# acceptance criteria:
+#   1. Every outgoing Overpass POST carries a descriptive `User-Agent` that
+#      identifies the project (pinned as: the header value, lower-cased,
+#      starts with the literal prefix "zij/" -- e.g. "zij/0.1",
+#      "zij/0.0.0 (+https://github.com/...)" would satisfy this; a bare
+#      "zij" with no slash, or "Zij-Monitor/1.0", would NOT -- the "/"
+#      separating the product token from a version/detail suffix is part of
+#      the pinned shape, not merely "contains zij") and is NOT httpx's own
+#      default (`user-agent` values matching `^python-httpx/` are rejected
+#      by this assertion). This is deliberately looser than one exact
+#      literal (the implementer picks the version/detail suffix) but
+#      precise about the prefix shape, per the dispatch's instruction to
+#      "pin the shape, not one exact literal."
+#   2. A 406 response from one mirror rotates `_fetch_class` to the next
+#      mirror (identically to 429/504) rather than raising `UpstreamError`
+#      immediately; when the next mirror then answers with a normal 200
+#      response, `fetch()` returns a normal `LayerSnapshot` built from that
+#      response -- the 406 is transparently absorbed, not surfaced to the
+#      scheduler as a fetch failure.
+#
+# Both tests exercise the real, un-stubbed `_fetch_class`/`fetch()` code
+# paths against `respx`-mocked mirror URLs (hermetic, no real network) --
+# the same idiom the 429/504-rotation and whitelist-query inner tests above
+# use. Why these are not satisfiable by a stub:
+#   - Test 1 inspects the LITERAL `User-Agent` header respx recorded on
+#     every one of the six real outgoing class-query requests `fetch()`
+#     makes (not a hardcoded assumption about what the adapter *should* send
+#     -- the actual `httpx.Request` respx captured). A stub that hardcodes a
+#     `LayerSnapshot` return value without ever calling `_client.post`
+#     produces zero recorded calls, and the `route.call_count == 6` /
+#     per-call header assertions below both fail against that. A stub that
+#     removes header setting entirely (today's actual bug) sends the httpx
+#     default, which fails the "does not start with python-httpx" and
+#     "starts with zij/" assertions identically to how it fails today.
+#   - Test 2 pins a specific PER-MIRROR CALL COUNT (route_406.call_count ==
+#     1, route_ok.call_count == 1) rather than merely "fetch() doesn't
+#     raise" -- a stub that swallows all errors and always returns a
+#     canned snapshot regardless of what respx actually served would not
+#     reproduce that exact 1-then-1 rotation shape, and (today, pre-fix)
+#     the real adapter raises `UpstreamError` on the very first class query
+#     because 406 falls through to the generic
+#     `status >= 500 or status < 200 or status >= 300` branch -- so this
+#     test genuinely fails against the current, unfixed adapter, not merely
+#     against a hypothetical stub.
+#
+# Red mechanism (DEC-33), as committed here: `backend.sources.overpass`
+# already exists (slice overpass-adapter/01+02 shipped it), so these tests
+# import cleanly; xfail's default (no `raises=` narrowing) treats the actual
+# runtime failure -- an `AssertionError` on the User-Agent shape for test 1
+# (the client sends httpx's own default today), and an unhandled
+# `UpstreamError` propagating out of `fetch()` for test 2 (406 is not yet a
+# rotation-triggering status) -- as the expected failure. Both are verified
+# below to fail for exactly those reasons against the current code, not for
+# an unrelated bug (e.g. a typo in the mirror URL or fixture). The
+# implementer has since made both genuinely pass; the xfail markers have
+# been removed to finalize the contract.
+#
+# Names this test requires the implementer to provide (spec-fixed unless
+# noted "test-author's plumbing choice"): no new names are required. Both
+# behaviors are implemented as changes to the EXISTING `OverpassAdapter.
+# start`/`fetch` (passing `headers=` to `httpx.AsyncClient(...)`) and the
+# EXISTING `_fetch_class` retry condition (`if status in (429, 504):` ->
+# adding `406`), per issue #114's own diagnosis of the two exact call sites.
+
+
+async def test_user_agent_header_is_descriptive_not_httpx_default(monkeypatch):
+    """Issue #114, behavior 1: every outgoing Overpass POST carries a
+    descriptive `User-Agent` header identifying the project, and is NOT
+    httpx's own default (`python-httpx/<version>`) -- overpass-api.de's
+    mod_security rejects the default UA with HTTP 406 (verified live by the
+    reporter), so sending it at all is the root cause of issue #114's cold-
+    cache 502s.
+
+    Shape pinned (deliberately looser than one exact literal, per the
+    dispatch's instruction): the header value, lower-cased, STARTS WITH the
+    literal prefix "zij/" -- a product-token-then-slash-then-detail shape
+    (e.g. "zij/0.1", "zij/0.0.0 (+contact)" both satisfy this; a bare "zij"
+    with no "/", or "Zij-Monitor/1.0" with a different token before the
+    slash, do NOT). This is checked on the LITERAL header value respx
+    recorded on all six real outgoing class-query requests -- not a
+    hardcoded assumption about the implementation, and not merely "the
+    header exists" (which the httpx default already satisfies).
+    """
+    from backend.sources.base import Region
+    from backend.sources.overpass import OverpassAdapter
+
+    monkeypatch.setattr("backend.sources.overpass.asyncio.sleep", _no_op_sleep)
+
+    mirror = "https://overpass.test/api/interpreter"
+    cfg = _make_overpass_cfg(mirrors=[mirror])
+    region = Region(
+        id="hormuz", label="Strait of Hormuz", bbox=(55.0, 25.0, 57.5, 27.5)
+    )
+    empty_body = {
+        "osm3s": {"timestamp_osm_base": "2026-07-05T10:00:00Z"},
+        "elements": [],
+    }
+
+    async with respx.mock() as respx_mock:
+        route = respx_mock.route(url=mirror).mock(
+            return_value=Response(200, json=empty_body)
+        )
+        adapter = OverpassAdapter(cfg)
+        await adapter.start()
+        await adapter.fetch(region)
+        await adapter.stop()
+
+    # --- Every one of the six whitelisted class queries actually went out
+    # (proves this isn't a stub that skips the network call entirely) ---
+    assert route.call_count == 6
+
+    for call in route.calls:
+        user_agent = call.request.headers.get("user-agent")
+        assert user_agent is not None
+        # --- NOT httpx's own default -- this is the literal root cause:
+        # overpass-api.de 406s the default UA ---
+        assert not user_agent.lower().startswith("python-httpx")
+        # --- A descriptive, project-identifying UA: "zij/<anything>" ---
+        assert user_agent.lower().startswith("zij/")
+
+
+async def test_406_rotates_to_next_mirror_then_fetch_succeeds(monkeypatch):
+    """Issue #114, behavior 2: a 406 from one mirror rotates `_fetch_class`
+    to the next mirror -- identically to how 429/504 already rotate --
+    instead of raising `UpstreamError` immediately. When the next mirror
+    then answers with a normal 200 response, `fetch()` returns a normal
+    `LayerSnapshot` built from it: the 406 is transparently absorbed, not
+    surfaced to the scheduler as a fetch failure.
+
+    Two mirrors: mirror_406 answers every request with 406 (mod_security
+    style rejection), mirror_ok answers with a real, parseable Overpass
+    response body. Because `_fetch_class` restarts its own mirror index at 0
+    on every call (once per class query, six times total per `fetch()`),
+    mirror_406 is hit once and mirror_ok once for EVERY one of the six class
+    queries -- pinned as exact per-mirror call counts (6 and 6), not merely
+    "fetch() returned something."
+
+    Against the CURRENT, unfixed adapter this fails for a real, diagnosed
+    reason: 406 falls through `_fetch_class`'s generic
+    `status >= 500 or status < 200 or status >= 300` branch (406 is not in
+    the rotation set `(429, 504)`), so the very first class query raises
+    `UpstreamError("overpass endpoint returned 406")` and `fetch()` never
+    returns -- exactly the live-verified 502 this issue reports.
+    """
+    from backend.sources.base import Region
+    from backend.sources.overpass import OverpassAdapter
+
+    monkeypatch.setattr("backend.sources.overpass.asyncio.sleep", _no_op_sleep)
+
+    mirror_406 = "https://mirror-406.test/api/interpreter"
+    mirror_ok = "https://mirror-ok.test/api/interpreter"
+    cfg = _make_overpass_cfg(
+        mirrors=[mirror_406, mirror_ok],
+        backoff_base_s=0.001,
+        backoff_max_s=0.001,
+        max_attempts=3,
+    )
+    region = Region(
+        id="hormuz", label="Strait of Hormuz", bbox=(55.0, 25.0, 57.5, 27.5)
+    )
+    osm_base_iso = "2026-07-05T10:00:00Z"
+    ok_body = {
+        "osm3s": {"timestamp_osm_base": osm_base_iso},
+        "elements": [
+            {
+                "type": "node",
+                "id": 42,
+                "lat": 26.0,
+                "lon": 56.0,
+                "tags": {"harbour": "yes"},
+            }
+        ],
+    }
+
+    async with respx.mock() as respx_mock:
+        route_406 = respx_mock.post(mirror_406).mock(return_value=Response(406))
+        route_ok = respx_mock.post(mirror_ok).mock(
+            return_value=Response(200, json=ok_body)
+        )
+
+        adapter = OverpassAdapter(cfg)
+        await adapter.start()
+
+        # --- When: fetch() runs all six class queries; each one hits the
+        # 406 mirror first, rotates, then succeeds on the second mirror ---
+        snapshot = await adapter.fetch(region)
+
+        await adapter.stop()
+
+    # --- Then: the 406 mirror was tried once per class query (six calls,
+    # one each), and rotation moved on to the working mirror every time --
+    # not an immediate UpstreamError, and not repeated retries against the
+    # same 406 mirror ---
+    assert route_406.call_count == 6
+    assert route_ok.call_count == 6
+
+    # --- And: fetch() returned a normal LayerSnapshot built from the
+    # working mirror's response, not a raised error ---
+    from backend.models import Domain
+
+    assert snapshot.meta.layer == Domain.LAND
+    assert snapshot.meta.region_id == "hormuz"
+    # The single node element is returned identically by all six class
+    # queries (same body every time) -- deduped by source_id, so exactly
+    # one feature survives.
+    assert len(snapshot.features) == 1
+    feature = snapshot.features[0]
+    assert feature.source_id == "node/42"
+    assert feature.lat == 26.0
+    assert feature.lon == 56.0
+    expected_osm_base = datetime.fromisoformat(osm_base_iso.replace("Z", "+00:00"))
+    assert snapshot.meta.timestamp_source == expected_osm_base
