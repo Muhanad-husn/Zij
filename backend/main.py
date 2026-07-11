@@ -18,6 +18,7 @@ before the frontend is built.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import itertools
 import json
 import logging
@@ -48,12 +49,14 @@ from backend.models import (
 )
 from backend.registry import Registry
 from backend.scheduler import Scheduler
+from backend.sources.aisstream import AisStreamAdapter, AisStreamCfg
 from backend.sources.base import (
     AdapterError,
     AuthError,
     ParseError,
     RateLimitedError,
     Region,
+    StreamAdapter,
     UpstreamError,
 )
 from backend.sources.opensky import CreditLedger, OpenSkyAdapter, OpenSkyCfg
@@ -255,6 +258,7 @@ def create_app(
     secrets: Secrets,
     air_adapter: OpenSkyAdapter | None = None,
     land_adapter: OverpassAdapter | None = None,
+    marine_adapter: StreamAdapter | None = None,
     store: Store | None = None,
     registry: Registry | None = None,
     events: EventBus | None = None,
@@ -264,17 +268,16 @@ def create_app(
 
     `secrets` is never referenced in any response body -- only `config` is
     ever serialized (NFR5) -- but is used to build the default `air_adapter`
-    when one isn't injected. `air_adapter`/`land_adapter`/`store`/`registry`/
-    `events`/`scheduler` are each optional and default to a fresh/real
-    collaborator built from `config`/`secrets` when omitted, so the real
-    uvicorn entrypoint (`_build_default_app`) keeps working unchanged.
+    /`marine_adapter` when one isn't injected. `air_adapter`/`land_adapter`/
+    `marine_adapter`/`store`/`registry`/`events`/`scheduler` are each
+    optional and default to a fresh/real collaborator built from
+    `config`/`secrets` when omitted, so the real uvicorn entrypoint
+    (`_build_default_app`) keeps working unchanged.
 
-    The default `scheduler` is constructed (so `POST /api/regions/activate`
-    always has a real collaborator to delegate to) but its `run()` task
-    loop is deliberately NOT started here -- wiring the scheduler's
-    background poll loops into the app lifespan is out of scope for this
-    slice (plans/api-core/02-region-endpoints.md "Out of scope": "The
-    region-switch mechanics themselves ... this slice only calls them").
+    The default `scheduler` is wired with `marine_adapter` as its `stream`
+    collaborator, and its `run()` task loop IS started as a background task
+    by the lifespan below (issue #113) -- the scheduler's poll loops and the
+    marine `_stream_supervisor` genuinely run for the app's lifetime.
     """
     if air_adapter is None:
         opensky_cfg = OpenSkyCfg(**config.opensky, **config.layers["air"].model_dump())
@@ -288,6 +291,11 @@ def create_app(
             **config.overpass, **config.layers["land"].model_dump()
         )
         land_adapter = OverpassAdapter(overpass_cfg)
+    if marine_adapter is None:
+        aisstream_cfg = AisStreamCfg(
+            **config.aisstream, **config.layers["marine"].model_dump()
+        )
+        marine_adapter = AisStreamAdapter(aisstream_cfg, secrets)
     if store is None:
         store = Store()
     if registry is None:
@@ -333,6 +341,7 @@ def create_app(
             registry=registry,
             store=store,
             events=events,
+            stream=marine_adapter,
         )
 
     @asynccontextmanager
@@ -341,14 +350,23 @@ def create_app(
         # event loop the async handlers run on, hence startup-time (not
         # construction-time) init.
         await store.init()
+        # The scheduler owns the app's background loops (poll tasks + the
+        # marine `_stream_supervisor`) for the app's lifetime (issue #113,
+        # scheduler.md "Task model": "lifetime = app lifetime").
+        scheduler_task = asyncio.create_task(scheduler.run())
         try:
             yield
         finally:
+            scheduler_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError, BaseExceptionGroup):
+                await scheduler_task
             await air_adapter.stop()
             await land_adapter.stop()
+            await marine_adapter.stop()
             await store.close()
 
     app = FastAPI(lifespan=_lifespan)
+    app.state.scheduler = scheduler
     start_monotonic = time.monotonic()
 
     @app.exception_handler(HTTPException)
