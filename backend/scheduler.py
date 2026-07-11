@@ -139,6 +139,15 @@ class Scheduler:
         self._store = store
         self._events = events
         self._stream = stream
+        # Shared "the marine socket has been started" flag. The supervisor is
+        # the SOLE caller of `stream.start()` (set_enabled's enable path only
+        # wakes it); this flag lets the supervisor skip re-starting an already-
+        # started socket -- distinguishing a never-started stream (retry the
+        # connect) from a started-but-transiently-dropped one (the adapter's
+        # own read loop owns that reconnect). Reset to False when set_enabled
+        # stops the socket, so a disable->enable cycle re-starts it exactly
+        # once.
+        self._stream_started = False
 
         self._enabled: dict[Domain, bool] = {}
         self._cadence_s: dict[Domain, int] = {}
@@ -322,9 +331,8 @@ class Scheduler:
         domain = stream.domain
         wake = self._wake[domain]
 
-        started = False
         if self._enabled.get(domain, True):
-            started = await self._bootstrap_stream(domain)
+            self._stream_started = await self._bootstrap_stream(domain)
 
         while True:
             cadence_s = self._cadence_s.get(domain, 1)
@@ -338,13 +346,15 @@ class Scheduler:
             wake.clear()
             if not self._enabled.get(domain, True):
                 continue
-            # If the boot-time connect failed (isolated below), retry it before
-            # sampling so a transient outage at startup self-heals rather than
-            # parking marine in reconnecting forever. Once started, the
-            # adapter's own read loop owns mid-stream reconnects.
-            if not started:
-                started = await self._bootstrap_stream(domain)
-                if not started:
+            # Start the socket if it has never been started -- covers both a
+            # boot-time connect failure retrying and a set_enabled(enable) that
+            # only woke us. The supervisor is the SOLE start() caller, so this
+            # never races/double-starts against set_enabled. Once started the
+            # flag stays True and the adapter's own read loop owns mid-stream
+            # reconnects (a transient `connected == False` must NOT re-start()).
+            if not self._stream_started:
+                self._stream_started = await self._bootstrap_stream(domain)
+                if not self._stream_started:
                     continue
             try:
                 await self._sample_stream(domain)
@@ -443,14 +453,20 @@ class Scheduler:
         ):
             self._enabled[domain] = enabled
             if enabled:
-                # Same pre-connect bootstrap as _stream_supervisor: push the
+                # Pre-connect bootstrap (aisstream.md "set_region"): push the
                 # active region before start() so the re-enable subscribe
-                # carries the bbox. Without this a marine layer that booted
+                # carries the bbox -- without it a marine layer that booted
                 # disabled and is enabled via the API before any region switch
                 # would subscribe with an empty BoundingBoxes list (#113).
                 if self._region is not None:
                     await self._stream.set_region(self._region)
                 await self._stream.start()
+                # Mark the socket started so the supervisor -- woken just below
+                # -- does NOT also call start() (a second start() would orphan
+                # the prior _ws/_read_task). `_stream_started` is the single
+                # shared source of truth between this enable path and the
+                # supervisor's bootstrap retry.
+                self._stream_started = True
                 if domain in self._wake:
                     self._wake[domain].set()
                 self._status[domain] = LayerStatus.LOADING
@@ -468,6 +484,9 @@ class Scheduler:
                     self._events.publish_layer_status(snap.meta)
             else:
                 await self._stream.stop()
+                # The socket is down -- let the supervisor re-start it exactly
+                # once on the next enable (see _stream_started).
+                self._stream_started = False
             return
 
         self._enabled[domain] = enabled

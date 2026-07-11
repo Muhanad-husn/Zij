@@ -528,3 +528,40 @@ async def test_stream_start_failure_is_isolated_and_retried_not_crashing_sibling
     )
     assert stream.start_attempts >= 2, "supervisor did not retry a failed start()"
     assert stream.connected, "supervisor never recovered the marine stream after retry"
+
+
+async def test_boots_disabled_then_enable_starts_stream_exactly_once():
+    """Regression (#113, reviewer re-review): a marine layer that boots
+    DISABLED and is later enabled via `set_enabled` must start the socket
+    exactly ONCE -- not twice (set_enabled's own `start()` plus the running
+    supervisor's bootstrap retry). Against the real adapter a second `start()`
+    opens a fresh websocket over `_ws`/`_read_task` without closing the prior
+    ones, orphaning a live connection. `_stream_started` is the shared guard
+    that makes the supervisor skip the redundant start."""
+    from backend.scheduler import Scheduler
+
+    stream = _OrderRecordingStreamAdapter()
+    cfg = _make_cfg(air_cadence_s=1, air_enabled=False)
+    scheduler = Scheduler(
+        cfg,
+        {},
+        REGION_A,
+        registry=Registry(),
+        store=FakeStore(fallback_by_layer={}),
+        events=EventBus(),
+        stream=stream,
+    )
+    # Boot marine DISABLED (with no marine entry in cfg the default is enabled).
+    scheduler._enabled[Domain.MARINE] = False
+
+    async with _running_scheduler(scheduler):
+        # Let the supervisor reach its parked (disabled) state, then enable and
+        # give the woken supervisor several ticks to (wrongly) double-start.
+        await asyncio.sleep(0.05)
+        await scheduler.set_enabled(Domain.MARINE, True)
+        await asyncio.sleep(0.2)
+
+    start_count = sum(1 for e in stream.events if e == ("start", None))
+    assert start_count == 1, (
+        f"expected exactly one start(), got {start_count}: {stream.events!r}"
+    )
