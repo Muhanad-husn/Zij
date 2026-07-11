@@ -16,6 +16,8 @@
 #   spec-author  -> design/ only
 #   test-author  -> any **/tests/ directory only
 #   implementer  -> everything EXCEPT design/ and **/tests/
+#   fixer        -> everything EXCEPT design/ and **/tests/ (same scope as implementer,
+#                   but off the slice loop: the fast lane for bugs and small changes)
 #
 # Block via the documented PreToolUse contract: emit a permissionDecision=deny
 # JSON object on stdout and exit 0 (see https://code.claude.com/docs/en/hooks).
@@ -117,6 +119,17 @@ switch ($Role) {
         }
         if ($underTests) {
             Deny "implementer may not edit tests (got '$rel'). The outer test is the locked contract."
+        }
+    }
+    'fixer' {
+        # Same write-scope as the implementer (product code, never specs or tests).
+        # The fixer runs off the slice loop; a regression test for a behavioral bug is
+        # still the test-author's to write, so tests stay closed here too (DEC-39).
+        if ($underDesign) {
+            Deny "fixer may not edit specs under design/ (got '$rel'). Raise a spec-drift issue instead."
+        }
+        if ($underTests) {
+            Deny "fixer may not edit tests (got '$rel'). A regression test is authored by the test-author."
         }
     }
     default {

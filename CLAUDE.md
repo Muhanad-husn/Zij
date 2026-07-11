@@ -34,8 +34,10 @@ record (GitHub), driven through the installed GitHub plugin, not raw `gh`.
 
 ## Roles & authority
 
-Five addressable subagents live in `.claude/agents/`. Each has a locked tool set
-and a pinned model. Path limits are enforced by hooks, not by the tool list.
+Six addressable subagents live in `.claude/agents/`. Each has a locked tool set
+and a pinned model. Path limits are enforced by hooks, not by the tool list. Five
+of them run the behavior-first pipeline; the sixth, the **fixer**, is the fast lane
+for work too small to warrant a slice (see The fix lane, DEC-39).
 
 | Role | Does | Never |
 |---|---|---|
@@ -44,6 +46,7 @@ and a pinned model. Path limits are enforced by hooks, not by the tool list.
 | Test author | Writes tests, incl. the locked outer acceptance test | Writes product code or specs |
 | Implementer | Writes product code, drives inner unit cycles | Edits specs or tests |
 | Reviewer | Reads, reviews in two stages, comments | Writes anything (read-only) |
+| Fixer | Writes product code for a bug or small change, off the slice loop | Edits specs or tests; merges |
 
 **Merge authority: founder approval is the gate, not founder execution.** When
 work on a branch is complete, the founder's explicit "approved" is all that is
@@ -67,6 +70,21 @@ Test authorship is split, on purpose:
    any test or the specs.
 
 No implementation commit ever precedes its slice's red outer test.
+
+## The fix lane (DEC-39)
+
+Not every change earns the full pipeline. A bug, a refactor, a rename, a config or
+copy tweak is dispatched to the **fixer** via `/fix` — off the slice loop, skipping
+the *ceremony* (spec, outer acceptance test, two-stage review) but keeping every
+*safety gate*. `/fix` classifies the change into one of three buckets: **non-behavioral**
+(the fixer changes product code and the existing suite stays green), **behavioral bug**
+(a stripped test-first loop — the test-author commits one regression test red, the
+fixer greens it, the test-author clears the marker), or **feature-scale**, which is
+bounced back to `/sprint-start`. That last bucket is the guard that keeps the fast lane
+from becoming the default. The fixer's write-scope is the implementer's (product code
+only; the path guard denies specs and every `**/tests/`), it never authors tests, and
+it never merges. The change still lands as a PR the founder approves — ceremony is
+relaxed, the boundary is not.
 
 ## Spec discipline
 
