@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime, timezone
+from importlib.metadata import PackageNotFoundError, version
 from typing import Any
 
 import httpx
@@ -38,6 +39,16 @@ from backend.models import (
     LayerStatus,
 )
 from backend.sources.base import ParseError, PollAdapter, Region, UpstreamError
+
+try:
+    _ZIJ_VERSION = version("zij")
+except PackageNotFoundError:
+    _ZIJ_VERSION = "0.0.0"
+
+# Overpass usage policy (§12) asks clients to identify themselves; mod_security
+# on overpass-api.de also 406s httpx's own default User-Agent outright (issue
+# #114), so a descriptive one is required, not merely polite.
+_USER_AGENT = f"zij/{_ZIJ_VERSION} (+https://github.com/Muhanad-husn/Zij)"
 
 # §6.3 whitelist -- the six feature-class queries. `{bbox}` is substituted
 # with "south,west,north,east" (Overpass QL bbox order) built from
@@ -221,7 +232,7 @@ class OverpassAdapter(PollAdapter):
         """Open the shared AsyncClient (idempotent). Overpass has no auth,
         so there is no token to prefetch."""
         if self._client is None:
-            self._client = httpx.AsyncClient()
+            self._client = httpx.AsyncClient(headers={"User-Agent": _USER_AGENT})
 
     async def stop(self) -> None:
         if self._client is not None:
@@ -235,7 +246,7 @@ class OverpassAdapter(PollAdapter):
         across responses (design/specs/overpass.md "osm_base capture
         (FR4)")."""
         if self._client is None:
-            self._client = httpx.AsyncClient()
+            self._client = httpx.AsyncClient(headers={"User-Agent": _USER_AGENT})
 
         now = datetime.now(timezone.utc)
         west, south, east, north = region.bbox
@@ -316,7 +327,7 @@ class OverpassAdapter(PollAdapter):
                 raise UpstreamError("overpass request transport error") from exc
 
             status = response.status_code
-            if status in (429, 504):
+            if status in (406, 429, 504):
                 last_status = status
                 mirror_index += 1
                 await self._backoff(attempt)
@@ -336,9 +347,7 @@ class OverpassAdapter(PollAdapter):
         )
 
     async def _backoff(self, attempt: int) -> None:
-        delay = min(
-            self._cfg.backoff_max_s, self._cfg.backoff_base_s * 2**attempt
-        )
+        delay = min(self._cfg.backoff_max_s, self._cfg.backoff_base_s * 2**attempt)
         await asyncio.sleep(delay)
 
     def _parse_osm_base(self, body: dict[str, Any]) -> datetime:
@@ -426,4 +435,6 @@ class OverpassAdapter(PollAdapter):
                 attrs=tags,
             )
         except (KeyError, IndexError, TypeError) as exc:
-            raise ParseError(f"overpass element {source_id} failed parsing: {exc}") from exc
+            raise ParseError(
+                f"overpass element {source_id} failed parsing: {exc}"
+            ) from exc
