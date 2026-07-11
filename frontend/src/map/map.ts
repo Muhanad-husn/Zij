@@ -65,6 +65,31 @@ export function buildStyle(inkColor: string): StyleSpecification {
         'source-layer': 'transportation',
         paint: { 'line-color': '#A38B62', 'line-width': 0.5, 'line-opacity': 0.5 },
       },
+      {
+        // Country borders (spec §2 "Base map"): a low-contrast steel-gray line,
+        // basemap context rather than a fourth telemetry layer, so it is kept
+        // visually distinct from --zij-brass/--zij-teal/--zij-dun. Filtered to
+        // admin_level 2 (country) only — OpenMapTiles' `boundary` source-layer
+        // also carries state/county/etc. (3/4/6/8/10), which would clutter the
+        // strait at this map's scale. Maritime (sea) boundary segments are
+        // excluded too, since they are a superset of the coastline already
+        // implied by the `water` fill and add visual noise across Hormuz.
+        id: 'borders',
+        type: 'line',
+        source: 'openfreemap',
+        'source-layer': 'boundary',
+        filter: [
+          'all',
+          ['==', ['get', 'admin_level'], 2],
+          ['!=', ['get', 'maritime'], 1],
+        ],
+        paint: {
+          'line-color': '#5C6B7A',
+          'line-width': 0.75,
+          'line-opacity': 0.6,
+          'line-dasharray': [2, 1],
+        },
+      },
     ],
   };
 }
