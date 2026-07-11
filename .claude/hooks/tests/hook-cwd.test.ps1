@@ -48,7 +48,7 @@ function New-Repo([string]$branch) {
     & git -C $dir -c user.name=t -c user.email=t@t commit -q --allow-empty -m init | Out-Null
     return $dir
 }
-function Guard-Denies([string]$posixCwd) {
+function Test-CommitDenied([string]$posixCwd) {
     $payload = @{ cwd = $posixCwd; tool_input = @{ command = 'git commit -m x' } } | ConvertTo-Json -Compress
     $out = $payload | & pwsh -NoProfile -File $guard 2>$null
     return ("$out" -match '"permissionDecision"\s*:\s*"deny"')
@@ -75,8 +75,8 @@ try {
     $mainPosix = ToPosix $mainRepo
     # Sanity: the crafted cwd really is POSIX form (would have broken the old code).
     Check "test feeds a posix cwd"        ($featPosix -match '^/[a-z]/')
-    Check "feature-branch worktree: allowed" (-not (Guard-Denies $featPosix))
-    Check "main worktree: still denied"      (Guard-Denies $mainPosix)
+    Check "feature-branch worktree: allowed" (-not (Test-CommitDenied $featPosix))
+    Check "main worktree: still denied"      (Test-CommitDenied $mainPosix)
 
     $payload = @{ cwd = (ToPosix $docsRepo); tool_input = @{ command = 'git commit -m x' } } | ConvertTo-Json -Compress
     $tgOut = $payload | & pwsh -NoProfile -File $testsGreen 2>&1
