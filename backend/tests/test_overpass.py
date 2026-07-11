@@ -1614,6 +1614,65 @@ async def test_user_agent_header_is_descriptive_not_httpx_default(monkeypatch):
         assert user_agent.lower().startswith("zij/")
 
 
+async def test_user_agent_descriptive_on_lazy_init_without_start(monkeypatch):
+    """Issue #120 (coverage backfill, not new behavior): pins the SECOND
+    `httpx.AsyncClient(headers={"User-Agent": ...})` construction site --
+    the lazy `if self._client is None:` init inside `fetch()` itself
+    (`backend/sources/overpass.py`, ~lines 248-249) -- which is otherwise
+    dead in this suite because every other test calls `adapter.start()`
+    before `adapter.fetch()`, so `self._client` is never `None` when
+    `fetch()` runs.
+
+    This test calls `adapter.fetch(region)` directly on a freshly
+    constructed adapter, WITHOUT a prior `adapter.start()`, forcing the
+    lazy-init branch to build the client. It then asserts the exact same
+    User-Agent shape as
+    `test_user_agent_header_is_descriptive_not_httpx_default` above: not
+    httpx's own default, and lower-cased starting with "zij/". Pinning both
+    construction sites independently means the two can't silently drift --
+    e.g. a future edit that only updates `start()`'s header and misses the
+    `fetch()` lazy-init copy would be caught here, not just in `start()`'s
+    test.
+    """
+    from backend.sources.base import Region
+    from backend.sources.overpass import OverpassAdapter
+
+    monkeypatch.setattr("backend.sources.overpass.asyncio.sleep", _no_op_sleep)
+
+    mirror = "https://overpass.test/api/interpreter"
+    cfg = _make_overpass_cfg(mirrors=[mirror])
+    region = Region(
+        id="hormuz", label="Strait of Hormuz", bbox=(55.0, 25.0, 57.5, 27.5)
+    )
+    empty_body = {
+        "osm3s": {"timestamp_osm_base": "2026-07-05T10:00:00Z"},
+        "elements": [],
+    }
+
+    async with respx.mock() as respx_mock:
+        route = respx_mock.route(url=mirror).mock(
+            return_value=Response(200, json=empty_body)
+        )
+        adapter = OverpassAdapter(cfg)
+        # --- Deliberately NOT calling `adapter.start()` -- `self._client`
+        # is `None` going into `fetch()`, exercising the lazy-init branch
+        # at the SECOND construction site rather than the one in `start()` ---
+        await adapter.fetch(region)
+        await adapter.stop()
+
+    # --- Every one of the six whitelisted class queries actually went out
+    # (proves this isn't a stub that skips the network call entirely) ---
+    assert route.call_count == 6
+
+    for call in route.calls:
+        user_agent = call.request.headers.get("user-agent")
+        assert user_agent is not None
+        # --- NOT httpx's own default -- same root cause as issue #114 ---
+        assert not user_agent.lower().startswith("python-httpx")
+        # --- A descriptive, project-identifying UA: "zij/<anything>" ---
+        assert user_agent.lower().startswith("zij/")
+
+
 async def test_406_rotates_to_next_mirror_then_fetch_succeeds(monkeypatch):
     """Issue #114, behavior 2: a 406 from one mirror rotates `_fetch_class`
     to the next mirror -- identically to how 429/504 already rotate --
