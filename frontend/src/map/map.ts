@@ -7,7 +7,7 @@ import { HORMUZ_CENTER, INITIAL_ZOOM, OPENFREEMAP_TILES_URL } from '../config';
 
 declare global {
   interface Window {
-    /** Test seam (locked outer contract): the live Map, set only after `load`. */
+    /** Test seam: the live Map, set only after `load`. */
     __zijMap?: MapLibreMap;
   }
 }

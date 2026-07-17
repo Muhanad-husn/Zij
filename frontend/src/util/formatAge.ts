@@ -1,6 +1,6 @@
 // Compact relative-age formatter — spec §4 ("Stale · {age}" / "Cached · {age}").
-// The outer contract only locks the fixed prefix (`badges.spec.ts` REQUIRED
-// TEST SEAM #4); the exact `{age}` rendering is left to the developer. Kept
+// The acceptance test only pins the fixed prefix (`badges.spec.ts` REQUIRED
+// TEST SEAM #4); the exact `{age}` rendering is unconstrained. Kept
 // pure (no DOM) so it stays trivially unit-testable, mirroring `formatUtc.ts`.
 
 /** Formats the elapsed time between `iso` and now as a compact age string

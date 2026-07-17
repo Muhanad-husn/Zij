@@ -35,7 +35,7 @@ per-test throughout `test_config.py`/`test_config_acceptance.py`/
 to (or don't otherwise care about the specific values) still get a hermetic,
 non-empty pair.
 
-Extended for config step (issue #42, `test_config_sections_acceptance.py`):
+Extended for config sections (issue #42, `test_config_sections_acceptance.py`):
 once the bundled `config.toml` gains an *enabled* `[layers.marine]` section,
 `_check_required_secrets` gates `AISSTREAM_API_KEY` too, so any test calling
 `load_config()` without first setting that var would start failing the same

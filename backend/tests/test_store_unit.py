@@ -1,17 +1,13 @@
-"""Inner unit test for store step (issue #11): land_cache round-trip.
+"""Unit test for the land_cache round-trip (issue #11).
 
-The outer acceptance test (test_store_acceptance.py) already exercises every
-item in the plan's inner unit list (plans/store/01-land-cache.md): schema
+The acceptance test (test_store_acceptance.py) already exercises schema
 idempotency, round-trip, UTC-aware re-hydration, upsert-replace, and
 unknown-region -> None. The one real behaviour branch it never touches is
 `LandCacheRow.osm_base` being nullable (`datetime | None` on the model;
 `osm_base TEXT` carries no `NOT NULL` in schema.sql, unlike `fetched_at`) --
 both `Store._put_land_cache_sync` and `Store._get_land_cache_sync` have an
-explicit `is not None` branch for it that a non-null-only outer test never
-runs. This test targets exactly that branch.
-
-Written by the author (); the developer is separated out of
-backend/tests/ and may not edit this file.
+explicit `is not None` branch for it that a non-null-only acceptance test
+never runs. This test targets exactly that branch.
 """
 
 from datetime import datetime, timezone

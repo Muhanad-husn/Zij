@@ -1,10 +1,9 @@
 /**
- * Inner unit tests — plan/frontend-map/02-layers-refresh.md "Inner loop" unit
- * #1 (Wire→GeoJSON), against `src/map/wireToGeoJson.ts` as actually built.
+ * Unit tests for Wire→GeoJSON conversion in `src/map/wireToGeoJson.ts`.
  *
  * Pure function, no DOM/WebGL dependency — exercised directly against wire
  * `Feature` shapes modeled on `design/contracts/feature-schema.md` ("Wire
- * examples → Air" / "→ Land"), the same fixtures used by the outer e2e spec.
+ * examples → Air" / "→ Land"), the same fixtures used by the e2e spec.
  */
 import { describe, expect, it } from 'vitest';
 

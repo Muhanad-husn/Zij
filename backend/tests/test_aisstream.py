@@ -1,5 +1,5 @@
-"""Locked outer acceptance test for sources-marine step (issue #47):
-aisstream core -- subscribe, message table, snapshot().
+"""Acceptance test for the aisstream core (issue #47): subscribe, message
+table, snapshot().
 
 Given the recorded aisstream messages (backend/tests/fixtures/
       aisstream_messages.jsonl) fed through a mocked websocket
@@ -14,8 +14,7 @@ And   a vessel silent > 30 min renders FeatureStatus.STALE and one silent
       > 2 h is excluded
 And   snapshot() performs no I/O and never raises
 
-This is the behavioral contract (), transcribed from
-plans/sources-marine/01-aisstream-core.md ("Acceptance criterion") and
+This is transcribed from
 design/specs/aisstream.md ("Message handling" + "snapshot()"), honoring the
 `StreamAdapter` surface in design/contracts/adapter-interface.md.
 
@@ -44,13 +43,12 @@ the `websockets` library"). `_FakeConnect` mimics the real `websockets`
 library's dual awaitable/async-context-manager `Connect` return value so this
 test does not prescribe which of the two equally-idiomatic calling
 conventions (`ws = await websockets.connect(uri)` vs. `async with
-websockets.connect(uri) as ws:`) the developer picks. The fixture lines are
+websockets.connect(uri) as ws:`) the implementation picks. The fixture lines are
 yielded verbatim (raw JSON text, undecoded) via `async for raw in ws:`,
 exercising the adapter's own `json.loads` + dispatch-by-`MessageType`, not a
 pre-parsed stub.
 
-Names this test requires the developer to provide (spec/plan-fixed unless
-noted "author's plumbing choice"):
+Names this test requires (spec-fixed unless noted as plumbing for the test):
   - backend.sources.aisstream.AisStreamAdapter(cfg, secrets) with async
     start()/stop()/set_region(region), sync snapshot(), and a `connected`
     property (design/specs/aisstream.md "Public interface").
@@ -60,15 +58,15 @@ noted "author's plumbing choice"):
     mirroring `OpenSkyCfg`'s established shape (test_opensky.py) -- including
     accepting the full `LayerCfg.model_dump()` key set (so
     `simplify_tolerance_deg`/`max_rendered_features`, unused by marine, must
-    have defaults) -- this merge convention is this author's plumbing
-    choice, transplanted from the sibling adapter, not spec-prose-fixed.
+    have defaults) -- this merge convention is plumbing for the test,
+    transplanted from the sibling adapter, not spec-prose-fixed.
   - `AisStreamAdapter._read_task: asyncio.Task` (spec-fixed name,
     design/specs/aisstream.md "Internal design": "`_ws / _read_task:
     asyncio.Task`") -- awaited directly here (instead of a sleep-based poll
     loop) to deterministically drain the finite recorded fixture before
     calling `snapshot()`.
   - `AisStreamAdapter._prev_pos: dict[str, tuple[float, float, datetime |
-    None]]` keyed by MMSI (author's plumbing choice for the *shape* of
+    None]]` keyed by MMSI (plumbing for the test, fixing the *shape* of
     `_PrevPos`, since the spec only fixes the field CONTENT as "(lat, lon,
     timestamp_source)" -- design/specs/aisstream.md "Message handling" -- not
     a concrete Python type; a plain 3-tuple in that literal order is the
@@ -82,47 +80,44 @@ noted "author's plumbing choice"):
     `Message.ShipStaticData.Name` (spec: "`_Entry.name` (`ShipName`/`Name`)"
     lists both without picking one) -- the fixture sets both to the identical
     value "MERIDIAN STAR" so this test does not need to pin which the
-    developer reads.
+    implementation reads.
 
-It was authored and committed red by the author before any
-implementation existed (strict xfail, ): at this point
+It was written test-first before any
+implementation existed (xfail): at this point
 `backend.sources.aisstream` does not exist at all, so the module-scope
 import inside the test body raises `ModuleNotFoundError`, which xfails
-cleanly under the tests-green gate. Not satisfiable by a stub that returns an
+cleanly. Not satisfiable by a stub that returns an
 empty snapshot: the exact feature count (2, not 0/1/3), the live vessel's
 overwritten position/enriched name/SOG/COG/511-sentinel-heading, the prior
 fix in `_prev_pos`, and the STALE/dropped partition across three distinct
 vessels are all asserted against concrete values pinned to the recorded
-fixture. the developer has since made it genuinely pass; the xfail marker
-has been removed to finalize the contract.
+fixture. It now passes genuinely; the xfail marker has been removed.
 
-Below the outer test are inner unit tests () covering plan items
-("Inner loop -- initial unit test list",
-plans/sources-marine/01-aisstream-core.md) the outer test deliberately does
+Below are unit tests covering behavior the acceptance test deliberately does
 not exercise, or exercises only incidentally:
   - the bbox `[w,s,e,n]` -> aisstream `[[s,w],[n,e]]` corner transform in the
-    subscribe payload -- the outer test's `_FakeAisStreamConnection` records
-    `.sent` but the outer test never inspects it, so the transform itself is
-    unpinned there.
+    subscribe payload -- the acceptance test's `_FakeAisStreamConnection`
+    records `.sent` but that test never inspects it, so the transform itself
+    is unpinned there.
   - `PositionReport` -> `_Entry` mapping for a NORMAL (non-511) heading --
-    the outer test's live vessel is only ever sampled after its second,
+    the acceptance test's live vessel is only ever sampled after its second,
     overwriting `PositionReport` (heading=511->None), so a real numeric
     heading passing through `attrs["heading_deg"]` unchanged is never
-    actually pinned by the outer test; paired here with the 511 sentinel
+    actually pinned by the acceptance test; paired here with the 511 sentinel
     case as the two-way branch of the same mapping.
   - `ShipStaticData` enrichment NOT moving position/`last_heard` -- the
-    outer fixture's static message happens to carry the same lat/lon as the
-    live vessel's preceding `PositionReport`, so the outer test cannot
-    distinguish "position held" from "position coincidentally re-set to the
-    same value"; also pins the "no entry yet -> no-op" branch (spec:
+    acceptance test's fixture static message happens to carry the same lat/lon
+    as the live vessel's preceding `PositionReport`, so the acceptance test
+    cannot distinguish "position held" from "position coincidentally re-set to
+    the same value"; also pins the "no entry yet -> no-op" branch (spec:
     "Does not create an entry on its own").
-  - `snapshot()` fresh-copy / no-I/O behavior -- the outer test only ever
+  - `snapshot()` fresh-copy / no-I/O behavior -- the acceptance test only ever
     calls `snapshot()` once, after a full mocked-websocket round trip, so it
     cannot show two calls return distinct `Feature` objects, or that
     `snapshot()` needs no live connection at all.
 
 The `_prev_pos` overwrite copy and the STALE (>30 min) / dropped (>2 h)
-aging partition are both already pinned by the outer test against concrete
+aging partition are both already pinned by the acceptance test against concrete
 fixture values across three distinct MMSIs, so they are not duplicated here.
 """
 
@@ -180,7 +175,7 @@ class _FakeConnect:
     returns a `Connect` object that is BOTH directly awaitable (`ws = await
     websockets.connect(uri)`) AND usable as `async with websockets.connect(
     uri) as ws:`. Supporting both here means this test does not prescribe
-    which calling convention the developer picks."""
+    which calling convention the implementation picks."""
 
     def __init__(self, connection: _FakeAisStreamConnection) -> None:
         self._connection = connection
@@ -245,7 +240,7 @@ async def test_aisstream_processes_position_and_static_then_snapshot(monkeypatch
         # `set_region` docstring: "...if open, else it applies on next
         # connect" -- so this is the documented pre-connect bootstrap path,
         # not the full mid-stream re-subscribe/clear-table behavior deferred
-        # to step (plan "Out of scope").
+        # to later work (out of scope here).
         await adapter.set_region(region)
 
         # --- When: start() connects the mocked socket, subscribes, and
@@ -306,10 +301,9 @@ async def test_aisstream_processes_position_and_static_then_snapshot(monkeypatch
 
 
 def _make_aisstream_cfg(**overrides):
-    """Minimal `AisStreamCfg` for inner unit tests that only exercise
-    message-handling / snapshot logic, not a live connection (author's
-    plumbing choice -- the required field set is spec-fixed, the values here
-    are arbitrary placeholders)."""
+    """Minimal `AisStreamCfg` for unit tests that only exercise
+    message-handling / snapshot logic, not a live connection -- the required
+    field set is spec-fixed, the values here are arbitrary placeholders."""
     from backend.sources.aisstream import AisStreamCfg
 
     defaults = dict(
@@ -394,13 +388,13 @@ def _ship_static_data_line(
 
 
 async def test_subscribe_payload_bbox_corner_transform():
-    """Inner unit (plan item 1): `region.bbox` `[w,s,e,n]` is transformed to
+    """Unit test: `region.bbox` `[w,s,e,n]` is transformed to
     aisstream's own `[[s,w],[n,e]]` corner order in the subscribe payload
     (aisstream.md "Websocket lifecycle"). Deliberately asymmetric bbox
     values (10,20,30,40) so a transposed axis or swapped south/north would
     be caught -- a naive passthrough of `[w,s,e,n]` would leave
     `BoundingBoxes` as `[[10,20],[30,40]]`, not `[[20,10],[40,30]]`. The
-    outer test's fake connection records `.sent` but the outer test itself
+    acceptance test's fake connection records `.sent` but that test itself
     never inspects it, so this transform is otherwise unpinned anywhere."""
     from backend.config import Secrets
     from backend.sources.aisstream import AisStreamAdapter
@@ -421,9 +415,9 @@ async def test_subscribe_payload_bbox_corner_transform():
 
 
 def test_position_report_heading_511_sentinel_vs_normal_passthrough():
-    """Inner unit (plan item 2): `TrueHeading`'s 511 "not available" sentinel
+    """Unit test: `TrueHeading`'s 511 "not available" sentinel
     maps to `heading_deg=None`; any other numeric heading passes through
-    unchanged (aisstream.md "Message handling"). The outer test only ever
+    unchanged (aisstream.md "Message handling"). The acceptance test only ever
     samples the live vessel's SECOND `PositionReport` (heading=511), so a
     normal heading value surviving into `attrs` unchanged is not otherwise
     pinned anywhere."""
@@ -451,13 +445,13 @@ def test_position_report_heading_511_sentinel_vs_normal_passthrough():
 
 
 def test_ship_static_data_enriches_without_moving_position_or_last_heard():
-    """Inner unit (plan item 3): a `ShipStaticData` message enriches
+    """Unit test: a `ShipStaticData` message enriches
     name/callsign/ship_type and refreshes `label`, but does NOT move the
     entry's `lat`/`lon` or `last_heard` (aisstream.md: static "does not
     create an entry on its own" and is not itself "a position fix") -- and,
-    for an MMSI never seen in a `PositionReport`, is a pure no-op. The outer
-    fixture's static message happens to carry the SAME lat/lon as the
-    preceding `PositionReport`, so it cannot distinguish "position held"
+    for an MMSI never seen in a `PositionReport`, is a pure no-op. The
+    acceptance-test fixture's static message happens to carry the SAME lat/lon
+    as the preceding `PositionReport`, so it cannot distinguish "position held"
     from "coincidentally re-set to the same value"; this test uses a
     deliberately DIFFERENT `MetaData` lat/lon on the static message to catch
     that."""
@@ -497,11 +491,11 @@ def test_ship_static_data_enriches_without_moving_position_or_last_heard():
 
 
 def test_snapshot_returns_fresh_copies_without_a_live_connection():
-    """Inner unit (plan item 6): `snapshot()` needs no live websocket at all
+    """Unit test: `snapshot()` needs no live websocket at all
     (adapter never `start()`-ed) and returns a genuinely fresh `Feature`
     object on every call, not a cached/shared reference (aisstream.md
     "snapshot()": "features are new objects (point-in-time copy)"). The
-    outer test only ever calls `snapshot()` once, after a full
+    acceptance test only ever calls `snapshot()` once, after a full
     mocked-socket round trip, so neither "no connection needed" nor "fresh
     object identity across calls" is pinned there."""
     from backend.config import Secrets
@@ -534,7 +528,7 @@ def test_snapshot_returns_fresh_copies_without_a_live_connection():
 
 
 def test_parse_aisstream_time_utc_variable_length_fraction():
-    """Regression (reviewer finding, review pass on #47): Go's
+    """Regression (found in review, #47): Go's
     `time.Time.String()` prints a *variable-length* fractional-seconds
     component (0-9 digits, trailing zeros trimmed), not always 6. Before the
     fix, `_parse_aisstream_time_utc` only handled the exact 6-digit form the
@@ -566,14 +560,14 @@ def test_parse_aisstream_time_utc_variable_length_fraction():
 
 
 def test_snapshot_feature_attrs_is_a_distinct_dict_per_snapshot():
-    """Regression (reviewer finding, review pass on #47): before the fix,
+    """Regression (found in review, #47): before the fix,
     `snapshot()`'s `model_copy(update={"attrs": ...})` still handed back the
     SAME `attrs` dict object the stored `_table` entry's `Feature` held (a
     shallow `model_copy` without an explicit fresh `attrs` copy shares
     mutable field values by reference), so a caller mutating a returned
     snapshot's `attrs` would corrupt the adapter's own internal state. This
     drives a real PositionReport through `_handle_message` (same helper the
-    other inner unit tests use) to build genuine table state, then proves
+    other unit tests use) to build genuine table state, then proves
     the snapshotted feature's `attrs` is a distinct object from -- and
     mutating it does not affect -- the stored entry's `attrs`."""
     from backend.config import Secrets
@@ -610,30 +604,26 @@ def test_snapshot_feature_attrs_is_a_distinct_dict_per_snapshot():
 
 
 # ---------------------------------------------------------------------------
-# Slice sources-marine/02 (issue #51): the LOCKED OUTER ACCEPTANCE TEST for
-# aisstream resilience -- reconnect (FR3) + region switch table clear. Authored
-# and committed RED before any step implementation exists (strict xfail,
-# ): the current step adapter has NO reconnect loop (its read
-# loop sets `_connected=False` and simply RETURNS on `ConnectionClosed`) and
-# `set_region` only records the region without re-subscribing or clearing the
+# aisstream resilience (issue #51): the acceptance test for reconnect (FR3) +
+# region switch table clear. Written test-first before any of this behavior
+# existed (xfail): the earlier adapter had NO reconnect loop (its read
+# loop set `_connected=False` and simply RETURNED on `ConnectionClosed`) and
+# `set_region` only recorded the region without re-subscribing or clearing the
 # table -- so the two `await`s that wait for a reconnect and the post-switch
-# empty-table assertions genuinely fail today. The xfail keeps the suite green
-# (xfailed -> pytest exits 0) so the tests-green commit gate passes; when the
-# developer greens the behavior this XPASSes, `strict=True` turns the suite
-# red, and the author is dispatched back to remove the marker. The
-# developer has since greened the reconnect + region-switch behavior; the
-# xfail marker has been removed to finalize the contract, and inner units for
-# the eviction sweep, backoff growth/cap/reset, and `stop()` clean shutdown
-# (follow-up #74) are added below.
+# empty-table assertions genuinely failed then. The xfail kept the suite green
+# (xfailed -> pytest exits 0); once the behavior was greened this XPASSed,
+# `strict=True` turned the suite red, and the marker was removed. The
+# reconnect + region-switch behavior now passes; the xfail marker has been
+# removed, and unit tests for the eviction sweep, backoff growth/cap/reset,
+# and `stop()` clean shutdown (follow-up #74) are added below.
 #
-# This transcribes the Gherkin in plans/sources-marine/02-aisstream-resilience.md
-# ("Acceptance criterion") and design/specs/aisstream.md ("Reconnect (FR3)" +
-# "set_region (region switch)"). It is NOT satisfiable by a stub: it pins that
-# `connected` flips False mid-blip, that the retained `_table` is still served
-# during the blip (never blanks), that a SECOND `websockets.connect` + subscribe
-# happens with a full-jitter exponential-backoff delay bound, and that
-# `set_region` re-subscribes the NEW bbox (in aisstream `[[s,w],[n,e]]` corner
-# order) while clearing both `_table` and `_prev_pos`.
+# This transcribes the Gherkin in design/specs/aisstream.md ("Reconnect (FR3)"
+# + "set_region (region switch)"). It is NOT satisfiable by a stub: it pins
+# that `connected` flips False mid-blip, that the retained `_table` is still
+# served during the blip (never blanks), that a SECOND `websockets.connect` +
+# subscribe happens with a full-jitter exponential-backoff delay bound, and
+# that `set_region` re-subscribes the NEW bbox (in aisstream `[[s,w],[n,e]]`
+# corner order) while clearing both `_table` and `_prev_pos`.
 
 
 class _DroppingConnection:
@@ -805,11 +795,11 @@ async def test_aisstream_resilience_reconnect_and_region_switch(monkeypatch):
             # enters its backoff wait (held here via the gate). Detected with a
             # TIMER-FREE race: freeze_time freezes time.monotonic, so asyncio
             # timeouts never fire -- we instead wait until EITHER the backoff
-            # wait is entered OR the read loop task finishes. Today's step
-            # stub has no reconnect (its read loop just returns on
-            # ConnectionClosed), so `_read_task` completes and `backoff_entered`
-            # never sets -- the assert then fails RED. A correct step
-            # reconnect keeps the read loop alive and enters the backoff. ---
+            # wait is entered OR the read loop task finishes. A stub with no
+            # reconnect (its read loop just returns on ConnectionClosed) lets
+            # `_read_task` complete while `backoff_entered` never sets -- the
+            # assert then fails RED. A correct reconnect keeps the read loop
+            # alive and enters the backoff. ---
             read_task = adapter._read_task
             backoff_waiter = asyncio.ensure_future(backoff_entered.wait())
             await asyncio.wait(
@@ -894,17 +884,17 @@ async def test_aisstream_resilience_reconnect_and_region_switch(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# Slice sources-marine/02 (issue #51): INNER UNIT TESTS () for the gaps
-# the locked outer test above does not already fully pin. The outer test
-# already pins: `_table`/`_prev_pos` retention across the drop, `set_region`
-# clearing both dicts + re-subscribing the new bbox, and the single
-# first-attempt (attempt=0) backoff bound. The plan's "Inner loop -- initial
-# unit test list" items that remain are covered here:
+# aisstream resilience (issue #51): unit tests for the gaps the acceptance
+# test above does not already fully pin. That test already pins:
+# `_table`/`_prev_pos` retention across the drop, `set_region` clearing both
+# dicts + re-subscribing the new bbox, and the single first-attempt
+# (attempt=0) backoff bound. The remaining cases are covered here:
 #   - the eviction sweep (`_evict_stale`): age > drop_after_s removed from BOTH
-#     `_table` and `_prev_pos`, fresh entries retained (outer test never ages a
-#     vessel past drop_after_s during the blip, so eviction itself is unpinned);
-#   - backoff attempt GROWTH + CAP + RESET across successive reconnects (outer
-#     test pins only the one first-attempt bound);
+#     `_table` and `_prev_pos`, fresh entries retained (the acceptance test
+#     never ages a vessel past drop_after_s during the blip, so eviction itself
+#     is unpinned);
+#   - backoff attempt GROWTH + CAP + RESET across successive reconnects (the
+#     acceptance test pins only the one first-attempt bound);
 #   - `stop()` clean shutdown (follow-up #74): cancels + awaits both tasks and
 #     closes the socket without an unretrieved-task exception; idempotent.
 
@@ -959,11 +949,11 @@ class _ParkingConnection:
 
 
 async def test_evict_stale_drops_aged_entries_from_both_tables():
-    """Inner unit (plan item 3): the eviction sweep removes entries whose
+    """Unit test: the eviction sweep removes entries whose
     `timestamp_source` age exceeds `drop_after_s` from BOTH `_table` and
     `_prev_pos`, while retaining fresh entries in both. Driven directly via
     `_evict_stale()` under a frozen clock -- not via the real `cadence_s`
-    sleep cadence. The outer test keeps every vessel within `drop_after_s`
+    sleep cadence. The acceptance test keeps every vessel within `drop_after_s`
     throughout the blip (retention), so age-based eviction itself is not
     pinned there. `_prev_pos` is populated for each vessel (two reports, the
     second overwriting the first) so the both-dicts clear is non-vacuous."""
@@ -1032,10 +1022,10 @@ async def test_evict_stale_drops_aged_entries_from_both_tables():
 
 
 async def test_reconnect_backoff_bound_grows_then_caps(monkeypatch):
-    """Inner unit (plan item 1, growth/cap): across successive FAILED
+    """Unit test (growth/cap): across successive FAILED
     reconnects the full-jitter upper bound follows `min(reconnect_max_s,
     reconnect_base_s * 2**attempt)` -- doubling each attempt (2,4,8,16,32) then
-    saturating at `reconnect_max_s` (60). The outer test pins only the single
+    saturating at `reconnect_max_s` (60). The acceptance test pins only the single
     attempt=0 bound; the exponential growth and the cap are pinned here by
     capturing successive `random.uniform` calls. `websockets.connect` is made
     to fail every time so `attempt` never resets and simply climbs."""
@@ -1086,10 +1076,10 @@ async def test_reconnect_backoff_bound_grows_then_caps(monkeypatch):
 
 
 async def test_reconnect_attempt_resets_after_successful_subscribe(monkeypatch):
-    """Inner unit (plan item 1, reset): `attempt` resets to 0 after a
+    """Unit test (reset): `attempt` resets to 0 after a
     successful re-subscribe, so the bound returns to `reconnect_base_s` on the
     next drop instead of continuing to climb (aisstream.md "reset attempt=0 on
-    a successful subscribe"). The outer test cannot show this (its single
+    a successful subscribe"). The acceptance test cannot show this (its single
     reconnect succeeds, ending observation). Sequence: drop -> bound 2 (att 0)
     -> connect FAILS -> drop -> bound 4 (att 1) -> connect SUCCEEDS (att -> 0)
     -> drop -> bound 2 AGAIN. A non-resetting implementation would draw 8, not
@@ -1142,10 +1132,10 @@ async def test_reconnect_attempt_resets_after_successful_subscribe(monkeypatch):
 
 
 async def test_stop_cancels_and_awaits_both_tasks_cleanly(monkeypatch):
-    """Inner unit (follow-up #74): `start()` then `stop()` cancels AND awaits
+    """Unit test (follow-up #74): `start()` then `stop()` cancels AND awaits
     both the read task and the sweep task and closes the socket, leaving no
     unretrieved-task exception on the loop -- the cancel->await->suppress
-    pattern. Also idempotent: a second `stop()` is a safe no-op. The outer
+    pattern. Also idempotent: a second `stop()` is a safe no-op. The acceptance
     test calls `stop()` only in its `finally` cleanup and never asserts the
     shutdown contract, so this is where #74 is pinned."""
     from backend.config import Secrets

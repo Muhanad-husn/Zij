@@ -1,59 +1,54 @@
-"""Inner unit tests for scheduler step (issue #50), transcribed from the
-plan's "Inner loop -- initial unit test list" (plans/scheduler/
-03-backoff-stale.md) and design/specs/scheduler.md ("Backoff per error
-class", "Status transitions" table's stale-timer rule).
+"""Unit tests for scheduler backoff and the stale timer (issue #50), covering
+design/specs/scheduler.md ("Backoff per error class", "Status transitions"
+table's stale-timer rule).
 
-The outer acceptance test (test_scheduler_backoff_stale.py) already proves,
+The acceptance test (test_scheduler_backoff_stale.py) already proves,
 end-to-end through the natural `_poll_loop` tick + `refresh()`: `retry_after`
 honored over the layer's own cadence, exponential backoff capped at
 `max_attempts` then resuming cadence, and the event-driven stale timer firing
 `live -> stale` with no new fetch. These tests go one level narrower,
-isolating gaps the single flowing outer scenario does not pin on its own:
+isolating gaps the single flowing acceptance scenario does not pin on its own:
 
   1. `_backoff_params` -- the config-knob-vs-default resolution itself
      (`[overpass]`/`[opensky]` sections vs the per-domain fallback), never
-     exercised in isolation by the outer test.
+     exercised in isolation by the acceptance test.
   2. `_handle_fetch_failure` -- the RateLimitedError branch's status +
      published event, and the `AuthError`/`ParseError` no-auto-retry /
      last-good-snapshot-retained behavior, called directly (no real-time
      poll-loop wait needed for the pure status-mapping half).
-  3. `retry_after` ABSENT -> config default backoff (the outer test only
+  3. `retry_after` ABSENT -> config default backoff (the acceptance test only
      covers `retry_after` PRESENT).
   4. The attempt counter genuinely RESETS on success (not just "eventually
-     resumes cadence after the cap", which the outer test's phase 2 already
+     resumes cadence after the cap", which the acceptance test's phase 2 already
      shows) -- proven by a failure AFTER an intervening success using the
      short, first-attempt delay again, not a continued, larger exponent.
-  5. the developer's own documented decision (backend/scheduler.py
+  5. The documented implementation decision (backend/scheduler.py
      `_poll_loop`'s `UpstreamError` branch) that the exponential backoff
      delay is additionally capped at the layer's own cadence, so a failing
      layer never polls LESS often than a healthy one -- NOT itself stated in
      design/specs/scheduler.md's "Backoff per error class" table (which
      reads only `min(base*2**n, max)`, capped at `max_attempts`). Pinned
      here so a future change to this behavior surfaces as a failing test,
-     not silently; if this turns out not to match spec intent, that is a
-     `spec discrepancy` question for the reviewer/maintainer, not a reason to loosen
-     this test now.
+     not silently; if this turns out not to match spec intent, that is an
+     open question about the spec, not a reason to loosen this test now.
   6. `AuthError` causes no auto-retry (i.e. NOT exponential backoff like
-     `UpstreamError`) -- only the outer test's own error classes
+     `UpstreamError`) -- only the acceptance test's own error classes
      (RateLimited/Upstream) are exercised end-to-end there.
   7. `_arm_stale_timer`/`_cancel_stale_timer` in isolation: armed only for a
      LIVE snapshot, cancels a prior handle when rearmed, and (critically) a
      SECOND, later successful fetch genuinely cancels the FIRST timer so its
-     now-stale deadline never fires a stray event -- the outer test's phase
-     3 only ever arms one timer, so a bug that left an old handle alive
+     now-stale deadline never fires a stray event -- the acceptance test's
+     phase 3 only ever arms one timer, so a bug that left an old handle alive
      after a rearm would not be caught there.
 
 Fakes are duplicated locally (adapters, `_wait_until`/`_first_matching_event`
 helpers) rather than imported from `test_scheduler_backoff_stale.py`,
-mirroring that file's own convention and step/04's precedent for
+mirroring that file's own convention and the precedent for
 independently-evolving test files.
 
 `backend.scheduler` is imported inside test bodies (repo convention -- avoids
 module-scope imports of app-wiring modules at collection time; here it also
-just matches the sibling outer file's own style).
-
-Written by the author (); the developer is separated
-out of `backend/tests/` and may not edit this file.
+just matches the sibling acceptance file's own style).
 """
 
 from __future__ import annotations
@@ -188,7 +183,7 @@ def _backdated_snapshot(
 ) -> LayerSnapshot:
     """A LIVE snapshot whose `timestamp_source` is deliberately backdated so
     `source_ts + stale_after_s` lands only `epsilon` REAL seconds in the
-    future -- same legitimate technique as the outer test's
+    future -- same legitimate technique as the acceptance test's
     `AlreadyAgedThenIdleAdapter`."""
     now = datetime.now(timezone.utc)
     source_ts = now - timedelta(seconds=stale_after_s - epsilon)
@@ -339,7 +334,7 @@ async def test_handle_fetch_failure_rate_limited_with_no_retry_after_publishes_n
 
 # =============================================================================
 # 3. `retry_after` ABSENT -> config default backoff (poll-loop timing; the
-#    outer test only covers `retry_after` PRESENT).
+#    acceptance test only covers `retry_after` PRESENT).
 # =============================================================================
 
 
@@ -377,7 +372,7 @@ async def test_poll_loop_rate_limited_without_retry_after_defers_by_config_backo
 
 # =============================================================================
 # 4/5. UpstreamError exponential shape, attempt-counter reset on success, and
-#      the cadence cap (developer's documented decision).
+#      the cadence cap (documented implementation decision).
 # =============================================================================
 
 
@@ -459,7 +454,7 @@ async def test_upstream_backoff_attempt_counter_resets_after_a_success():
 
 
 async def test_upstream_backoff_capped_at_the_layers_own_cadence_not_exceeding_it():
-    """developer's documented decision (backend/scheduler.py `_poll_loop`
+    """Documented implementation decision (backend/scheduler.py `_poll_loop`
     UpstreamError branch): the exponential delay is additionally bounded
     above by the layer's own cadence, so a failing layer never polls LESS
     often than a healthy one. `base_s` is deliberately set larger than

@@ -1,8 +1,7 @@
 /**
- * Inner unit test — frontend-map/02-layers-refresh hardening mini-loop
- * (issue #20), reviewer stage-2 finding #1: `main.ts` loaded the air+land
- * snapshots with `Promise.all`, so ONE domain's fetch rejecting caused
- * `Promise.all` to reject and NEITHER layer to render — violating FR10
+ * Unit test for a layers-refresh hardening fix (issue #20): `main.ts` loaded
+ * the air+land snapshots with `Promise.all`, so ONE domain's fetch rejecting
+ * caused `Promise.all` to reject and NEITHER layer to render — violating FR10
  * (failure isolation: one domain failing must never block another from
  * rendering).
  *

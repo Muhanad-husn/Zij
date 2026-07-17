@@ -1,5 +1,5 @@
-"""Locked outer acceptance test for scheduler step (issue #50): backoff
-per error class + the event-driven stale timer.
+"""Acceptance test for scheduler backoff per error class and the event-driven
+stale timer (issue #50).
 
 Given a layer whose adapter raises RateLimitedError(retry_after=3)
 When  the scheduler handles it
@@ -14,25 +14,23 @@ When  the clock reaches source_ts + 2xcadence
 Then  the layer flips to `stale` via the timer and emits a `layer_status`
       event (no new fetch)
 
-Transcribed from plans/scheduler/03-backoff-stale.md ("Acceptance
-criterion") and design/specs/scheduler.md ("Backoff per error class
+Derived from design/specs/scheduler.md ("Backoff per error class
 (adapter-interface.md taxonomy)", "Status transitions" table's stale-timer
 rule: "event-driven stale timer ... loop.call_at(timestamp_source +
 stale_after_s) ... if no newer data arrived by then, flip live->stale and
 emit a layer_status event").
 
-**Why a NEW file, not `backend/tests/test_scheduler.py`.** The plan names
-`test_scheduler.py` as the file, but that module is step's LOCKED outer
-contract (its own docstring: "not to be reopened or appended to by a later
-slice"). step's author already established the precedent of a new,
-independently-owned file per slice
-(`test_scheduler_region_toggle.py`) for exactly this reason; this file
-follows that same convention (`test_scheduler_backoff_stale.py`), the
-honest reading of the plan's intent against the actual repo state.
+**Why a NEW file, not `backend/tests/test_scheduler.py`.** That module is the
+concurrency spine's locked acceptance test (its own docstring: not to be
+reopened or appended to later). The region-toggle test
+(`test_scheduler_region_toggle.py`) already established the precedent of a new,
+independently-owned file for exactly this reason; this file
+follows that same convention (`test_scheduler_backoff_stale.py`), the honest
+reading against the actual repo state.
 
 **Public surface this test locks.** Only already-public methods from the
 full spec's constructor/surface (scheduler.md "Public interface"), already
-exercised by step/02/04's outer tests:
+exercised by the earlier acceptance tests:
 
     class Scheduler:
         def __init__(self, cfg, adapters, region, *,
@@ -42,12 +40,11 @@ exercised by step/02/04's outer tests:
         async def refresh(self, domain: Domain) -> None: ...
         def current_status(self, domain: Domain) -> LayerStatus: ...
 
-No new constructor surface is introduced by this slice per the plan (only
-internal backoff/timer bookkeeping, e.g. some `_stale_timer`-shaped table
-per scheduler.md's private state list) -- this test therefore asserts
-exclusively through `current_status()`, real `EventBus` events, adapter call
-counts, and elapsed real time, never through private attributes (per the
-dispatch brief: "not private attributes where a public signal exists").
+No new constructor surface is introduced here (only internal backoff/timer
+bookkeeping, e.g. some `_stale_timer`-shaped table per scheduler.md's private
+state list) -- this test therefore asserts exclusively through
+`current_status()`, real `EventBus` events, adapter call counts, and elapsed
+real time, never through private attributes where a public signal exists.
 
 **Domain choice.** Phase 1/2 (backoff) use `Domain.LAND`, whose backoff
 knobs (`backoff_base_s`/`backoff_max_s`/`max_attempts`) are already present
@@ -57,8 +54,8 @@ fractional seconds (e.g. `0.15`) for a fast, deterministic real-time proof
 without needing frozen time. Phase 3 (stale timer) uses `Domain.AIR` purely
 to diversify domain coverage; it needs no backoff config.
 
-**Why real (unfrozen) time, not freezegun, despite the plan's suggestion.**
-Per step's `test_scheduler.py` (still-binding durable lesson): asyncio's
+**Why real (unfrozen) time, not freezegun.**
+Per the concurrency spine's `test_scheduler.py` (still-binding lesson): asyncio's
 internal scheduling clock (`loop.time()`, tracking `time.monotonic()`) is
 NOT something `freezegun` intercepts. The spec's own stale-timer design
 (`loop.call_at`) is bound to that same real monotonic clock, so freezing
@@ -72,7 +69,7 @@ without new data") without waiting out the full configured
 `stale_after_s` (200s here) in wall-clock time. Phases 1/2 use small,
 sub-cadence-scale real sleeps for the same reason (matches the established
 "smallest meaningful integer cadences + generous tolerances" pattern from
-step/04, since `cadence_s` is an `int`, `LayerCfg`).
+the earlier tests, since `cadence_s` is an `int`, `LayerCfg`).
 
 **Why the FIRST fetch in phases 1/2 comes from the natural `_poll_loop`
 tick, not a manual `refresh()`.** The backoff-driven RETRY must be an
@@ -86,7 +83,7 @@ if/when a SECOND, automatic fetch happens, is the only way to genuinely pin
 just "a caller can retry".
 
 **Timing design (the actual distinguishing power against the current,
-pre-step code).**
+pre-backoff code).**
 - Phase 1: `cadence_s=1` (land's own, shorter, cadence) vs
   `retry_after_s=3`. The CURRENT scheduler (no backoff yet) retries at the
   layer's own cadence on any failure -- i.e. ~1s after the RateLimitedError,
@@ -105,23 +102,21 @@ pre-step code).**
   the capped interval forever", a plausible half-implementation), and a
   third window proves the 4th attempt resumes at the layer's OWN cadence
   (not sooner, not never).
-- Phase 3: the current code never arms any stale timer at all (per
-  `backend/scheduler.py`'s own top-of-file docstring: "Still out of scope
-  (later scheduler step): ... the event-driven stale *timer*"), so the
-  `layer_status`/`stale` event this test waits for currently never arrives,
-  and the wait cleanly times out.
+- Phase 3: the pre-backoff code never arms any stale timer at all (its
+  `backend/scheduler.py` docstring listed the event-driven stale timer as
+  still out of scope at that point), so the `layer_status`/`stale` event this
+  test waits for currently never arrives, and the wait cleanly times out.
 
-Each phase, if the corresponding piece of step is missing, fails fast
+Each phase, if the corresponding piece of behavior is missing, fails fast
 (seconds, not minutes) via a bounded `asyncio.wait_for` -- never hangs the
 suite/commit-hook.
 
-It was authored and committed red by the author before any
-implementation existed (strict xfail, ): none of `_do_fetch`'s error
-handling honored `retry_after`/exponential backoff, and no stale timer was
-armed anywhere in `backend/scheduler.py`, so this genuinely failed against
-the then-current code and xfailed cleanly under the tests-green gate. The
-developer has since made it genuinely pass; the xfail marker has been
-removed to finalize the contract.
+It was committed red before any implementation existed (xfail): none of
+`_do_fetch`'s error handling honored `retry_after`/exponential backoff, and
+no stale timer was armed anywhere in `backend/scheduler.py`, so this
+genuinely failed against the then-current code and xfailed cleanly.
+The implementation has since made it genuinely pass; the
+xfail marker has been removed to finalize the contract.
 """
 
 from __future__ import annotations
@@ -199,7 +194,7 @@ def _make_air_cfg(*, cadence_s: int, stale_multiplier: int) -> AppConfig:
 @contextlib.asynccontextmanager
 async def _running_scheduler(scheduler):
     """Run `scheduler.run()` as a background task for the duration of the
-    `with` block, then cancel it (step/04 pattern -- `run()` owns an
+    `with` block, then cancel it (the established pattern -- `run()` owns an
     infinite `asyncio.TaskGroup`)."""
     task = asyncio.ensure_future(scheduler.run())
     try:

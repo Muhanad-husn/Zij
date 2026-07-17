@@ -1,6 +1,5 @@
-"""Locked outer acceptance test for integrity step (issue #43): the two
-cheap FR9 plausibility flags -- landmask spoof-suspect and implausible
-kinematics.
+"""Acceptance test for the two cheap FR9 plausibility flags -- landmask
+spoof-suspect and implausible kinematics (issue #43).
 
 Given an Integrity loaded with a known landmask and configured thresholds
 When  apply() runs over a marine feature whose lat/lon falls inside a land
@@ -12,30 +11,28 @@ And   a same-timestamp pair (dt<=0) is skipped without error (no
       div-by-zero, no flag)
 And   an air feature over land is NOT flagged spoof-suspect
 
-Transcribed from plans/integrity/01-flags.md ("Acceptance criterion (outer
-loop)") and design/specs/integrity.md ("Public interface", "Landmask
+Drawn from design/specs/integrity.md ("Public interface", "Landmask
 point-in-polygon (marine only)", "Implausible kinematics (marine + air)").
-step (static caveat text + active-flag counting) and wiring `apply` into
-the scheduler write path are out of scope and neither referenced nor
-asserted here (plan: "Out of scope (deferred)").
+Static caveat text + active-flag counting, and wiring `apply` into the
+scheduler write path, are out of scope and neither referenced nor asserted
+here.
 
-**Landmask fixture (author's choice, per the task's "critical design
-point")**: `backend/tests/fixtures/landmask_test.geojson` -- a GeoJSON
-`FeatureCollection` of a single land `Polygon`, a trivial square covering
-lon [56.0, 56.5] x lat [26.0, 26.5] (inside the `hormuz` region bbox,
-config.md). This is a deliberately tiny, deterministic, in-repo stand-in for
-the real Natural Earth 10m land-polygon asset (design/specs/integrity.md
-"Load once at startup"); it is NOT that asset and is never meant to be. This
-format is a shapely-loadable, natural choice (`shapely.geometry.shape` over
-each GeoJSON `Feature.geometry`) -- the developer's `Integrity.__init__`
-is expected to load whatever file `IntegrityCfg.landmask_path` points at
-with exactly this reader (GeoJSON `FeatureCollection` -> list of land
-`Polygon`/`MultiPolygon` geometries -> `shapely.STRtree`).
+**Landmask fixture**: `backend/tests/fixtures/landmask_test.geojson` -- a
+GeoJSON `FeatureCollection` of a single land `Polygon`, a trivial square
+covering lon [56.0, 56.5] x lat [26.0, 26.5] (inside the `hormuz` region
+bbox, config.md). This is a deliberately tiny, deterministic, in-repo
+stand-in for the real Natural Earth 10m land-polygon asset
+(design/specs/integrity.md "Load once at startup"); it is NOT that asset and
+is never meant to be. This format is a shapely-loadable, natural choice
+(`shapely.geometry.shape` over each GeoJSON `Feature.geometry`) --
+`Integrity.__init__` is expected to load whatever file
+`IntegrityCfg.landmask_path` points at with exactly this reader (GeoJSON
+`FeatureCollection` -> list of land `Polygon`/`MultiPolygon` geometries ->
+`shapely.STRtree`).
 
-**Public surface this test locks (author's chosen minimal shape for
-the spec's `IntegrityCfg`/`PrevPos`, neither of which the full spec's
-interface block spells out beyond the constructor/method signature
-comments)**:
+**Public surface this test expects** (a minimal shape for the spec's
+`IntegrityCfg`/`PrevPos`, neither of which the spec's interface block spells
+out beyond the constructor/method signature comments):
 
     class IntegrityCfg:
         landmask_path: str          # path to a GeoJSON FeatureCollection of
@@ -55,13 +52,12 @@ comments)**:
         def apply(self, features: list[Feature],
                   prev: dict[str, PrevPos]) -> list[Feature]: ...
 
-`IntegrityCfg`/`PrevPos` are constructed here with keyword arguments only,
-so the developer is free to choose `@dataclass`, `NamedTuple`, or a
+`IntegrityCfg`/`PrevPos` are constructed here with keyword arguments only, so
+the implementation is free to choose `@dataclass`, `NamedTuple`, or a
 pydantic `BaseModel` for either -- whichever backs `IntegrityCfg`/`PrevPos`,
-these keyword names and `Integrity`'s two-method public surface are what
-this test locks (mirrors test_scheduler.py's "chosen minimal constructor
-slice" precedent for a spec that under-specifies an internal type's exact
-shape).
+these keyword names and `Integrity`'s two-method public surface are what this
+test expects (mirrors test_scheduler.py's minimal-constructor precedent for a
+spec that under-specifies an internal type's exact shape).
 
 The kinematics fixture pairs below use large, unambiguous position jumps
 (tens of km) over a 60 s window so the exact implied speed clears each
@@ -75,12 +71,11 @@ threshold (990 kn): if the implementation ever applied the air threshold to
 a marine feature by mistake, this pair would wrongly go unflagged and the
 test would catch it.
 
-It was authored and committed red by the author before any
-implementation existed (strict xfail, ): `backend.integrity` did not
-exist yet, so importing it inside the test body raised `ModuleNotFoundError`
-and the test xfailed cleanly under the tests-green gate. the developer has
-since made this genuinely pass; the xfail marker has been removed to
-finalize the contract (author's follow-up pass, ).
+It was written test-first and committed red, as an xfail, before any
+implementation existed: `backend.integrity` did not exist yet, so importing
+it inside the test body raised `ModuleNotFoundError` and the test xfailed
+cleanly. The xfail marker was removed once the
+suite went green.
 """
 
 from __future__ import annotations
@@ -304,9 +299,9 @@ def test_apply_flags_spoof_suspect_on_land_and_implausible_kinematics():
 
 
 # =============================================================================
-# step (issue #44): static per-layer caveat text (`CAVEATS`) + the
-# active-flag counting helper backing `GET /api/layers/{domain}/caveats`
-# (api.md: `{"domain":..., "caveats":[...], "active_flags": {...}}`).
+# Static per-layer caveat text (`CAVEATS`) + the active-flag counting helper
+# backing `GET /api/layers/{domain}/caveats` (issue #44) (api.md:
+# `{"domain":..., "caveats":[...], "active_flags": {...}}`).
 #
 # Given the integrity module
 # When  CAVEATS[domain] is read for air, marine, and land
@@ -314,16 +309,14 @@ def test_apply_flags_spoof_suspect_on_land_and_implausible_kinematics():
 #       not paraphrased -- design/specs/integrity.md "Static caveat text")
 # When  the active-flag counter runs over a snapshot with flagged features
 # Then  it returns a count per known IntegrityFlag, tallied from those
-#       features (plan: "{spoof_suspect_on_land: n, implausible_kinematics: m}")
+#       features ("{spoof_suspect_on_land: n, implausible_kinematics: m}")
 # And   an empty (or unflagged) snapshot yields zero counts for every flag
 # And   a feature carrying BOTH flags increments both counters
 #
-# Transcribed from plans/integrity/02-caveats.md ("Acceptance criterion
-# (outer loop)") and design/specs/integrity.md ("Static caveat text (per
-# layer, FR9 / api.md caveats)").
+# Drawn from design/specs/integrity.md ("Static caveat text (per layer,
+# FR9 / api.md caveats)").
 #
-# **Design decision this test locks (author's choice, per the task's
-# "critical design point")**: the counting helper is
+# **Design decision**: the counting helper is
 #
 #     def active_flag_counts(snapshot: LayerSnapshot) -> dict[str, int]: ...
 #
@@ -333,20 +326,17 @@ def test_apply_flags_spoof_suspect_on_land_and_implausible_kinematics():
 # through unchanged. The return dict is keyed by `IntegrityFlag.value`
 # (plain strings: "spoof_suspect_on_land", "implausible_kinematics") rather
 # than by the enum member itself, because that is exactly api.md's
-# `active_flags` wire shape -- the developer's future endpoint can return
-# this dict as JSON with zero key translation. Every known `IntegrityFlag`
-# is always present in the returned dict, at 0 if unflagged, so an empty or
+# `active_flags` wire shape -- the future endpoint can return this dict as
+# JSON with zero key translation. Every known `IntegrityFlag` is always
+# present in the returned dict, at 0 if unflagged, so an empty or
 # entirely-unflagged snapshot still yields a dict with a zero for every flag
-# (not an empty dict) -- this matches the plan's "zero counts for every
-# flag", not "no counts at all".
+# (not an empty dict) -- zero counts for every flag, not "no counts at all".
 #
-# It was authored and committed red by the author before any
-# implementation existed (strict xfail, ): `CAVEATS` and
-# `active_flag_counts` did not exist in `backend.integrity` yet, so importing
-# them inside the test body raised `ImportError`/`AttributeError` and the
-# tests xfailed cleanly under the tests-green gate. the developer has since
-# made these genuinely pass; the xfail markers have been removed to finalize
-# the contract (author's follow-up pass, ).
+# These were written test-first and committed red, as xfails, before any
+# implementation existed: `CAVEATS` and `active_flag_counts` did not exist in
+# `backend.integrity` yet, so importing them inside the test body raised
+# `ImportError`/`AttributeError` and the tests xfailed cleanly.
+# The xfail markers were removed once the suite went green.
 # =============================================================================
 
 

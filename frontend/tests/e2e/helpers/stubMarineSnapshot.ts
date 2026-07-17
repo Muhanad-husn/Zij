@@ -1,18 +1,18 @@
 /**
  * Shared e2e helper — stubs `GET /api/layers/marine/snapshot`, which
  * `main.ts` now fetches unconditionally on every page load
- * (frontend/06-marine-integrity, #62) alongside the pre-existing air/land
- * snapshot fetches. Specs that predate step (`map-init.spec.ts`,
+ * (marine-integrity, #62) alongside the pre-existing air/land
+ * snapshot fetches. Specs that predate the marine work (`map-init.spec.ts`,
  * `layers-refresh.spec.ts`) stub only `**\/api/layers/{air,land}/snapshot` —
  * with no live FastAPI backend in this e2e run, the new marine call leaks
  * through Vite's preview proxy to a connection refused, logs a browser
  * `console.error`, and trips those specs' strict zero-console-error
- * assertions even though the behavior each of them actually tests works
+ * assertions even though the feature each of them actually tests works
  * fine (issue #107). This mirrors `stubConfigEndpoint.ts`'s role for the
- * same slice's `GET /api/config` ripple and `stubRegionEndpoints.ts`'s role
+ * same feature's `GET /api/config` ripple and `stubRegionEndpoints.ts`'s role
  * for the #59 ripple.
  *
- * `marine-integrity.spec.ts` (#62's own outer test) already stubs this
+ * `marine-integrity.spec.ts` (#62's own acceptance test) already stubs this
  * endpoint itself, looped alongside air/land with its own fixtures — it does
  * not use this helper. The other specs (`badges.spec.ts`,
  * `toggles-refresh.spec.ts`, `caveat-panel.spec.ts`) also already loop the

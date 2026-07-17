@@ -1,16 +1,14 @@
 /**
- * Inner unit tests — plan/frontend-map/02-layers-refresh.md "Inner loop"
- * units #4/#5 (freshness/count badge DOM), and plan/frontend/02-badges.md
- * "Inner loop" (status/color-seam, countdown, Caveats-always-enabled,
- * status-detail), against `src/ui/badges.ts` as actually built. Pure DOM,
- * jsdom — no map, no network.
+ * Unit tests for `src/ui/badges.ts`: freshness/count badge DOM, the
+ * status/color seam, the countdown, Caveats-always-enabled, and
+ * status-detail. Pure DOM, jsdom — no map, no network.
  *
  * `data-status` + `[data-testid="status-indicator"]` is how badges.ts wires
  * the LayerStatus -> color mapping (layout.css keys its `--status-*`
  * background off `.zij-badge[data-status='...']`); jsdom does not load
  * external stylesheets, so these unit tests assert the `data-status`
  * attribute itself (the seam that drives the color) rather than a computed
- * CSS color — the outer Playwright test (`badges.spec.ts`) is what asserts
+ * CSS color — the Playwright test (`badges.spec.ts`) is what asserts
  * the actual rendered color in a real browser.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -90,7 +88,7 @@ describe('mountBadge — plan units #4/#5: freshness + count DOM seams', () => {
   });
 });
 
-describe('mountBadge — plan/frontend/02-badges.md unit: LayerStatus -> data-status + label, all seven values', () => {
+describe('mountBadge — LayerStatus -> data-status + label, all seven values', () => {
   function render(status: string, overrides: Partial<LayerSnapshotMeta> = {}) {
     const parent = document.createElement('div');
     const badge = mountBadge(parent, 'air');
@@ -160,7 +158,7 @@ describe('mountBadge — plan/frontend/02-badges.md unit: LayerStatus -> data-st
   });
 });
 
-describe('mountBadge — plan/frontend/02-badges.md unit: rate-limited countdown ticks down from ' +
+describe('mountBadge — rate-limited countdown ticks down from ' +
   'retry_after_s and clears on transition (no leaked timer)', () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -222,7 +220,7 @@ describe('mountBadge — plan/frontend/02-badges.md unit: rate-limited countdown
   });
 });
 
-describe('mountBadge — plan/frontend/02-badges.md unit: Caveats control is always rendered and enabled, ' +
+describe('mountBadge — Caveats control is always rendered and enabled, ' +
   'regardless of status', () => {
   const statuses = ['live', 'stale', 'loading', 'rate-limited', 'error', 'cached-fallback', 'reconnecting'];
 
@@ -239,7 +237,7 @@ describe('mountBadge — plan/frontend/02-badges.md unit: Caveats control is alw
   });
 });
 
-describe('mountBadge — plan/frontend/02-badges.md unit: status-detail carries meta.detail verbatim', () => {
+describe('mountBadge — status-detail carries meta.detail verbatim', () => {
   it('data-detail equals meta.detail on error', () => {
     const parent = document.createElement('div');
     const badge = mountBadge(parent, 'air');
@@ -260,7 +258,7 @@ describe('mountBadge — plan/frontend/02-badges.md unit: status-detail carries 
 });
 
 describe(
-  'mountBadge — plan/frontend/04-toggles-refresh.md unit #1/#3: data-enabled seam ' +
+  'mountBadge — data-enabled seam ' +
     '(REQUIRED TEST SEAM #1) + Toggle/Refresh wiring',
   () => {
     it('defaults to data-enabled="true" on mount, before any update()', () => {
@@ -322,7 +320,7 @@ describe(
     });
 
     it('clicking [data-testid="caveats-button"] invokes the injected onCaveats callback exactly once ' +
-      '(plan/frontend/05-caveat-panel.md — the click-wiring behind the badge\'s entry point into the panel)', () => {
+      '(the click-wiring behind the badge\'s entry point into the panel)', () => {
       const parent = document.createElement('div');
       const onCaveats = vi.fn();
       mountBadge(parent, 'marine', { onCaveats });
@@ -338,7 +336,7 @@ describe(
 );
 
 describe(
-  'mountBadge — plan/frontend/04-toggles-refresh.md unit #3: refresh-button disables while ' +
+  'mountBadge — refresh-button disables while ' +
     'data-status="loading" and re-enables on the next non-loading update (REQUIRED TEST SEAM #5)',
   () => {
     it('refresh-button is enabled by default (initial live status)', () => {

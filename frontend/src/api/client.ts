@@ -1,11 +1,11 @@
-// Fetch wrappers over api.md endpoints (spec §1 `api/client.ts`). This slice
-// only needs the two snapshot GETs and the global refresh POST — later
-// slices add regions/estimate/activate/toggle/caveats/raw-feature/presets.
+// Fetch wrappers over api.md endpoints (spec §1 `api/client.ts`): the
+// snapshot GETs, the global refresh POST, and the
+// regions/estimate/activate/toggle/caveats endpoints.
 
 import { API_BASE } from '../config';
 import type { AppConfig, CaveatResponse, Domain, EstimateResult, LayerSnapshot, RegionInfo } from '../state/types';
 
-/** `GET /api/layers/{domain}/snapshot` (air/land only touch this slice). */
+/** `GET /api/layers/{domain}/snapshot`. */
 export async function fetchSnapshot(domain: Domain): Promise<LayerSnapshot> {
   const res = await fetch(`${API_BASE}/layers/${domain}/snapshot`);
   if (!res.ok) {

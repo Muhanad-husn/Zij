@@ -1,6 +1,5 @@
 /**
- * Inner unit tests — plan/frontend-map/02-layers-refresh.md "Inner loop" unit
- * #3 (Land line styling), against `src/map/layers/land.ts` as actually built.
+ * Unit tests for Land line styling in `src/map/layers/land.ts`.
  *
  * Same fake-map pattern as tests/unit/aviation.test.ts — only the small
  * `addSource`/`addLayer`/`getSource`/`hasImage`/`addImage` surface is used by
@@ -65,8 +64,8 @@ class FakeMap {
 }
 
 /** Flattens a nested style-expression array into its scalar leaves, in order
- * — same technique the outer e2e spec uses, so this unit test doesn't depend
- * on which expression operator (match/step/case/...) the developer chose. */
+ * — same technique the e2e spec uses, so this unit test doesn't depend
+ * on which expression operator (match/step/case/...) the app chose. */
 function flattenExpression(value: unknown): unknown[] {
   const out: unknown[] = [];
   const walk = (v: unknown) => {

@@ -1,10 +1,9 @@
 /**
- * Inner unit tests — plan/frontend/05-caveat-panel.md "Inner loop" unit list,
- * against `src/ui/caveatPanel.ts` (`mountCaveatPanel`) as actually built.
+ * Unit tests for `src/ui/caveatPanel.ts` (`mountCaveatPanel`).
  * `src/api/client.ts` is `vi.mock`'d wholesale (no real network); pure DOM via
  * jsdom, mirroring `tests/unit/regionSelector.test.ts`'s pattern.
  *
- * Plan unit list covered here:
+ * Covered here:
  *   - Panel content is fetched and swapped per domain (bullets verbatim, not
  *     paraphrased) — including a cross-domain-leak check.
  *   - `active_flags` counts render in the footer from the endpoint response.

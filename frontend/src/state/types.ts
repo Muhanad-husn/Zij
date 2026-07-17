@@ -1,6 +1,5 @@
-// Wire types mirroring feature-schema.md / api.md verbatim (spec §1). Only
-// the fields this slice touches are modeled; later slices extend this file
-// rather than re-deriving shapes ad hoc.
+// Wire types mirroring feature-schema.md / api.md verbatim (spec §1). Shapes
+// are modeled here in one place rather than re-derived ad hoc across modules.
 
 export type Domain = 'air' | 'marine' | 'land';
 

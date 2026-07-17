@@ -1,5 +1,5 @@
-"""Locked outer acceptance test for fixtures step (issue #12): committed
-Hormuz OpenSky/Overpass payload shape.
+"""Acceptance test for the committed Hormuz OpenSky/Overpass payload shape
+(issue #12).
 
 Given the committed fixtures
       backend/tests/fixtures/opensky_states_all_hormuz.json and
@@ -10,15 +10,12 @@ Then  the OpenSky fixture has top-level "time" (int) and "states" (list),
 And   the Overpass fixture has "osm3s.timestamp_osm_base" and a non-empty
       "elements" list covering node and way types
 
-This is the behavioral contract (), transcribed verbatim from
-plans/fixtures/01-fixture-capture.md ("Acceptance criterion (outer loop)" +
-inner unit list: OpenSky time/states/17-element vectors, Overpass
-osm3s.timestamp_osm_base ISO-parseable to UTC, elements non-empty covering
-node and way types). It was authored and committed red by the author
-before the fixtures existed, guarded by a strict xfail (). the maintainer
-has since run `scripts/fetch_fixtures.py` and committed both fixture files;
-the xfail marker has been removed and this test now genuinely passes,
-finalizing the contract green.
+This acceptance test covers the committed fixture shape: OpenSky
+time/states/17-element vectors, Overpass osm3s.timestamp_osm_base ISO-parseable
+to UTC, and a non-empty elements list covering node and way types. It was
+written test-first and committed red, as an xfail, before the fixtures
+existed. `scripts/fetch_fixtures.py` has since been run and both fixture files
+committed; the xfail marker was removed and this test now genuinely passes.
 """
 
 import json

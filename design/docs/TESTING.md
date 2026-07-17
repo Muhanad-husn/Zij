@@ -1,6 +1,6 @@
 # Zij — Test Strategy
 
-Proportionate to a one-developer project ([CLAUDE.md](../../CLAUDE.md): 80/20, measure don't speculate). No test-pyramid essay — this is a backlog and a set of concrete test files. Companion doc: [`STRUCTURE.md`](STRUCTURE.md). References ADRs in [DECISIONS.md](DECISIONS.md), contracts in [contracts/](../contracts/).
+Proportionate to a one-developer project (80/20, measure don't speculate). No test-pyramid essay — this is a backlog and a set of concrete test files. Companion doc: [`STRUCTURE.md`](STRUCTURE.md). References ADRs in [DECISIONS.md](DECISIONS.md), contracts in [contracts/](../contracts/).
 
 ## 1. Philosophy
 
@@ -52,7 +52,7 @@ Upstream HTTP calls are mocked with **respx** (already an ADR-5 dev dep). The we
 1. The **state store** (`frontend/src/state/`): toggling a layer updates state correctly; applying a `snapshot` event replaces that layer's features; `region_changed` clears all layers.
 2. The **SSE-client parsing** (`frontend/src/sse/`): raw `EventSource` message text → typed `LayerSnapshot`/`LayerSnapshotMeta` objects; malformed JSON doesn't crash the client.
 
-**A thin per-slice Playwright e2e is the locked outer contract.** Each frontend slice ships one Playwright test that the spec/author writes and commits **red** before any implementation () — it is the behavioral contract that slice greens. Every such test asserts the invariant shell (the map mounts, MapLibre attribution is present, the night-ink background is applied, the page raises zero console errors) plus that slice's own behavioral clauses (a badge appears, a toggle hides a layer, the caveat panel opens, and so on). CI runs these on chromium (§7). It is deliberately *thin*: it exercises behavior a headless browser can assert cheaply, never pixel-level styling.
+**A thin Playwright e2e is the acceptance test for each frontend increment.** Each ships one Playwright test written and committed **red** before its implementation — the acceptance test the code then greens. Every such test asserts the invariant shell (the map mounts, MapLibre attribution is present, the night-ink background is applied, the page raises zero console errors) plus that increment's own behavioral clauses (a badge appears, a toggle hides a layer, the caveat panel opens, and so on). CI runs these on chromium (§7). It is deliberately *thin*: it exercises behavior a headless browser can assert cheaply, never pixel-level styling.
 
 Interactions a browser test won't economically cover (real-network behavior, visual legibility, popup content) stay on a **manual smoke checklist** (run once per meaningful frontend change, referencing FR IDs):
 
@@ -71,7 +71,7 @@ Interactions a browser test won't economically cover (real-network behavior, vis
 
 | Not tested | Why |
 |---|---|
-| Pixel-level MapLibre style correctness (exact colors, glyph placement, icon rasterization) | MapLibre is a mature, externally-tested library; we only feed it GeoJSON. The per-slice Playwright test asserts the map *mounts* and behaves (§5); exact rendered pixels stay on the manual checklist's visual checks. |
+| Pixel-level MapLibre style correctness (exact colors, glyph placement, icon rasterization) | MapLibre is a mature, externally-tested library; we only feed it GeoJSON. The Playwright test asserts the map *mounts* and behaves (§5); exact rendered pixels stay on the manual checklist's visual checks. |
 | Upstream API liveness (OpenSky/aisstream/Overpass actually being up) | Not this project's to guarantee; adapters are tested against recorded fixtures, and the v0 spike (§7) is where real-service behavior gets *measured*, not asserted in CI. |
 | Tauri/Capacitor shells | Don't exist until v2 (PRD §11); testing them now would be testing vaporware. When v2 starts, the shell-boundary contract ([ARCHITECTURE §6](ARCHITECTURE.md#6-the-shell-boundary-d1-no-rewrite-promise)) means the existing backend/frontend test suites carry over unchanged — only shell-hosting smoke tests get added. |
 | §13 success criteria as CI assertions | Operational/usage-log measurements, not deterministic test conditions (§1). |
@@ -108,17 +108,17 @@ jobs:
       - setup Node LTS
       - npm ci --prefix frontend
       - npx playwright install --with-deps chromium
-      - npm run test:e2e --prefix frontend        # the per-slice locked outer tests, §5
+      - npm run test:e2e --prefix frontend        # the Playwright acceptance tests, §5
       - upload-artifact (if: always()): playwright-report/ + test-results/   # evidence, 14-day retention
 ```
 
-The `frontend-e2e` job runs the per-slice Playwright outer tests (§5) on chromium: it installs the chromium browser with `playwright install --with-deps`, runs `npm run test:e2e`, and always uploads `playwright-report/` + `test-results/` as a build artifact so a red run's trace is inspectable. It is bounded by `timeout-minutes` because a hung headless browser must fail the job rather than idle the runner.
+The `frontend-e2e` job runs the Playwright acceptance tests (§5) on chromium: it installs the chromium browser with `playwright install --with-deps`, runs `npm run test:e2e`, and always uploads `playwright-report/` + `test-results/` as a build artifact so a red run's trace is inspectable. It is bounded by `timeout-minutes` because a hung headless browser must fail the job rather than idle the runner.
 
 `ubuntu-latest` is fine for CI even though dev happens on Windows 11/conda — nothing in the stack (pure asyncio, stdlib `sqlite3`, `platformdirs` for paths) has an OS-specific branch; the one thing worth double-checking once is that `tomllib`/`pathlib` path handling in `config.py`/`store.py` doesn't assume `/`-style paths anywhere (it shouldn't, using `pathlib.Path` throughout).
 
 ## 8. Live-source validation (the v0 spike doubles as this)
 
-PRD §11 defines v0's purpose as validating credit math, Overpass payload sizes, and render performance with real theater data — i.e. this is where "measure, don't speculate" ([CLAUDE.md](../../CLAUDE.md)) actually happens. Record these during the v0 spike, not later:
+PRD §11 defines v0's purpose as validating credit math, Overpass payload sizes, and render performance with real theater data — i.e. this is where "measure, don't speculate" actually happens. Record these during the v0 spike, not later:
 
 | Measurement | Why it matters | Compares against |
 |---|---|---|

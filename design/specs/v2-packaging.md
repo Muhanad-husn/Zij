@@ -208,7 +208,7 @@ dependency in the default deployment).
 
 Both are P1 ([FR11](../docs/zij_prd.md)) and land in v2 alongside packaging. Both are
 **frontend surfacings of surfaces that already exist** — no new backend endpoints, no new
-schema fields. Specified at behavioral-contract level so a later sprint can slice them.
+schema fields. Specified at a behavioral level so they can be implemented later.
 
 ### 5.1 Presets UI (FR11)
 

@@ -1,4 +1,4 @@
-"""Locked outer acceptance test for models step (issue #9): Feature/LayerSnapshot schema.
+"""Acceptance test for the Feature/LayerSnapshot schema (issue #9).
 
 Given the backend.models module
 When  a Feature is built from the air wire example in feature-schema.md and dumped
@@ -9,12 +9,10 @@ And   raw_payload is excluded from the dumped output
 And   a LayerSnapshot wrapping that Feature round-trips through model_validate()
       unchanged
 
-This is the behavioral contract (), transcribed from
-plans/models/01-feature-schema.md and design/contracts/feature-schema.md (the
-air wire example at contract lines 173-195). It was authored and committed red
-by the author before any implementation existed, guarded by a strict
-xfail (). the developer has since made it genuinely pass; the xfail
-marker has been removed to finalize the contract.
+Drawn from design/contracts/feature-schema.md (the air wire example at
+contract lines 173-195). It was written test-first and committed red, as an
+xfail, before any implementation existed; the xfail marker was removed once
+the suite went green.
 """
 
 import json
@@ -66,9 +64,23 @@ RAW_PAYLOAD_EXAMPLE = {
     "icao24": "896451",
     "callsign": "IRA655   ",
     "raw_state_vector": [
-        "896451", "IRA655", "Iran", 1751706718, 1751706723,
-        56.27, 26.61, 10668.0, False, 231.5, 118.4, 0.0,
-        None, 10820.0, None, False, 0,
+        "896451",
+        "IRA655",
+        "Iran",
+        1751706718,
+        1751706723,
+        56.27,
+        26.61,
+        10668.0,
+        False,
+        231.5,
+        118.4,
+        0.0,
+        None,
+        10820.0,
+        None,
+        False,
+        0,
     ],
 }
 
@@ -118,7 +130,9 @@ def test_feature_and_layer_snapshot_schema_from_air_wire_example():
 
     dumped_json = feature.model_dump_json()
     assert "raw_payload" not in json.loads(dumped_json)
-    assert "raw_payload" not in dumped_json  # not present as raw text in the wire body either
+    assert (
+        "raw_payload" not in dumped_json
+    )  # not present as raw text in the wire body either
 
     # --- And: a LayerSnapshot wrapping that Feature round-trips through model_validate() unchanged ---
     meta = LayerSnapshotMeta.model_validate(AIR_META_WIRE)

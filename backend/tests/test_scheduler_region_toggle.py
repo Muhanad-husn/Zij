@@ -1,5 +1,5 @@
-"""Locked outer acceptance test for scheduler step (issue #52):
-region-switch (`activate_region`) + stream-aware enable/disable.
+"""Acceptance test for scheduler region-switch (`activate_region`) and
+stream-aware enable/disable (issue #52).
 
 Given a Scheduler on region A with an in-flight air fetch and a marine
       stream adapter
@@ -12,26 +12,23 @@ And   a fallback row whose region_id is A is NOT used to repopulate under B
 When  set_enabled("air", False) is called
 Then  the air poll loop issues no further upstream fetches until re-enabled
 
-Transcribed from plans/scheduler/04-region-toggle.md ("Acceptance
-criterion") and design/specs/scheduler.md ("Region-switch sequence
+Derived from design/specs/scheduler.md ("Region-switch sequence
 (activate_region, ARCHITECTURE §4.2)", "Enable/disable (FR5)"), including
 the NOTE that `fallback_snapshots` is keyed by layer only, so a region
 switch must gate repopulation on the fallback row's `meta.region_id`
 matching the new region.
 
-**Why a NEW file, not `backend/tests/test_scheduler.py`.** The plan names
-`test_scheduler.py` as the file, but that module is step's LOCKED outer
-contract (its own docstring: "It was authored and committed red ... the
-xfail marker has been removed to finalize the contract" -- not to be
-reopened or appended to by a later slice). Adding a second, unrelated
-locked contract into the same module would blur ownership of two
-independently-evolving acceptance tests and risk an editor of step
-accidentally touching step's frozen assertions. A new file preserves
-both contracts' independence; this is the honest reading of the plan's
-intent, not a deviation from it.
+**Why a NEW file, not `backend/tests/test_scheduler.py`.** That module is the
+concurrency spine's locked acceptance test (its own docstring: committed red,
+then the xfail marker removed to finalize the contract -- not to be reopened
+or appended to later). Adding a second, unrelated locked contract into the
+same module would blur ownership of two independently-evolving acceptance
+tests and risk an edit here accidentally touching the spine's frozen
+assertions. A new file preserves both contracts' independence; this is the
+honest reading, not a deviation from it.
 
-**Public surface this test locks (author's chosen minimal step
-constructor grown from step/02, per "extend without a rewrite")**:
+**Public surface this test locks (the minimal constructor grown from the
+earlier steps, extending without a rewrite)**:
 
     class Scheduler:
         def __init__(self, cfg, adapters, region, *,
@@ -41,8 +38,8 @@ constructor grown from step/02, per "extend without a rewrite")**:
         async def set_enabled(self, domain: Domain, enabled: bool) -> None: ...
 
 `stream` is a NEW optional keyword-only collaborator (mirrors the
-already-optional `registry`/`integrity`/`store`/`events` kwargs step
-added) -- every existing step/02 call shape (`Scheduler(cfg, adapters,
+already-optional `registry`/`integrity`/`store`/`events` kwargs added by the
+write-path work) -- every existing call shape (`Scheduler(cfg, adapters,
 region)` and `Scheduler(cfg, adapters, region, registry=..., ...)`) keeps
 working unmodified. Marine is deliberately NOT put in the `adapters` dict
 (that dict is `dict[Domain, PollAdapter]`, per the full spec's constructor
@@ -50,7 +47,7 @@ signature) -- the marine `StreamAdapter` is a structurally different
 collaborator (`start`/`stop`/`set_region`/`snapshot`/`connected`, no
 `fetch`), so it is injected through its own `stream` kwarg rather than
 forced into the poll-adapter mapping. `set_enabled` itself is unchanged
-(already public since step); this test only re-locks its poll-loop
+(already public since the spine); this test only re-locks its poll-loop
 parking behavior for the `air` domain in the context of a region switch,
 per the Gherkin's explicit `set_enabled("air", False)` clause.
 
@@ -69,7 +66,7 @@ transition, not a vacuous "was already empty" pass.
 **Proving "in-flight A fetch cancelled/ignored" without literal
 cancellation.** Per the spec, the fetch coroutine is NOT `.cancel()`-ed --
 "their Future is discarded ... a completing old-gen fetch is ignored on
-return by checking the generation." This test reuses step's
+return by checking the generation." This test reuses the spine's
 gate-controlled `FakeAdapter` pattern: a `refresh(Domain.AIR)` is started
 under region A and held in flight on a caller-controlled `asyncio.Event`
 gate; `activate_region(B)` is called while it is still gated (proving the
@@ -100,27 +97,26 @@ writes forever (not just the stale generation) would vacuously pass the
 enabled window is then used for the Gherkin's final clause: disabling
 (`set_enabled(Domain.AIR, False)`) is asserted to stop further
 `adapter.fetch` calls across a multi-cadence real-time window (reusing
-step's disable-proof pattern, scoped here to `air` per the Gherkin).
+the spine's disable-proof pattern, scoped here to `air` per the Gherkin).
 
 Real (unfrozen) sleeps are used for cadence-timing assertions, for the same
-reason documented in step's `test_scheduler.py`: asyncio's internal
+reason documented in the spine's `test_scheduler.py`: asyncio's internal
 scheduling clock is not something `freezegun` intercepts.
 
 `backend.scheduler` is imported inside the test body (repo convention --
-see step's `test_scheduler.py` and the durable memory note on avoiding
+see the spine's `test_scheduler.py` and the note on avoiding
 module-scope imports of app-wiring modules at collection time; harmless
 here in practice since this module imports no app-wiring code, but kept
 for consistency).
 
-Authored and committed red by the author before any implementation
-existed (strict xfail, ): `Scheduler.activate_region` and the
-`stream` constructor kwarg did not exist yet, so this failed on
-`AttributeError`/`TypeError` and xfailed cleanly under the tests-green
-gate. the developer has since made it pass; the xfail marker is removed
-to finalize the contract (). See
-`test_scheduler_region_toggle_unit.py` for the inner-unit pass added in the
+Committed red before any implementation existed (xfail):
+`Scheduler.activate_region` and the `stream` constructor kwarg did not exist
+yet, so this failed on `AttributeError`/`TypeError` and xfailed cleanly.
+The implementation has since made it pass; the xfail
+marker is removed to finalize the contract. See
+`test_scheduler_region_toggle_unit.py` for the unit-test pass added in the
 same close-out commit (marine fallback region-match gate, land cache
-freshness gate, stream enable/disable) -- the gaps this outer test itself
+freshness gate, stream enable/disable) -- the gaps this acceptance test itself
 does not pin.
 """
 
@@ -143,7 +139,7 @@ REGION_B = Region(id="malacca", label="Strait of Malacca", bbox=(98.0, 1.0, 104.
 
 def _make_snapshot(domain: Domain, region: Region) -> LayerSnapshot:
     """A minimal, valid LayerSnapshot for `domain`/`region` -- mirrors
-    step's helper of the same name (this is a separate test module, so
+    the spine's helper of the same name (this is a separate test module, so
     it is redefined locally rather than imported cross-module)."""
     now = datetime.now(timezone.utc)
     return LayerSnapshot(
@@ -164,7 +160,7 @@ def _make_snapshot(domain: Domain, region: Region) -> LayerSnapshot:
 class FakeAdapter(PollAdapter):
     """A PollAdapter double that counts `fetch` calls, records the region
     each call was made with, and can optionally hold a fetch in flight
-    behind a caller-controlled `asyncio.Event` gate (step pattern)."""
+    behind a caller-controlled `asyncio.Event` gate (the spine's pattern)."""
 
     source = "fake"
 
@@ -186,8 +182,8 @@ class FakeAdapter(PollAdapter):
 
 class FakeStreamAdapter(StreamAdapter):
     """A StreamAdapter double that only records `set_region` calls -- the
-    stream adapter's own internals (websocket, table, jitter) are
-    sources-marine/02's concern (out of scope, per the plan)."""
+    stream adapter's own internals (websocket, table, jitter) are the marine
+    source's own concern, out of scope here."""
 
     domain = Domain.MARINE
     source = "fake-stream"
@@ -263,7 +259,7 @@ def _make_cfg(*, air_cadence_s: int, air_enabled: bool) -> AppConfig:
 @contextlib.asynccontextmanager
 async def _running_scheduler(scheduler):
     """Run `scheduler.run()` as a background task for the duration of the
-    `with` block (step pattern -- `run()` owns an infinite
+    `with` block (the spine's pattern -- `run()` owns an infinite
     `asyncio.TaskGroup`)."""
     task = asyncio.ensure_future(scheduler.run())
     try:
@@ -425,7 +421,7 @@ async def test_stream_supervisor_pushes_initial_region_before_start():
     subscribes with an empty `BoundingBoxes` list and receives no vessels
     until a later region switch happens to call `set_region` -- marine renders
     live-but-empty forever (caught live against the real adapter, not the
-    fake used by the outer acceptance test, whose `snapshot()` ignores the
+    fake used by the acceptance test, whose `snapshot()` ignores the
     subscription)."""
     from backend.scheduler import Scheduler
 
@@ -490,7 +486,7 @@ class _BootFailStreamAdapter(StreamAdapter):
 
 
 async def test_stream_start_failure_is_isolated_and_retried_not_crashing_siblings():
-    """Regression (#113, reviewer Finding 1): a marine `start()` that raises at
+    """Regression (#113, found in review): a marine `start()` that raises at
     boot must NOT propagate out of `_stream_supervisor` -- that task runs
     inside `run()`'s `asyncio.TaskGroup`, so an unhandled raise would cancel
     the sibling air poll loop too (FR10 violation). The supervisor must catch
@@ -531,7 +527,7 @@ async def test_stream_start_failure_is_isolated_and_retried_not_crashing_sibling
 
 
 async def test_boots_disabled_then_enable_starts_stream_exactly_once():
-    """Regression (#113, reviewer re-review): a marine layer that boots
+    """Regression (#113, found on re-review): a marine layer that boots
     DISABLED and is later enabled via `set_enabled` must start the socket
     exactly ONCE -- not twice (set_enabled's own `start()` plus the running
     supervisor's bootstrap retry). Against the real adapter a second `start()`

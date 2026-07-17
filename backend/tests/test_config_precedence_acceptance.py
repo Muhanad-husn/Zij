@@ -1,4 +1,4 @@
-"""Locked outer acceptance test for config step (issue #46): the full
+"""Acceptance test for the full precedence chain (issue #46): the full
 ADR-6 precedence chain (code defaults < bundled `config.toml` < user
 `config.toml` < `ZIJ_`-prefixed env tunables < DB `config_presets
 (kind='config_override')` rows) plus active-region persistence with a
@@ -27,12 +27,11 @@ And   when no `active_region` override exists, or its `region_id` names a
 And   a secret-shaped key set in a TOML layer is never read into `Secrets`
       (NFR5: secrets are env-only, never from any TOML)
 
-This is the behavioral contract (), transcribed from
-plans/config/03-precedence.md ("Acceptance criterion") and
+This is the acceptance contract, transcribed from
 design/contracts/config.md ("Precedence", "Loading design") and
 design/specs/config-module.md ("Loading & precedence", "Secrets -- separate
-object"). Authored and committed red by the author before any
-implementation exists (strict xfail, ): as of this commit,
+object"). Authored and committed red before any
+implementation existed (xfail): as of that commit,
 `backend.config.load_config()` takes no arguments at all and only merges
 code defaults with the bundled TOML (layers 1-2) -- it does not read a user
 TOML, does not read any `ZIJ_`-prefixed env var, has no `overrides` keyword,
@@ -41,7 +40,7 @@ either raises `TypeError` (unexpected `overrides` kwarg) or fails a plain
 value assertion (e.g. the user-file override is silently ignored), so this
 test genuinely `xfail`s rather than passing vacuously against a stub.
 
-**Interface locked here (the developer must build to this exact shape).**
+**Interface locked here (implementation must build to this exact shape).**
 `design/contracts/config.md` and `design/specs/config-module.md` both pin
 `load_config() -> tuple[AppConfig, Secrets]` as the public signature but do
 not (and structurally cannot, since they predate store/03's
@@ -60,11 +59,10 @@ extension:
   unchanged: `overrides=None` means "no DB layer", matching today's output
   exactly. `load_config()` is still the async-free, sync function it always
   was -- the *caller* is responsible for awaiting `Store.get_config_overrides()`
-  and passing the resulting `{name: payload}` dict in (the plan calls this
-  "an injected store override reader"); this test injects that dict directly
-  rather than standing up a real async `Store`, exactly as
-  plans/config/03-precedence.md directs ("Boundary: `load_config()` with
-  layered fake TOMLs + env + an injected `store` override reader").
+  and passing the resulting `{name: payload}` dict in (an injected store
+  override reader); this test injects that dict directly rather than standing
+  up a real async `Store`, exercising `load_config()` with layered fake TOMLs
+  plus env plus an injected store override reader.
 - `overrides`'s shape mirrors `Store.get_config_overrides()`'s return value
   verbatim: `{name: payload}`. Every key *other than* the reserved name
   `"active_region"` is deep-merged directly into the accumulating
@@ -129,8 +127,8 @@ REAL_AISSTREAM_API_KEY = "precedence-outer-real-aisstream-api-key"
 
 
 def _set_hermetic_secrets(monkeypatch) -> None:
-    """Air and marine are both enabled in the bundled config.toml (slice
-    config-02, #42); both secret gates need real (non-empty) values or
+    """Air and marine are both enabled in the bundled config.toml
+    (#42); both secret gates need real (non-empty) values or
     `load_config()` raises `MissingSecretError` for a reason this test does
     not cover."""
     monkeypatch.setenv("OPENSKY_CLIENT_ID", REAL_OPENSKY_CLIENT_ID)

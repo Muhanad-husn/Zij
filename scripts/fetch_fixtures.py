@@ -1,6 +1,6 @@
-"""Dev-time fixture capture (plans/fixtures/01-fixture-capture.md, issue #12).
+"""Dev-time fixture capture (issue #12).
 
-Run manually by the maintainer, with OpenSky credentials in the environment
+Run manually, with OpenSky credentials in the environment
 (`.env`: `OPENSKY_CLIENT_ID`, `OPENSKY_CLIENT_SECRET`):
 
     uv run python scripts/fetch_fixtures.py
@@ -70,7 +70,9 @@ OVERPASS_QUERIES: list[tuple[str, str]] = [
 def _write_json(path: Path, data: dict[str, Any]) -> None:
     """Write pretty-printed JSON, preserving every field verbatim (no
     stripping/reshaping of upstream data, plan DoD)."""
-    path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    path.write_text(
+        json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+    )
 
 
 def _find_hormuz_region(cfg: AppConfig) -> tuple[float, float, float, float]:
@@ -135,7 +137,7 @@ async def _fetch_overpass_class(
     Prints per-class/per-attempt progress so a hung/throttled mirror is
     visible on the terminal in real time (issue #12 observability fix)."""
     # Capture-script convenience: cap the httpx per-request timeout tighter
-    # than the spec's `timeout_s + 30` (product adapter value, slice #15) so
+    # than the spec's `timeout_s + 30` (the product adapter value) so
     # an unresponsive interactive mirror is abandoned in ~90s and rotates to
     # the next mirror, instead of blocking ~210s per attempt.
     request_timeout = min(timeout_s + 30, 90.0)
@@ -233,7 +235,9 @@ async def fetch_overpass_all(
     }
     async with httpx.AsyncClient(headers=headers) as client:
         for index, (name, body_template) in enumerate(OVERPASS_QUERIES):
-            query = _build_overpass_query(body_template, bbox_str, timeout_s, maxsize_bytes)
+            query = _build_overpass_query(
+                body_template, bbox_str, timeout_s, maxsize_bytes
+            )
             data = await _fetch_overpass_class(
                 client,
                 mirrors,
@@ -285,7 +289,9 @@ async def _async_main() -> None:
     _write_json(OVERPASS_FIXTURE, overpass_data)
     element_count = len(overpass_data["elements"])
     osm_base = overpass_data["osm3s"]["timestamp_osm_base"]
-    print(f"Wrote {element_count} Overpass elements (osm_base={osm_base}) -> {OVERPASS_FIXTURE}")
+    print(
+        f"Wrote {element_count} Overpass elements (osm_base={osm_base}) -> {OVERPASS_FIXTURE}"
+    )
 
 
 def main() -> None:

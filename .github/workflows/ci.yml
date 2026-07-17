@@ -1,6 +1,6 @@
 # Zij default CI — Python 3.13 / uv / pytest / ruff.
-# Adapted from the harness template for the Zij stack (). App is at the repo root
-# (project directory ".") — if a future package moves into a subfolder, set
+# App is at the repo root (project directory ".") — if a future package moves
+# into a subfolder, set
 # `defaults.run.working-directory` and point `cache-dependency-path` at that dir's uv.lock.
 #
 # Secrets: env-only via .env, which is git-ignored (config contract). CI injects any secret

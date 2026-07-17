@@ -1,5 +1,5 @@
-"""Locked outer acceptance test () for issue #113: the scheduler and a
-marine adapter are wired into the REAL app lifespan.
+"""Acceptance test for issue #113: the scheduler and a marine adapter are
+wired into the REAL app lifespan.
 
 Given the real `create_app` factory, with a fake marine `StreamAdapter`
       injected via a NEW `marine_adapter` keyword-only parameter and a fast
@@ -20,8 +20,8 @@ And   the fake stream adapter's `start()` was called during startup and its
 And   shutting the server down (lifespan exit) completes cleanly within a
       bounded timeout -- no hang, no exception propagating out of shutdown.
 
-Spec basis (implementation gap, NOT spec drift -- see issue #113):
-design/specs/scheduler.md "Task model" ("`run()` opens one
+Spec basis (an implementation gap, NOT an inconsistency in the spec -- see
+issue #113): design/specs/scheduler.md "Task model" ("`run()` opens one
 `asyncio.TaskGroup`" / "lifetime = app lifetime" / "One `_stream_supervisor()`
 task if the marine source is a `StreamAdapter`"); design/docs/ARCHITECTURE.md
 §4.1 ("scheduler starts adapter tasks at startup"); design/contracts/
@@ -34,7 +34,7 @@ lifespan only does `await store.init()` / `await store.close()` -- it never
 calls `scheduler.run()` at all, so the real app never starts a single
 background task and `GET /api/layers/marine/snapshot` 404s forever.
 
-Design seam this test locks in for the developer (backend/main.py):
+Design seam this test locks in (backend/main.py):
 
     def create_app(*, static_dir, config, secrets,
                     air_adapter=None, land_adapter=None,
@@ -53,10 +53,10 @@ task at startup and cancel/await it cleanly at shutdown -- every existing
 `create_app(...)` call site in `test_api.py` keeps working unmodified
 because every new parameter is optional.
 
-Committed red before any implementation existed (): at that
+Committed red before any implementation existed (xfail): at that
 point `create_app(..., marine_adapter=...)` raised `TypeError` on the
-unknown keyword, so the tests failed immediately and xfailed cleanly under
-the tests-green gate. the developer has since made both genuinely pass;
+unknown keyword, so the tests failed immediately and xfailed cleanly.
+The implementation has since made both genuinely pass;
 the xfail markers have been removed to finalize the contract.
 """
 
@@ -167,7 +167,7 @@ async def _serving(app):
     the server's `base_url`; on exit, requests a graceful stop and awaits the
     serve task under a bounded timeout, so a lifespan-shutdown hang or
     exception fails THIS test rather than hanging the suite (and blocking
-    the tests-green commit hook)."""
+    the pre-commit test run)."""
     server = uvicorn.Server(
         uvicorn.Config(app, host="127.0.0.1", port=0, log_level="warning")
     )
@@ -319,8 +319,7 @@ async def test_marine_snapshot_and_sse_populate_via_real_app_lifespan_without_ma
 
 
 # ===========================================================================
-# Inner unit test (, authored by the author from the plan's unit
-# list): the default marine adapter -- built from config/secrets when
+# Unit test: the default marine adapter -- built from config/secrets when
 # `marine_adapter` is omitted -- must actually be an `AisStreamAdapter`
 # wired into the scheduler, mirroring how `air_adapter` already defaults to
 # an `OpenSkyAdapter`.
@@ -330,7 +329,7 @@ async def test_marine_snapshot_and_sse_populate_via_real_app_lifespan_without_ma
 # therefore never enters a lifespan context and needs no network mocking; it
 # inspects the constructed object graph directly.
 #
-# Locked introspection seam this test asks the developer to expose:
+# Introspection seam this test expects to be exposed:
 # `app.state.scheduler` (a `backend.scheduler.Scheduler` instance) -- a
 # standard FastAPI `app.state` attribute.
 # ===========================================================================

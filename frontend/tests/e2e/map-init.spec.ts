@@ -1,20 +1,19 @@
 /**
- *  locked outer acceptance test — frontend-map/01-map-init (issue #19), the
- * v0 walking skeleton. Committed RED-BY-CONSTRUCTION: `frontend/` does not exist
- * yet (no Vite app, no MapLibre init, no Playwright config), so this test cannot
- * even run today — that absence *is* the honest red for a greenfield slice. Once
- * the developer scaffolds `frontend/` and builds `map/map.ts` per
- * `design/specs/frontend.md` §2/§8 and `plans/frontend-map/01-map-init.md`, this
- * file starts running for real.
+ * Acceptance test — map init (issue #19), the v0 walking skeleton. Written
+ * before any implementation existed, so it was committed red by construction:
+ * `frontend/` did not exist yet (no Vite app, no MapLibre init, no Playwright
+ * config), so the test could not even run — that absence *was* the honest red
+ * for greenfield code. Once `frontend/` was scaffolded and `map/map.ts` built
+ * per `design/specs/frontend.md` §2/§8, this file started running for real.
  *
- * Locked contract clauses (each must be independently satisfied, not just the
+ * Contract clauses (each must be independently satisfied, not just the
  * union): canvas mounts; map is centered on the Hormuz region; attribution shows
  * both "OpenStreetMap" and "OpenFreeMap"; the map background is the night-ink
  * color `--zij-ink` (#101D30), not the default light basemap; zero uncaught
  * console errors during load.
  *
- * REQUIRED TEST SEAM (developer must expose this — not the author's to
- * relax): after the map's `load` event fires, the app must assign the live
+ * REQUIRED TEST SEAM (the app must expose this): after the map's `load` event
+ * fires, the app must assign the live
  * MapLibre `Map` instance to `window.__zijMap`. This is the only way to read
  * WebGL-backed state (center, paint properties) that isn't observable from the
  * DOM. Shape:
@@ -25,10 +24,7 @@
  * `getCenter()`/`getPaintProperty()` reflect the final, styled state) — e.g.
  * `map.on('load', () => { (window as any).__zijMap = map; })`.
  *
- * This test is not the author's to loosen and not the developer's to
- * touch.
- *
- * RECONCILIATION (slice frontend-map/02-layers-refresh, issue #20): step
+ * LATER-FEATURE FALLOUT (layers-refresh, issue #20): that feature
  * made the app fetch `GET /api/layers/{air,land}/snapshot` on the map's `load`
  * event. This test has no live FastAPI backend (playwright.config.ts serves
  * only the built static bundle), so those two requests 404/500 through Vite's
@@ -43,13 +39,13 @@
  * air/land layers themselves (that's `layers-refresh.spec.ts`'s job) — it
  * stays a pure map-boot test. All five original clauses below are unchanged.
  *
- * RECONCILIATION (slice frontend/01-sse-client, issue #57): the app now
+ * LATER-FEATURE FALLOUT (sse-client, issue #57): the app now
  * unconditionally opens `EventSource('/api/events')` on load (spec §3 — the
  * live-update spine). This test has no live FastAPI backend, so an unstubbed
  * `/api/events` errors through Vite's preview proxy, logging a
  * `console.error` that would trip this test's "zero console errors" clause
  * even though the map itself boots cleanly — the same class of issue the
- * snapshot-endpoint reconciliation above already documents. This test
+ * snapshot-endpoint note above already documents. This test
  * doesn't exercise SSE at all (that is `sse-client.spec.ts`'s job), so
  * `tests/e2e/helpers/quietSseStub.ts` is used below to answer `/api/events`
  * quietly and keep it open for the test's duration — no assertion here
@@ -57,38 +53,38 @@
  * `page.route().fulfill()` stub can't safely stand in here (it would leave
  * the EventSource retrying forever in the background).
  *
- * RECONCILIATION (slice frontend/03-region-selector, issue #59): the app now
+ * LATER-FEATURE FALLOUT (region-selector, issue #59): the app now
  * unconditionally fetches `GET /api/regions` and `GET /api/regions/active`
  * on load (region dropdown population + last-region restore). This test has
  * no live FastAPI backend, so those unstubbed calls would leak through
  * Vite's preview proxy to a connection refused, logging a browser
  * `console.error` that would trip this test's "zero console errors" clause
  * even though the map itself boots cleanly — the same class of issue the
- * snapshot-endpoint reconciliation above already documents.
+ * snapshot-endpoint note above already documents.
  * `tests/e2e/helpers/stubRegionEndpoints.ts` is used below to answer both
  * quietly; this test asserts nothing about regions (that's
  * `region-selector.spec.ts`'s job).
  *
- * RECONCILIATION (slice frontend/06-marine-integrity, issue #62): the app
- * now unconditionally fetches `GET /api/config` on load (the client tick
- * reads de-emphasis/drop thresholds from it, spec §9). This test has no live
+ * LATER-FEATURE FALLOUT (marine-integrity, issue #62): the app now
+ * unconditionally fetches `GET /api/config` on load (the client tick reads
+ * de-emphasis/drop thresholds from it, spec §9). This test has no live
  * FastAPI backend, so an unstubbed call would leak through Vite's preview
- * proxy the same way the region/SSE reconciliations above already document.
+ * proxy the same way the region/SSE notes above already document.
  * `tests/e2e/helpers/stubConfigEndpoint.ts` answers it quietly; this test
  * asserts nothing about tick/de-emphasis behavior (that's
  * `marine-integrity.spec.ts`'s job).
  *
- * RECONCILIATION (slice frontend/06-marine-integrity, issue #62 — CI fix
- * #107): that same slice also made the app fetch `GET
- * /api/layers/marine/snapshot` on load, alongside the pre-existing air/land
- * snapshot fetches this test already stubs above. That third call was missed
- * when step landed, so it leaked through Vite's preview proxy
- * (`ECONNREFUSED` against the backend-less preview server), logged a
- * `console.error`, and tripped this test's "zero console errors" clause even
- * though the map itself boots cleanly — the same class of issue every
- * reconciliation above already documents. `tests/e2e/helpers/
- * stubMarineSnapshot.ts` answers it quietly; this test asserts nothing about
- * marine rendering (that's `marine-integrity.spec.ts`'s job).
+ * LATER-FEATURE FALLOUT (marine-integrity, issue #62 — CI fix #107): that
+ * same feature also made the app fetch `GET /api/layers/marine/snapshot` on
+ * load, alongside the pre-existing air/land snapshot fetches this test
+ * already stubs above. That third call was missed when the marine work
+ * landed, so it leaked through Vite's preview proxy (`ECONNREFUSED` against
+ * the backend-less preview server), logged a `console.error`, and tripped
+ * this test's "zero console errors" clause even though the map itself boots
+ * cleanly — the same class of issue every note above already documents.
+ * `tests/e2e/helpers/stubMarineSnapshot.ts` answers it quietly; this test
+ * asserts nothing about marine rendering (that's `marine-integrity.spec.ts`'s
+ * job).
  */
 
 import { test, expect } from '@playwright/test';
@@ -99,8 +95,9 @@ import { stubMarineSnapshot } from './helpers/stubMarineSnapshot';
 
 /** Minimal valid empty LayerSnapshot per design/contracts/feature-schema.md
  * §"LayerSnapshot & metadata". Only used to keep the app's on-load snapshot
- * fetches (added in step) from 404/500-ing against this test's live-backend-less
- * preview server; this test asserts nothing about the resulting layers. */
+ * fetches (added with the layers feature) from 404/500-ing against this test's
+ * live-backend-less preview server; this test asserts nothing about the
+ * resulting layers. */
 function emptySnapshot(layer: 'air' | 'land') {
   return {
     meta: {
@@ -151,7 +148,7 @@ test(
     const consoleErrors: string[] = [];
     const pageErrors: string[] = [];
 
-    // RECONCILIATION (frontend/01-sse-client, #57) — see file-header comment.
+    // LATER-FEATURE FALLOUT (sse-client, #57) — see file-header comment.
     // A quiet, permanently-open /api/events stub; this test doesn't exercise
     // SSE and asserts nothing about the connection banner. See
     // tests/e2e/helpers/quietSseStub.ts for why this must be a real,
@@ -169,8 +166,8 @@ test(
         pageErrors.push(err.message);
       });
 
-      // Route interception MUST be registered before goto — see RECONCILIATION
-      // note above the imports.
+      // Route interception MUST be registered before goto — see the
+      // file-header note above the imports.
       await stubApi(page);
       await sseStub.attachTo(page);
       await stubRegionEndpoints(page);
@@ -183,7 +180,7 @@ test(
     const canvas = page.locator('.maplibregl-canvas');
     await expect(canvas).toBeVisible();
 
-    // --- Test seam: wait for the developer-exposed live Map instance -----
+    // --- Test seam: wait for the app-exposed live Map instance -------------
     await page.waitForFunction(() => Boolean((window as unknown as { __zijMap?: unknown }).__zijMap));
 
     // --- Clause: centered on the Hormuz region (~26.25N, 56.25E) -----------

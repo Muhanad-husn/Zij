@@ -1,6 +1,6 @@
 // App config — spec §1 (config.ts): API base path, map geography, tile provider.
-// step only needs the Hormuz geography + the OpenFreeMap source URL; later
-// slices add tick interval and SSE retry constants here.
+// Covers the Hormuz geography, the OpenFreeMap source URL, and the
+// client-tick interval.
 
 /** Strait of Hormuz bounding box: [west, south, east, north] (PRD §6.4). */
 export const HORMUZ_BBOX: readonly [number, number, number, number] = [

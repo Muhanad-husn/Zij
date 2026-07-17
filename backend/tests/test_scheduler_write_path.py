@@ -1,5 +1,5 @@
-"""Locked outer acceptance test for scheduler step (issue #49): status
-ownership + the write path.
+"""Acceptance test for scheduler status ownership and the write path
+(issue #49).
 
 Given a Scheduler with mocked integrity, registry, event bus and store
 When  a poll fetch returns a snapshot whose source timestamp is fresh
@@ -12,17 +12,16 @@ When  a fetch fails and a warm region-matched cache exists
 Then  the layer status is `cached-fallback` (not `error`); with no cache it
       is `error`
 
-Transcribed from plans/scheduler/02-status-write-path.md ("Acceptance
-criterion") and design/specs/scheduler.md ("Write path", "Status
-ownership... transition table", "cached-fallback beats error"). step's
+Derived from design/specs/scheduler.md ("Write path", "Status
+ownership... transition table", "cached-fallback beats error"). The
 concurrency spine (backend/tests/test_scheduler.py) is untouched; this file
 only exercises the NEW write-path/status-ownership surface, driven through
 `refresh(domain)` for a deterministic single write (no cadence timing races
--- unlike step, nothing here depends on real-clock scheduling).
+-- unlike the spine, nothing here depends on real-clock scheduling).
 
-**Public surface this test locks (constructor extension, "extend without a
-rewrite")**: the full spec constructor is
-`Scheduler(cfg, adapters, registry, integrity, store, events)`, but step
+**Public surface this test locks (constructor extension, extending without a
+rewrite)**: the full spec constructor is
+`Scheduler(cfg, adapters, registry, integrity, store, events)`, but the spine
 locked the positional `Scheduler(cfg, adapters, region)` call shape, which
 must stay green. This test locks the constructor as
 
@@ -30,12 +29,12 @@ must stay green. This test locks the constructor as
               *, registry=None, integrity=None, store=None, events=None)
 
 i.e. `registry`/`integrity`/`store`/`events` become optional keyword-only
-parameters, so step's positional 3-arg call keeps working unmodified
-while this slice's tests pass all four collaborators by keyword. This test
+parameters, so the spine's positional 3-arg call keeps working unmodified
+while these tests pass all four collaborators by keyword. This test
 also locks the public `current_status(domain) -> LayerStatus` reader named
 in the spec's "Public interface".
 
-**Collaborator injection surface (author's choice, since `Registry`/
+**Collaborator injection surface (chosen here, since `Registry`/
 `EventBus` do not exist as modules yet)**:
 
 - `registry`: a plain `dict` subclass (`RecordingRegistry`) that also
@@ -64,45 +63,45 @@ captures true global order (not just per-mock call counts).
 **Exception propagation from `refresh()` on a failed fetch is deliberately
 NOT locked here.** The spec does not pin whether `refresh()` swallows the
 adapter's exception once `LayerStatus` has been recorded, or re-raises it
-after recording -- both are defensible designs the plan does not
+after recording -- both are defensible designs the spec does not
 distinguish between. `_refresh_tolerating_adapter_errors` calls `refresh()`
-and discards any raised exception so this test locks only what the plan
+and discards any raised exception so this test locks only what the spec
 actually specifies (the resulting `current_status`), not an unspecified
 propagation detail; if the implementation fails to record status at all,
 the subsequent `current_status` assertion still fails the test honestly.
 
-**Deferred to the inner unit list** (not locked in this outer test, to
+**Deferred to the unit tests** (not locked in this acceptance test, to
 avoid over-constraining underspecified branches):
 - The exact registry/events/store call sequence when a failure is served
   from a warm cache (`cached-fallback`) -- the spec numbers only the
   SUCCESSFUL write path 1-7; whether/how the cached snapshot is
-  re-published is left to the developer and the inner unit list.
+  re-published is left to the unit tests.
 - A cache row whose `region_id` does NOT match the active region (must
   still map to `error`, per "cached-fallback beats error": "and its
   region_id matches the active region") -- only the matching-region and
-  no-cache-at-all cases are asserted in this outer test, per the plan's
-  explicit acceptance criterion. Now covered by an inner unit test added at
-  follow-up time (below,
+  no-cache-at-all cases are asserted in this acceptance test, per the
+  explicit acceptance criterion. Now covered by a unit test added as a
+  follow-up (below,
   `test_fetch_failure_with_region_mismatched_cache_yields_error_not_cached_fallback`),
-  once the developer's region-match gate existed to exercise.
-- Backoff per error class and the event-driven stale timer (step,
-  explicitly out of scope per the plan).
+  once the region-match gate existed to exercise.
+- Backoff per error class and the event-driven stale timer (out of scope
+  here, handled separately).
 
-It was authored and committed RED before any implementation of this surface
-existed (strict xfail, ): `backend.scheduler.Scheduler` did not yet
-accept `registry`/`integrity`/`store`/`events`, nor expose `current_status`,
-so every test below failed against the then-current constructor/surface and
-xfailed cleanly under the tests-green gate. the developer has since made
+It was committed RED before any implementation of this surface existed
+(xfail): `backend.scheduler.Scheduler` did not yet accept
+`registry`/`integrity`/`store`/`events`, nor expose `current_status`, so
+every test below failed against the then-current constructor/surface and
+xfailed cleanly. The implementation has since made
 it genuinely pass; the xfail marker has been removed to finalize the
 contract.
 
 **Post-merge regression test added** (`test_cancelled_fetch_skips_failure_write_path_and_leaves_status_untouched`):
-the reviewer flagged that `_do_fetch`'s original `except BaseException` also
+review flagged that `_do_fetch`'s original `except BaseException` also
 caught `asyncio.CancelledError` and ran the failure write-path
 (`_handle_fetch_failure`, i.e. `store.get_fallback` + a `_status` mutation)
 ahead of re-raising -- masking cancellation behind a possible store error
 and wrongly flipping status on mere cancellation (app shutdown, a sibling
-layer's `TaskGroup` tearing down). the developer fixed this at commit
+layer's `TaskGroup` tearing down). This was fixed at commit
 `e037784` with an explicit `except asyncio.CancelledError: raise` that
 short-circuits first. This test locks that fix: it drives a fetch
 deterministically in flight behind a gate, cancels it, and asserts
@@ -179,7 +178,7 @@ class ScriptedAdapter(PollAdapter):
 class GatedAdapter(PollAdapter):
     """A PollAdapter double whose `fetch` blocks indefinitely on a
     caller-controlled `asyncio.Event` gate that this test never sets --
-    mirrors step's `FakeAdapter` gate pattern (backend/tests/
+    mirrors the `FakeAdapter` gate pattern (backend/tests/
     test_scheduler.py) -- so a fetch can be driven deterministically
     in-flight and then cancelled, without racing real upstream I/O or a
     real-clock cancellation window."""
@@ -304,8 +303,8 @@ async def _refresh_tolerating_adapter_errors(scheduler, domain: Domain) -> None:
     """See module docstring: the spec does not pin whether `refresh()`
     swallows or re-raises the adapter's exception once `LayerStatus` has
     been recorded. Tolerating either keeps this test locked to what the
-    plan actually specifies -- the resulting `current_status` -- without
-    overspecifying an exception-propagation detail the plan never
+    spec actually specifies -- the resulting `current_status` -- without
+    overspecifying an exception-propagation detail the spec never
     mentions."""
     try:
         await scheduler.refresh(domain)
@@ -462,8 +461,8 @@ async def test_fetch_failure_with_warm_region_matched_cache_yields_cached_fallba
 
 
 async def test_fetch_failure_with_region_mismatched_cache_yields_error_not_cached_fallback():
-    """Inner unit test (deferred from the outer test's docstring, added at
-    follow-up time): scheduler.md "cached-fallback beats error" reads
+    """Unit test (deferred from the acceptance test's docstring, added as a
+    follow-up): scheduler.md "cached-fallback beats error" reads
     "...and its region_id matches the active region" -- a warm cache row
     exists (`store.get_fallback` returns non-None), but its
     `meta.region_id` is a DIFFERENT region than the one this scheduler is
@@ -606,7 +605,7 @@ async def test_air_prev_derived_from_outgoing_registry_snapshot_before_replaceme
 
 
 async def test_cancelled_fetch_skips_failure_write_path_and_leaves_status_untouched():
-    """Regression (issue #49, reviewer-flagged; fixed at commit `e037784`).
+    """Regression (issue #49, flagged in review; fixed at commit `e037784`).
 
     `_do_fetch`'s cancellation branch must short-circuit to a clean re-raise
     of `asyncio.CancelledError` BEFORE any failure write-path work runs.

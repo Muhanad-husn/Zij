@@ -10,7 +10,6 @@ D:\Zij/                              (repo root)
 ├── .gitignore
 ├── .env.example
 ├── README.md                        # currently empty — needs the pointer in §5
-├── CLAUDE.md                        # dev principles (existing)
 │
 ├── backend/                         # importable Python package (import root: `backend`)
 │   ├── __init__.py

@@ -1,6 +1,6 @@
 /**
- *  locked outer acceptance test — frontend/04-toggles-refresh (issue #60).
- * Encodes `plans/frontend/04-toggles-refresh.md`'s Gherkin verbatim:
+ * Acceptance test — toggles refresh (issue #60). Encodes the feature's
+ * Gherkin verbatim:
  *
  *   Given the app with badges mounted and the layer-control endpoints served
  *   When  a layer's Toggle is switched off
@@ -13,14 +13,12 @@
  *   When  the global Refresh all is clicked
  *   Then  POST /api/refresh is issued for all enabled layers
  *
- * `test.fail()` was this repo's web-slice analog to a strict pytest xfail
- * ( — precedent: `layers-refresh.spec.ts`, `badges.spec.ts`,
- * `region-selector.spec.ts`) from the slice's red commit until the
- * developer greened every clause below. the author confirmed each
- * assertion passes for real (a plain `test()` run) and removed the
- * `test.fail()` marker in this final pass, so this now runs as a normal
- * `test(...)`; this test is not the author's to loosen and not the
- * developer's to touch.
+ * This test was written before the implementation existed. It initially ran
+ * under `test.fail()` (Playwright's expected-to-fail marker, the analog of a
+ * strict pytest xfail — precedent: `layers-refresh.spec.ts`, `badges.spec.ts`,
+ * `region-selector.spec.ts`) until every clause below was built. Once each
+ * assertion was confirmed passing for real (a plain `test()` run) the
+ * `test.fail()` marker was removed, so this now runs as a normal `test(...)`.
  *
  * SCOPE: `design/specs/frontend.md` §7 "Layer toggles (FR5)" / "Refresh
  * (FR6)". Toggle is exercised on `land` (a domain with a real map source, so
@@ -28,9 +26,8 @@
  * Per-badge Refresh is exercised on `air` (proving the loading -> live
  * transition rides SSE, not a REST poll). Global "Refresh all" only proves
  * the POST is issued — the backend's own "enabled layers only" coalescing
- * guarantee is asserted server-side (see the plan's "Out of scope"), not
- * here. Marine is out of scope for this slice (no marine map layer yet, per
- * step) and is not touched by this test.
+ * guarantee is asserted server-side, not here. Marine is out of scope here
+ * (no marine map layer yet) and is not touched by this test.
  *
  * STUB MECHANISM: no live FastAPI backend in this e2e run
  * (`playwright.config.ts` serves the built `vite preview` bundle on :4173).
@@ -41,21 +38,21 @@
  * `route.continue({ url })`. One connection is held open for the whole test;
  * `push()` writes additional `snapshot` / `layer_status` SSE blocks down it
  * on demand, driving the "rides SSE, not polling" clause for real. The three
- * mutating REST endpoints this slice adds
+ * mutating REST endpoints this feature adds
  * (`POST /api/layers/{domain}/toggle`, `POST /api/layers/{domain}/refresh`,
  * `POST /api/refresh`) are answered via ordinary `page.route().fulfill()` —
  * they are simple request/response, not streams.
  *
- * RECONCILIATION (slice frontend/03-region-selector, issue #59): the app
+ * LATER-FEATURE FALLOUT (region-selector, issue #59): the app
  * unconditionally fetches `GET /api/regions` and `GET /api/regions/active` on
  * load. `tests/e2e/helpers/stubRegionEndpoints.ts` answers both quietly, as
  * in every sibling spec since #59; this test asserts nothing about regions.
  *
- * RECONCILIATION (slice frontend/06-marine-integrity, issue #62): the app
- * now unconditionally fetches `GET /api/config` on load (the client tick
- * reads de-emphasis/drop thresholds from it, spec §9). This test has no live
+ * LATER-FEATURE FALLOUT (marine-integrity, issue #62): the app now
+ * unconditionally fetches `GET /api/config` on load (the client tick reads
+ * de-emphasis/drop thresholds from it, spec §9). This test has no live
  * FastAPI backend, so an unstubbed call would leak through Vite's preview
- * proxy the same way the reconciliation above already documents.
+ * proxy the same way the note above already documents.
  * `tests/e2e/helpers/stubConfigEndpoint.ts` answers it quietly; this test
  * asserts nothing about tick/de-emphasis behavior (that's
  * `marine-integrity.spec.ts`'s job).
@@ -71,8 +68,8 @@
  * asserts against; this is the same reliance every prior SSE-asserting spec
  * (`badges.spec.ts`) already has on that guard.
  *
- * REQUIRED TEST SEAMS (developer must expose these — not the author's
- * to relax; each is independently asserted below):
+ * REQUIRED TEST SEAMS (the app must expose these; each is independently
+ * asserted below):
  *
  *   1. `[data-testid="badge-{domain}"]` carries a `data-enabled` attribute —
  *      `"true"` by default (layers start enabled), independent of
@@ -86,7 +83,7 @@
  *      `data-enabled` flips to `"false"`.
  *   3. Disabling a layer that has a live map source (e.g. `land`) clears that
  *      source to zero features — reusing the `clear*Layer` semantics already
- *      established by step/03 (`source.setData({ type:
+ *      established by earlier features (`source.setData({ type:
  *      'FeatureCollection', features: [] })`), driven this time from the
  *      toggle-off handler itself (not from a `region:changed` event).
  *   4. `[data-testid="refresh-button"]` (within a badge) — clicking it issues
@@ -101,9 +98,8 @@
  *   6. `[data-testid="refresh-all"]` (existing seam, reused verbatim from
  *      `layers-refresh.spec.ts`) — clicking it issues `POST /api/refresh`.
  *
- * This test is not the author's to loosen and not the developer's to
- * touch. The `test.fail()` marker was removed only once every assertion
- * below passed for real, in the author's final follow-up pass.
+ * The `test.fail()` marker was removed only once every assertion below passed
+ * for real.
  */
 
 import { test, expect, type Page } from '@playwright/test';
@@ -322,7 +318,7 @@ function landFeature(sourceId: string, kind: 'road' | 'point') {
   };
 }
 
-/** `window.__zijMap.getSource(id)` feature count (step seam, reused
+/** `window.__zijMap.getSource(id)` feature count (map-init seam, reused
  * verbatim from `layers-refresh.spec.ts`). */
 async function sourceFeatureCount(page: Page, id: 'air' | 'land'): Promise<number> {
   return page.evaluate((sourceId) => {

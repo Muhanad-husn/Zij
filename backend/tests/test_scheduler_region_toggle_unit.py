@@ -1,17 +1,16 @@
-"""Inner unit tests for scheduler step (issue #52), transcribed from the
-plan's "Inner loop -- initial unit test list" (plans/scheduler/04-region-
-toggle.md) and design/specs/scheduler.md ("Region-switch sequence", step 3;
+"""Unit tests for scheduler region-switch and enable/disable (issue #52),
+covering design/specs/scheduler.md ("Region-switch sequence", step 3;
 "Enable/disable (FR5)").
 
-The outer acceptance test (test_scheduler_region_toggle.py) already proves,
+The acceptance test (test_scheduler_region_toggle.py) already proves,
 end-to-end through `activate_region`/`set_enabled`: cancel-generation
 ignore, registry-clear + `region_changed` emit, the AIR fallback
 region-match gate, `active_region` persistence, and poll-layer disable.
-These tests go one level narrower, isolating the three gaps the outer test
-does not pin on its own:
+These tests go one level narrower, isolating the three gaps the acceptance
+test does not pin on its own:
 
   1. The **MARINE** fallback region-match gate (`_repopulate_fallback`) --
-     the outer test only exercises this for `air`; marine is injected via
+     the acceptance test only exercises this for `air`; marine is injected via
      the `stream` kwarg (not `adapters`), a structurally different path
      through `activate_region`'s repopulation branch (see the `domain in
      self._adapters or (self._stream is not None and self._stream.domain
@@ -31,17 +30,14 @@ does not pin on its own:
 
 Fakes are duplicated locally rather than imported from
 `test_scheduler_region_toggle.py`, mirroring that file's own stated
-rationale for not cross-importing test modules (each locked/unit test file
-stays independently evolving) and step's `test_scheduler_unit.py`
-precedent (its `_make_snapshot` docstring: "redefined locally rather than
-imported cross-module").
+rationale for not cross-importing test modules (each test file stays
+independently evolving) and the `test_scheduler_unit.py` precedent (its
+`_make_snapshot` docstring: "redefined locally rather than imported
+cross-module").
 
 `backend.scheduler` is imported inside test bodies (repo convention -- see
-the durable memory note on avoiding module-scope imports of app-wiring
-modules at collection time).
-
-Written by the author (); the developer is separated
-out of `backend/tests/` and may not edit this file.
+the note on avoiding module-scope imports of app-wiring modules at collection
+time).
 """
 
 from __future__ import annotations
@@ -123,7 +119,7 @@ class FakeStreamAdapter(StreamAdapter):
 
 
 class FakeStore:
-    """A hand-written Store double (no I/O needed to prove the gates under
+    """A hand-written Store double (no I/O needed to prove the behavior under
     test). Records every `get_fallback`/`get_land_cache` call."""
 
     def __init__(

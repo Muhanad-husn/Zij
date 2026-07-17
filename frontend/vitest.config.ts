@@ -1,7 +1,6 @@
 import { defineConfig } from 'vitest/config';
 
-// Unit tests (Vitest) run in jsdom. the author adds units under tests/unit/**
-// from the plan's inner unit list; this config is ready for them.
+// Unit tests (Vitest) run in jsdom. Unit tests live under tests/unit/**.
 export default defineConfig({
   test: {
     environment: 'jsdom',

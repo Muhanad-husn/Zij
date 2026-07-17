@@ -1,8 +1,7 @@
 /**
- * Inner unit tests — plan/frontend/06-marine-integrity.md "Inner loop" units
- * #2 (client-tick age math vs config thresholds) and #3 (past `drop_after_s`
- * a marine feature is removed; land is untouched), against
- * `src/state/derive.ts` and `Store.tick` as actually built.
+ * Unit tests for `src/state/derive.ts` and `Store.tick`: client-tick age math
+ * vs config thresholds, and that past `drop_after_s` a marine feature is
+ * removed while land is untouched.
  *
  * `computeFeatureAgeS`/`tickLayerFeatures` are pure (no DOM/network), so the
  * math is pinned directly with fixed timestamps. The `Store.tick` describe

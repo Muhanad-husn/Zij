@@ -1,4 +1,4 @@
-"""Locked outer acceptance test for store corruption recovery (issue #70).
+"""Acceptance test for store corruption recovery (issue #70).
 
 Given a `ZIJ_DB_PATH` file that already exists on disk but is NOT a valid
       SQLite database (pre-filled with garbage bytes -- simulating a
@@ -13,26 +13,22 @@ And   the recovered database is a genuinely fresh, working schema: a
       subsequent `put_land_cache`/`get_land_cache` round-trip succeeds,
       proving `land_cache` (and the other tables) exist and are queryable
 
-This is the behavioral contract (), transcribed from
+This acceptance test covers store corruption recovery, per
 design/specs/store.md ("Corruption recovery" + "Failure modes: Corruption ->
 delete-and-recreate" + acceptance criterion line 63: "Corruption is
 recovered by delete-and-recreate with a logged warning; app continues.").
-It was authored and committed red by the author before any
-implementation existed, guarded by a strict xfail ().
+It was written test-first and committed red, as an xfail, before any
+implementation existed.
 
-the developer has since made this genuinely pass (`Store._init_sync`'s
-`_open_healthy_connection()` helper: `PRAGMA integrity_check`, on
-`sqlite3.DatabaseError`/non-'ok' logs a WARNING naming the path, deletes the
-DB + `-wal`/`-shm` sidecars, recreates from `schema.sql`). The strict xfail
-marker has been removed by the author () now that the suite is
-genuinely green -- this finalizes the locked contract.
+The behaviour is provided by `Store._init_sync`'s `_open_healthy_connection()`
+helper: `PRAGMA integrity_check`, on `sqlite3.DatabaseError`/non-'ok' logs a
+WARNING naming the path, deletes the DB + `-wal`/`-shm` sidecars, recreates
+from `schema.sql`. The xfail marker was removed once the suite went green.
 
-Scope note: this outer test locks the corruption-recovery path only. The
-healthy-DB-is-preserved case (integrity_check == 'ok' -> recovery is a
-no-op, no data loss) is deliberately left to an inner unit test authored
-alongside the developer's slice, per the plan's unit list -- keeping this
-outer contract focused on the one behavior named by the acceptance
-criterion.
+Scope note: this test covers the corruption-recovery path only. The
+healthy-DB-is-preserved case (integrity_check == 'ok' -> recovery is a no-op,
+no data loss) is left to a unit test -- keeping this one focused on the single
+behavior named by the acceptance criterion.
 
 `ZIJ_DB_PATH` points at a `tmp_path` file so the test is hermetic and never
 touches the real platformdirs location. `backend.store` is imported inside

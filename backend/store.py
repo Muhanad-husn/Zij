@@ -6,12 +6,10 @@ The only SQLite gateway (D4, NFR2, ADR-10): stdlib `sqlite3` behind a thin
 keeping blocking DB work off the event loop. `store.py` never parses source
 payloads (STRUCTURE.md) -- it only serializes/deserializes rows it is handed.
 
-step (plans/store/01-land-cache.md, issue #11) implements the
-`land_cache` path: `Store.init`/`close`/`get_land_cache`/`put_land_cache` and
-`LandCacheRow`. step (plans/store/02-fallback-snapshots.md, issue #40)
-adds the `fallback_snapshots` path: `Store.put_fallback`/`get_fallback`
-(FR8). step (plans/store/03-config-presets.md, issue #41) adds the
-`config_presets` path: `Store.list_presets`/`add_preset`/`delete_preset`/
+The `land_cache` path (issue #11): `Store.init`/`close`/`get_land_cache`/
+`put_land_cache` and `LandCacheRow`. The `fallback_snapshots` path (issue #40):
+`Store.put_fallback`/`get_fallback` (FR8). The `config_presets` path
+(issue #41): `Store.list_presets`/`add_preset`/`delete_preset`/
 `get_config_overrides`/`put_config_override`, `PresetRow`, and
 `ConflictError` (FR11).
 """

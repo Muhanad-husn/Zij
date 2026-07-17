@@ -1,6 +1,6 @@
-"""Locked outer acceptance test for scheduler step (issue #45): the
-concurrency spine — per-layer poll loop, single-flight coalescing,
-independent cadences, and enable/disable.
+"""Acceptance test for the scheduler concurrency spine (issue #45):
+per-layer poll loop, single-flight coalescing, independent cadences, and
+enable/disable.
 
 Given a Scheduler running two mocked poll adapters (air, land) on
       independent cadences
@@ -13,16 +13,15 @@ And   changing land's cadence does not alter air's tick timing (cadences
 And   a disabled layer's poll loop issues zero adapter.fetch calls until
       re-enabled (FR5)
 
-Transcribed from plans/scheduler/01-core-runtime.md ("Acceptance criterion")
-and design/specs/scheduler.md ("Task model", "_poll_loop", "Coalescing
-(FR6)", "Enable/disable (FR5)"). This slice is ONLY the concurrency spine:
-status transitions, the write path (integrity -> registry -> SSE ->
-fallback), backoff, the stale timer, region-switch, and marine stream
-supervision are out of scope (later scheduler slices 02-04) and are neither
+Derived from design/specs/scheduler.md ("Task model", "_poll_loop",
+"Coalescing (FR6)", "Enable/disable (FR5)"). This covers ONLY the
+concurrency spine: status transitions, the write path (integrity -> registry
+-> SSE -> fallback), backoff, the stale timer, region-switch, and marine
+stream supervision are out of scope for later scheduler work, and are neither
 referenced nor asserted here.
 
-**Public surface this test locks (author's chosen minimal slice, per
-the plan's "Choose the minimal constructor step can honestly support")**:
+**Public surface this test locks (the minimal constructor this step can
+honestly support)**:
 
     class Scheduler:
         def __init__(self, cfg: AppConfig,
@@ -40,12 +39,12 @@ the plan's "Choose the minimal constructor step can honestly support")**:
                                                                           # primitive
 
 The full-spec constructor (`registry`, `integrity`, `store`, `events`) has no
-honest step referent yet (no write path exists), so this test constructs
-`Scheduler(cfg, adapters, region)` only. `region` is a step addition (not
-in the full spec's constructor, since the full spec sets it later via
-`activate_region()`, itself out of scope here) -- a later slice can grow the
+honest referent here yet (no write path exists), so this test constructs
+`Scheduler(cfg, adapters, region)` only. `region` is an addition at this stage
+(not in the full spec's constructor, since the full spec sets it later via
+`activate_region()`, itself out of scope here) -- later work can grow the
 constructor by adding new *optional* keyword-only collaborators without
-breaking this call shape, per the plan's "extend without a rewrite" guidance.
+breaking this call shape, extending it without a rewrite.
 
 `refresh()`'s return type is kept at the full spec's `-> None` (no
 deviation): rather than relying on the return value to prove "both callers
@@ -64,7 +63,7 @@ across two full scheduler runs that differ ONLY in land's configured
 cadence: if land's cadence leaked into air's timing (e.g. a shared cadence
 knob or a shared wake/timer bug), air's tick count would shift between the
 two runs. A same-run "change cadence live" reading of the Gherkin is not
-possible: neither this slice's public surface nor the full spec's exposes a
+possible: neither this step's public surface nor the full spec's exposes a
 runtime cadence setter (cadence is a `[layers.*]` config value, config.md) --
 this is the closest honest, instrumentable reading of "changing land's
 cadence does not alter air's tick timing" against the spec's actual API.
@@ -77,11 +76,10 @@ scheduling clock (`loop.time()`, tracking `time.monotonic()`) is not
 something `freezegun` intercepts, so a frozen wall clock would not actually
 control `asyncio.wait_for` cadence ticks here.
 
-It was authored and committed red by the author before any
-implementation existed (strict xfail, ): `backend.scheduler` did not
-exist yet, so this errored on import and xfailed cleanly under the
-tests-green gate. the developer has since made it genuinely pass; the
-xfail marker has been removed to finalize the contract.
+It was committed red before any implementation existed (xfail):
+`backend.scheduler` did not exist yet, so this errored on import and xfailed
+cleanly. The implementation has since made it
+genuinely pass; the xfail marker has been removed to finalize the contract.
 """
 
 from __future__ import annotations
@@ -108,7 +106,7 @@ HORMUZ_REGION = Region(
 
 def _make_snapshot(domain: Domain, region: Region) -> LayerSnapshot:
     """A minimal, valid LayerSnapshot for `domain`/`region` -- the exact
-    content is irrelevant to this slice (no write path, no status mapping);
+    content is irrelevant here (no write path, no status mapping);
     only object identity (is the SAME object handed to every joiner) and the
     upstream call count matter here."""
     now = datetime.now(timezone.utc)
@@ -158,7 +156,7 @@ def _make_cfg(
     land_cadence_s: int,
     land_enabled: bool = True,
 ) -> AppConfig:
-    """A minimal AppConfig carrying only the two poll layers this slice
+    """A minimal AppConfig carrying only the two poll layers this test
     exercises."""
     return AppConfig(
         regions=[],
@@ -219,7 +217,7 @@ async def test_scheduler_core_runtime_coalescing_cadence_independence_and_disabl
     # design/specs/scheduler.md "Coalescing (FR6)") to record every result it
     # hands back -- both the scheduled `_poll_loop`'s internal call and
     # `refresh()`'s call go through this same method, so recording it is the
-    # only way (short of a registry, out of scope this slice) to observe
+    # only way (short of a registry, out of scope here) to observe
     # "both callers received the same snapshot".
     # Scoped to Domain.AIR only: land runs its own independent scheduled
     # poll loop and will call `_do_fetch(Domain.LAND)` on its own cadence
@@ -286,7 +284,7 @@ async def test_scheduler_core_runtime_coalescing_cadence_independence_and_disabl
     # =========================================================================
     # And: changing land's cadence does not alter air's tick timing
     # (cadences independent, FR6). Compared across two fresh scheduler runs
-    # differing ONLY in land's configured cadence -- neither this slice's nor
+    # differing ONLY in land's configured cadence -- neither this test's nor
     # the full spec's public surface exposes a live cadence setter (cadence
     # is a `[layers.*]` config value), so this is the closest honest,
     # instrumentable reading of the Gherkin against the actual API.

@@ -1,5 +1,5 @@
-"""Locked outer acceptance test for store step (issue #41):
-config_presets -- region presets + config overrides (active region).
+"""Acceptance test for config_presets -- region presets + config overrides
+(active region) (issue #41).
 
 Given a fresh SQLite database initialised from backend/schema.sql
 When  add_preset("My Box", bbox=[52,26,55,28], label="My Box") is called
@@ -11,22 +11,18 @@ And   delete_preset(id) removes it from list_presets()
 And   put then get of the active_region config_override round-trips
       {"region_id": "gulf-of-oman"}
 
-This is the behavioral contract (), transcribed from
-plans/store/03-config-presets.md ("Acceptance criterion" + inner unit list:
-schema idempotency [inherited from step/02], add_preset -> list_presets
-round-trip with {bbox,label} payload, UNIQUE(kind,name) -> ConflictError,
-delete_preset removes the row, config_override upsert/read of active_region
-with UTC-stamped created_at/updated_at). It was authored and committed red by
-the author before any implementation existed, guarded by a strict xfail
-(). the developer has since made it genuinely pass; the xfail marker
-has been removed to finalize the contract.
+This acceptance test covers config_presets: schema idempotency, add_preset ->
+list_presets round-trip with a {bbox,label} payload, UNIQUE(kind,name) ->
+ConflictError, delete_preset removes the row, and config_override upsert/read
+of active_region with UTC-stamped created_at/updated_at. It was written
+test-first and committed red, as an xfail, before any implementation existed;
+the xfail marker was removed once the suite went green.
 
-**API surface pinned here (method names the developer must build to).**
-`design/contracts/storage.md` gives an *illustrative* shape
+**API surface.** `design/contracts/storage.md` gives an *illustrative* shape
 (`list_presets()`, `add_preset(name, bbox, label) -> int`,
 `delete_preset(preset_id) -> None`) but leaves config-override get/put
-unspecified. `design/specs/store.md` -- frozen and more specific -- pins the
-full interface literally, including the two config-override methods and the
+unspecified. `design/specs/store.md` -- more specific -- pins the full
+interface literally, including the two config-override methods and the
 `ConflictError` exception name:
 
     async def list_presets(self) -> list[PresetRow]
@@ -35,26 +31,22 @@ full interface literally, including the two config-override methods and the
     async def get_config_overrides(self) -> dict[str, Any]           # kind='config_override' rows, keyed by name
     async def put_config_override(self, name: str, payload: dict) -> None
 
-This test adopts the frozen spec's literal names verbatim (`ConflictError`,
+This test adopts the spec's literal names verbatim (`ConflictError`,
 `get_config_overrides`/`put_config_override`), following the same
-contract-over-plan-illustration precedent set by `test_store_acceptance.py`
-(step).
+spec-over-illustration precedent set by `test_store_acceptance.py`.
 
-**Timestamp-injection reconciliation.** The plan text says timestamps are
-"passed in / injectable ... no ambient clock, following the v0 store's
-stamping pattern" -- true for `land_cache`/`fallback_snapshots`, where
+**Timestamp injection.** Timestamps are injectable -- no ambient clock -- for
+`land_cache`/`fallback_snapshots`, where
 `fetched_at`/`osm_base`/`timestamp_fetched` are meaningful *domain* facts the
-caller must supply (when a fetch actually happened). But the frozen
+caller must supply (when a fetch actually happened). But the
 `design/specs/store.md` signatures for `add_preset`/`put_config_override`
 take no timestamp parameter at all -- `created_at`/`updated_at` on
 `config_presets` are pure row-bookkeeping metadata, not domain facts, so an
-internal `datetime.now(timezone.utc)` stamp is the sensible reading (common
-sense over a rigid cross-reading of the plan's general stamping note). This
+internal `datetime.now(timezone.utc)` stamp is the sensible reading. This
 test therefore does not inject a clock; it only asserts the stamped
-`created_at` comes back UTC-aware, per the plan's inner-unit-list bullet
-("created_at/updated_at stamped UTC").
+`created_at` comes back UTC-aware.
 
-`PresetRow` mirrors the frozen spec's `list_presets` query set
+`PresetRow` mirrors the spec's `list_presets` query set
 ("SELECT id,name,payload_json,created_at WHERE kind='region_preset'"),
 unpacked: `id`, `name`, `bbox`, `label`, `created_at`.
 
@@ -131,8 +123,7 @@ async def test_config_presets_crud_conflict_and_active_region_override_round_tri
     assert overrides[ACTIVE_REGION_OVERRIDE_NAME] == ACTIVE_REGION_PAYLOAD
 
     # A second put for the same override name replaces it (upsert on
-    # UNIQUE(kind,name) -- one row, not two), consistent with the plan's
-    # inner-unit-list "config_override upsert then read" bullet.
+    # UNIQUE(kind,name) -- one row, not two).
     updated_payload = {"region_id": "hormuz"}
     await store.put_config_override(ACTIVE_REGION_OVERRIDE_NAME, updated_payload)
     overrides_after_update = await store.get_config_overrides()

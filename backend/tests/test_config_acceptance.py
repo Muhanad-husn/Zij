@@ -1,4 +1,4 @@
-"""Locked outer acceptance test for config step (issue #10): config loader.
+"""Acceptance test for the config loader (issue #10).
 
 Given a bundled config.toml with the 7 predefined regions and
       [opensky]/[overpass]/[layers.air]/[layers.land] sections
@@ -11,8 +11,8 @@ And   Secrets carries the two OpenSky values
 And   dumping AppConfig to JSON contains neither the client id nor the secret
       (NFR5)
 
-This is the behavioral contract (), transcribed from
-plans/config/01-config-loader.md and design/contracts/config.md (predefined
+This is the acceptance contract, transcribed from
+design/contracts/config.md (predefined
 regions table §"Predefined regions", credit tier table) and
 design/specs/config-module.md (`load_config()`/`AppConfig`/`Secrets`/
 `estimate_credits` shapes). `load_config()` takes no arguments (config-module.md
@@ -21,15 +21,12 @@ ships with, so this test exercises the real production artifact rather than an
 injected fixture file; the only "Given" this test controls directly is the env.
 
 Marine/aisstream/integrity sections and the full `validate_bbox` activation
-path are explicitly out of scope for this slice (plans/config/01-config-loader.md
-"Out of scope"), so this test does not require AISSTREAM_API_KEY to be set
-even though those layers appear (disabled or absent) in the full config.md
-contract.
+path are explicitly out of scope here, so this test does not require
+AISSTREAM_API_KEY to be set even though those layers appear (disabled or
+absent) in the full config.md contract.
 
-It was authored and committed red by the author before any
-implementation existed (strict xfail, ). the developer has since made
-it genuinely pass; the xfail marker has been removed to finalize the
-contract.
+It was authored and committed red before any implementation existed (xfail),
+then made to pass; the xfail marker was removed to finalize the contract.
 """
 
 HORMUZ_BBOX = (55.0, 25.0, 57.5, 27.5)
@@ -53,12 +50,12 @@ def test_load_config_returns_regions_credit_tier_and_isolated_secrets(monkeypatc
     monkeypatch.setenv("OPENSKY_CLIENT_ID", client_id)
     monkeypatch.setenv("OPENSKY_CLIENT_SECRET", client_secret)
     # AISSTREAM_API_KEY: marine is enabled in the bundled config.toml as of
-    # slice config-02 (#42), so its own secret gate needs a non-empty value
+    # #42, so its own secret gate needs a non-empty value
     # too, or load_config() below raises MissingSecretError for a reason this
-    # (config-01) slice's contract does not cover.
+    # config loader's contract does not cover.
     monkeypatch.setenv("AISSTREAM_API_KEY", "config01-outer-aisstream-api-key")
     # Don't let a stray operator user-config override path leak into this test
-    # (user-TOML layering is out of scope for this slice).
+    # (user-TOML layering is out of scope here).
     monkeypatch.delenv("ZIJ_CONFIG_PATH", raising=False)
 
     from backend.config import estimate_credits, load_config
@@ -77,7 +74,7 @@ def test_load_config_returns_regions_credit_tier_and_isolated_secrets(monkeypatc
     for expected_id in ALL_PREDEFINED_REGION_IDS:
         assert expected_id in regions_by_id
 
-    # The bundled sections this slice covers are present.
+    # The bundled sections this test covers are present.
     assert cfg.opensky
     assert cfg.overpass
     assert "air" in cfg.layers

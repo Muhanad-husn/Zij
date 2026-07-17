@@ -1,6 +1,6 @@
 import { defineConfig, devices } from '@playwright/test';
 
-// Outer acceptance test lives in tests/e2e. The webServer builds the app and
+// The acceptance tests live in tests/e2e. The webServer builds the app and
 // serves the production bundle so page.goto('/') hits the real built output
 // (ADR-7 prod path), keeping the e2e honest about the Vite build.
 export default defineConfig({

@@ -1,28 +1,24 @@
-"""Scheduler core runtime (spec: design/specs/scheduler.md; plans:
-plans/scheduler/01-core-runtime.md (issue #45),
-plans/scheduler/02-status-write-path.md (issue #49),
-plans/scheduler/04-region-toggle.md (issue #52)).
+"""Scheduler core runtime (spec: design/specs/scheduler.md; issues #45, #49,
+#52).
 
-step laid the concurrency spine: one asyncio task per poll layer,
-per-layer cadence independence (FR6), single-flight coalescing of manual
-`refresh()` against an in-flight scheduled fetch (FR6), and enable/disable
-parking a layer purely on `_wake` for zero upstream spend while disabled
-(FR5).
+The concurrency spine: one asyncio task per poll layer, per-layer cadence
+independence (FR6), single-flight coalescing of manual `refresh()` against an
+in-flight scheduled fetch (FR6), and enable/disable parking a layer purely on
+`_wake` for zero upstream spend while disabled (FR5).
 
-step adds status ownership (FR7) and the write path (FR8/FR9/FR10): the
-scheduler becomes the sole writer of `LayerStatus`, and every successful
-fetch runs `integrity.apply -> registry[domain] = snap ->
+Status ownership (FR7) and the write path (FR8/FR9/FR10): the scheduler
+becomes the sole writer of `LayerStatus`, and every successful fetch runs
+`integrity.apply -> registry[domain] = snap ->
 events.publish_snapshot(snap) -> (air/marine only) await
 store.put_fallback(snap)`, in that fixed order.
 
-step (this file, grown) adds the region-switch sequence
-(`activate_region`, ARCHITECTURE §4.2) and extends `set_enabled` to also
-supervise an optional marine `StreamAdapter` (FR5). Per-layer cancellation
-uses a generation counter (`_cancel_gen`), not literal task cancellation: a
-completing old-region fetch is discarded on return by comparing the
-generation captured at fetch-start against the current one.
+The region-switch sequence (`activate_region`, ARCHITECTURE §4.2) extends
+`set_enabled` to also supervise an optional marine `StreamAdapter` (FR5).
+Per-layer cancellation uses a generation counter (`_cancel_gen`), not literal
+task cancellation: a completing old-region fetch is discarded on return by
+comparing the generation captured at fetch-start against the current one.
 
-step (this file, grown) adds backoff per error class (scheduler.md
+Backoff per error class (scheduler.md
 "Backoff per error class") -- the poll loop honors `retry_after` for
 `RateLimitedError`, exponential `min(base*2**n, max)` capped at `max_attempts`
 for `UpstreamError`, and surfaces `AuthError`/`ParseError` with no auto-retry --
@@ -695,7 +691,7 @@ class Scheduler:
     async def _handle_fetch_success(self, domain: Domain, snap: LayerSnapshot) -> None:
         """Write path (scheduler.md "Write path", steps 2-6) + status mapping
         (FR7) for a successful fetch. No-op if the write-path collaborators
-        were not supplied (step callers keep working unmodified)."""
+        were not supplied (callers without them keep working unmodified)."""
         if self._registry is None:
             return
 

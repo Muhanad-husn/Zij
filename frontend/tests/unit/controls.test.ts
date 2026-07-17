@@ -1,8 +1,7 @@
 /**
- * Inner unit tests — plan/frontend/01-sse-client.md "Inner loop" unit #5
- * ("lost" vs "failed" map to the non-blocking banner vs the Retry action
- * respectively), against `src/ui/controls.ts` (`mountConnectionBanner`) as
- * actually built. Pure DOM, jsdom — no map, no network, no real SSE client;
+ * Unit tests for `src/ui/controls.ts` (`mountConnectionBanner`): "lost" vs
+ * "failed" map to the non-blocking banner vs the Retry action respectively.
+ * Pure DOM, jsdom — no map, no network, no real SSE client;
  * `store.setConnection(...)` drives it directly.
  */
 import { describe, expect, it, vi } from 'vitest';

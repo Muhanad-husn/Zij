@@ -1,7 +1,7 @@
 /**
- *  locked outer acceptance test — frontend/01-sse-client (issue #57),
- * the first v1 frontend slice (walking skeleton for the live-update spine).
- * Encodes `plans/frontend/01-sse-client.md`'s Gherkin verbatim:
+ * Acceptance test — SSE client (issue #57), the first v1 frontend feature
+ * (walking skeleton for the live-update spine). Encodes the feature's Gherkin
+ * verbatim:
  *
  *   Given the app connected to a stub /api/events emitting a snapshot per
  *         enabled layer
@@ -14,23 +14,22 @@
  *   When  the connection fails fatally (readyState CLOSED)
  *   Then  a "Connection failed — Retry" action is shown
  *
- * This scenario ran under `test.fail()` (this web slice's analog to a strict
- * pytest xfail,  — see `layers-refresh.spec.ts` for the precedent this
- * repo standardized on) from the slice's red commit until the developer
- * greened the underlying behavior. the author confirmed every clause
- * below passes for real and removed the marker in the final pass, so this
+ * This test was written before the implementation existed. It initially ran
+ * under `test.fail()` (Playwright's expected-to-fail marker, the analog of a
+ * strict pytest xfail — see `layers-refresh.spec.ts` for the precedent this
+ * repo standardized on) until the underlying behavior was built. Once every
+ * clause below was confirmed passing for real the marker was removed, so this
  * now runs as a normal `test(...)`.
  *
  * SCOPE NOTE (marine excluded): `design/specs/frontend.md` §2 has no marine
- * map-layer builder yet (`map/layers/marine.ts` does not exist — the plan's
- * own "Out of scope (deferred)" list defers "marine + integrity rendering"
- * to step). This test's stub therefore emits `snapshot` only for the two
+ * map-layer builder at this point (`map/layers/marine.ts` does not exist —
+ * marine + integrity rendering arrives later, with the marine-integrity
+ * feature). This test's stub therefore emits `snapshot` only for the two
  * domains this codebase can already render (air, land) — a stub server
  * exercising a fully-enabled three-layer config's `event: snapshot` fan-out
  * is the SseClient/store's job to handle generically per-domain regardless
- * of layer count, and is covered by this slice's inner Vitest dispatch
- * tests, not by asserting unimplemented marine rendering at the e2e
- * boundary.
+ * of layer count, and is covered by the unit dispatch tests, not by asserting
+ * unimplemented marine rendering at the e2e boundary.
  *
  * STUB MECHANISM (revised from the original `page.route().fulfill()` draft):
  * there is no live FastAPI backend in this e2e run (`playwright.config.ts`
@@ -66,8 +65,8 @@
  * EventSource request is CORS-simple (no custom headers), so no preflight
  * is needed, only that response header on the actual response.
  *
- * REQUIRED TEST SEAMS (developer must expose these — not the author's
- * to relax; each is independently asserted below):
+ * REQUIRED TEST SEAMS (the app must expose these; each is independently
+ * asserted below):
  *
  *   1. `window.__zijMap`, GeoJSON sources `"air"`/`"land"`, and the
  *      `[data-testid="badge-{air,land}"]` / `freshness-fetched` /
@@ -86,11 +85,8 @@
  *      new HTTP request to `/api/events` — an inert button would not
  *      satisfy "a ... Retry action is shown" in any meaningful sense).
  *
- * This test is not the author's to loosen and not the developer's to
- * touch.
- *
- * RECONCILIATION (slice frontend/06-marine-integrity, issue #62): the app
- * now unconditionally fetches `GET /api/config` on load (the client tick
+ * LATER-FEATURE FALLOUT (marine-integrity, issue #62): the app now
+ * unconditionally fetches `GET /api/config` on load (the client tick
  * reads de-emphasis/drop thresholds from it, spec §9). This test only tracks
  * `pageerror` (not `console.error`), so an unstubbed call here would not
  * actually trip any assertion below — `stubConfigEndpoint` is still added
@@ -105,7 +101,7 @@ import { stubConfigEndpoint } from './helpers/stubConfigEndpoint';
 
 // --- Fixtures ------------------------------------------------------------
 // Modeled on design/contracts/feature-schema.md "Wire examples" (kept small
-// — this slice proves dispatch + render wiring, not exhaustive per-domain
+// — this test proves dispatch + render wiring, not exhaustive per-domain
 // rendering, which layers-refresh.spec.ts already covers for air/land).
 
 const AIR_SNAPSHOT = {
@@ -292,7 +288,7 @@ async function stubEvents(page: Page, fixtureUrl: string): Promise<void> {
  * that if the app also issues an initial/independent REST fetch alongside
  * SSE (api.md: "GET /api/layers/{domain}/snapshot ... used for initial load
  * and reconnect-independent fetches"), it resolves quietly rather than
- * 404ing — mirrors the RECONCILIATION precedent in map-init.spec.ts. This
+ * 404ing — mirrors the precedent in map-init.spec.ts. This
  * test does not assert on these endpoints being called. */
 async function stubRestFallback(page: Page) {
   await page.route('**/api/layers/air/snapshot', async (route) => {

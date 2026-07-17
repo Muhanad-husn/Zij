@@ -1,7 +1,6 @@
 /**
- * Inner unit tests — plan/frontend/06-marine-integrity.md "Inner loop" unit
- * #5 (marine popup lists flag name(s) inline when `integrity_flags` is
- * non-empty), against `src/map/popup.ts` as actually built.
+ * Unit tests for `src/map/popup.ts`: the marine popup lists flag name(s)
+ * inline when `integrity_flags` is non-empty.
  *
  * CRITICAL REGRESSION LOCK: MapLibre JSON-STRINGIFIES non-primitive GeoJSON
  * property values (`attrs`, `integrity_flags`) in the tiled representation a

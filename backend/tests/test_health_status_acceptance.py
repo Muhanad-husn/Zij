@@ -1,14 +1,13 @@
-"""Locked outer acceptance test for health-status step (issue #6).
+"""Acceptance test for health-status (issue #6).
 
 Given the backend.health module exists with a health_status() function
 When  health_status() is called with no arguments
 Then  it returns a dict with exactly the two keys "status" and "service"
 And   status == "ok" and service == "zij"
 
-This is the behavioral contract (). It was authored and committed red by
-the author before any implementation existed, guarded by a strict xfail
-(). the developer has since made it genuinely pass; the xfail marker
-has been removed to finalize the contract.
+It was written test-first and committed red, as an xfail, before any
+implementation existed; the xfail marker was removed once the suite went
+green.
 """
 
 from backend.health import health_status

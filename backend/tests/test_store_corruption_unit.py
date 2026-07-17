@@ -1,34 +1,31 @@
-"""Inner unit tests for the store corruption-recovery slice (issue #70).
+"""Unit tests for store corruption-recovery (issue #70).
 
-The outer acceptance test (test_store_corruption_acceptance.py) locks the
-one behavior named by the acceptance criterion: a corrupt DB file is
-detected and delete-and-recreated with a logged warning. Per that outer
-test's own scope note, and per issue #94, several real behavior branches in
-`Store._open_healthy_connection` are deliberately left to inner unit tests:
+The acceptance test (test_store_corruption_acceptance.py) covers the one
+behavior named by the acceptance criterion: a corrupt DB file is detected and
+delete-and-recreated with a logged warning. Per that test's own scope note,
+and per issue #94, several real behavior branches in
+`Store._open_healthy_connection` are left to unit tests:
 
 1. The healthy-DB-is-a-no-op path: when `PRAGMA integrity_check` returns
    'ok', recovery must NOT run -- a pre-existing row must still be there
    after a fresh `Store` re-opens the same file. This is the regression
    that proves recovery is genuinely conditional, not an unconditional
    wipe-and-recreate that happens to also round-trip because the caller
-   wrote a fresh row after `init()` (which is all the outer test could
+   wrote a fresh row after `init()` (which is all the acceptance test could
    otherwise prove).
 2. The WAL/SHM sidecar cleanup: `_open_healthy_connection` deletes
    `<path>-wal` and `<path>-shm` alongside the corrupt main file (schema.sql
-   runs in WAL mode, per storage.md NFR1). The outer test's garbage file
+   runs in WAL mode, per storage.md NFR1). The acceptance test's garbage file
    never has sidecars, so that branch is untouched without this test.
 3. The non-raising corruption trigger (issue #94, design/specs/store.md:44):
    a DB file that still connects and queries cleanly -- `sqlite3.connect()`
    and a plain `sqlite_master` query both succeed -- but whose `PRAGMA
-   integrity_check` reports something other than 'ok'. The outer test's
+   integrity_check` reports something other than 'ok'. The acceptance test's
    garbage-bytes fixture only ever exercises the raising
    `sqlite3.DatabaseError` trigger; this trigger needs its own fixture.
 
 `backend.store` is imported inside each test body (never at module scope),
 per the durable project convention.
-
-Written by the author (); the developer is separated out of
-backend/tests/ and may not edit this file.
 """
 
 import logging
@@ -215,7 +212,7 @@ async def test_page_corrupt_db_with_intact_header_is_recovered(tmp_path, caplog)
     store = Store(db_path=db_path)
 
     # --- When: Store() is constructed and init() is called (mirrors the
-    # outer acceptance test's flow, but against the page-corrupt fixture) ---
+    # acceptance test's flow, but against the page-corrupt fixture) ---
     with caplog.at_level(logging.WARNING):
         await store.init()  # Then: does NOT raise -- corruption is recovered
 

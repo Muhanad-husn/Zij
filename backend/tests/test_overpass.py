@@ -1,4 +1,4 @@
-"""Locked outer acceptance test for overpass-adapter step (issue #15):
+"""Acceptance test for the overpass adapter (issue #15):
 fetch() parses the real Hormuz Overpass response into LayerSnapshot(LAND).
 
 Given the committed fixture overpass_hormuz.json and httpx mocked to return
@@ -17,20 +17,19 @@ And   meta.timestamp_source equals that same osm_base (not the fetch time)
 And   a source_id matched by two class queries appears exactly once
       (deduped, first wins)
 
-This is the behavioral contract (), transcribed from
-plans/overpass-adapter/01-fetch-land.md ("Acceptance criterion") and
+This is transcribed from
 design/specs/overpass.md ("Parsing -> Feature" + "osm_base capture (FR4)"),
 honoring the error taxonomy and Region/LayerSnapshot shapes fixed by
 design/contracts/adapter-interface.md and backend/models.py.
 
-RECONCILED for slice overpass-adapter/02 (issue #16): `fetch()` now runs its
+Updated for issue #16: `fetch()` now runs its
 parsed+deduped features through `simplify_and_cap` (Douglas-Peucker + the
 <=5000 cap, design/specs/overpass.md "Geometry simplification") before
 building the `LayerSnapshot`. That is a legitimate, in-scope change to this
-slice's own post-condition -- geometry is simplified, and drop-tier-eligible
+test's own post-condition -- geometry is simplified, and drop-tier-eligible
 features exceeding the cap are removed -- so two assertions from the
-original (step) test no longer hold as written and are replaced here,
-by the author, per 's follow-up/reconciliation pass:
+original test no longer hold as written and are replaced here as a
+follow-up:
   - Way `4846466` (`highway=primary`) is drop-tier-eligible (tier 1, the
     first tier drained) and the ~8300-element fixture pushes the parsed
     count over the 5000 cap, so this fixture's real `fetch()` now legitimately
@@ -52,29 +51,27 @@ Every assertion not touched by simplification (meta.layer, region_id,
 non-empty features, feature_count == len(features), the port node's POINT
 shape + verbatim attrs + dedup/first-wins, every feature's/meta's
 timestamp_source == osm_base) is preserved unchanged below -- those are
-step's real intent and simplification does not touch them (POINT
+the original intent and simplification does not touch them (POINT
 anchors are never dropped, and dedup/osm_base happen before
 `simplify_and_cap` runs).
 
-It was authored and committed red by the author before any
-implementation existed (strict xfail, ): `backend/sources/overpass.py`
+It was committed red before any
+implementation existed (xfail): `backend/sources/overpass.py`
 did not exist yet, so importing `OverpassAdapter` inside the test body (not
 at module level, so collection itself stayed green) raised
 `ModuleNotFoundError` -- xfail's default (no `raises=` narrowing) treats any
 exception as the expected failure, so this failed for that reason and
-xfailed cleanly under the tests-green gate. the developer has since made
-it genuinely pass; the xfail marker has been removed to finalize the
-contract.
+xfailed cleanly. It has since been made to
+genuinely pass; the xfail marker has been removed to finalize the test.
 
-Below the outer test are inner unit tests (), authored against the
-now-built `OverpassAdapter` from the plan's ("Inner loop -- initial unit test
-list", plans/overpass-adapter/01-fetch-land.md): each covers a gap the outer
+Below the acceptance test are unit tests, written against the
+now-built `OverpassAdapter`: each covers a gap the acceptance
 test deliberately leaves unexercised (the source_id/attrs/label mapping in
 isolation, every geometry edge case, "oldest osm_base wins" across genuinely
 differing responses, dedup with differing tags proving "first wins" isn't
 an accident, the whitelist actually sent over the wire, and the 429/504
 rotate-then-exhaust + malformed-JSON failure paths) rather than duplicating
-the outer test's single-fixture happy path.
+the acceptance test's single-fixture happy path.
 
 Why this is not satisfiable by a stub: the committed fixture is mocked, via
 a single respx route matched on URL only (any HTTP method, any query
@@ -94,13 +91,13 @@ recorded fixture content read at test time (not hardcoded literals prone to
 silently drifting from the fixture), so a stub returning a differently
 shaped/ordered geometry or dropping/mangling `attrs` also fails.
 
-Names this test requires the developer to provide (spec-fixed unless
-noted "author's plumbing choice"):
+Names this test requires from the implementation (spec-fixed unless
+noted a plumbing choice):
   - backend.sources.overpass.OverpassAdapter(cfg): domain=Domain.LAND,
     source="overpass", async fetch(region) -> LayerSnapshot
     (design/specs/overpass.md "Public interface"). The single-argument
-    constructor signature `OverpassAdapter(cfg)` is this author's
-    plumbing choice (overpass.md does not fix a constructor signature the
+    constructor signature `OverpassAdapter(cfg)` is a plumbing choice
+    here (overpass.md does not fix a constructor signature the
     way opensky.md fixes `OpenSkyAdapter(cfg, secrets, credits)` --
     Overpass has no auth and no credit ledger, so no secrets/credits
     collaborator is needed).
@@ -110,8 +107,8 @@ noted "author's plumbing choice"):
     `cfg.overpass` and `cfg.layers["land"].model_dump()` as kwargs, so
     `OverpassCfg` must accept that combined key set and expose `mirrors`
     (a list of mirror base URLs, config.md/overpass.md "Configuration
-    consumed") as an attribute. The class NAME `OverpassCfg` is this
-    author's plumbing choice (not spec-fixed).
+    consumed") as an attribute. The class NAME `OverpassCfg` is a
+    plumbing choice (not spec-fixed).
   - Feature/LayerSnapshot/LayerSnapshotMeta/Domain/GeometryType shapes are
     all spec-fixed by backend/models.py (feature-schema.md), transcribed
     verbatim there; this test uses only the real field/enum names defined
@@ -124,12 +121,12 @@ already-merged Overpass API JSON response (`version`/`generator`/`osm3s`/
 8323 elements (8223 ways, 100 nodes). Way `4846466` carries
 `tags.highway == "primary"` (Al Maktoum Bridge) with a 6-vertex `geometry`
 list of `{"lat":..., "lon":...}` objects (Overpass `out geom` shape) --
-drop-tier-eligible (tier 1) and, as reconciled above for step, no
+drop-tier-eligible (tier 1) and, as noted above for issue #16, no
 longer asserted present with raw geometry (this fixture's parsed count
 exceeds the 5000 cap, so it is legitimately dropped). Node `2109558996`
 carries `tags.harbour == "yes"` (Al Hamriya Port) with direct top-level
-`lat`/`lon` (a bare node, not an `out center` result -- the plan's
-"port/aerodrome node" wording covers this: any node-shaped element from the
+`lat`/`lon` (a bare node, not an `out center` result -- the
+"port/aerodrome node" case covers this: any node-shaped element from the
 whitelisted point classes, of which `harbour` is one, per overpass.md
 query #3) -- a POINT anchor, never drop-tier-eligible, so it still survives
 unchanged. Way `4009554` carries `tags.highway == "motorway"` ("Sheikh
@@ -157,9 +154,9 @@ OVERPASS_FIXTURE = FIXTURES_DIR / "overpass_hormuz.json"
 
 # way/4846466 -- highway=primary, "Al Maktoum Bridge" (Dubai), 6-vertex
 # geometry. Drop-tier-eligible (tier 1); this fixture's parsed count exceeds
-# the step 5000 cap, so it is legitimately dropped by `simplify_and_cap`
+# the 5000 cap, so it is legitimately dropped by `simplify_and_cap`
 # inside `fetch()`. Kept here only as a fixture-content sanity check (that
-# the tags this author inspected are still what's on disk), not as an
+# the tags inspected here are still what's on disk), not as an
 # output assertion.
 PRIMARY_WAY_ID = 4846466
 # node/2109558996 -- harbour=yes, "Al Hamriya Port" (Dubai), bare node.
@@ -174,7 +171,7 @@ MOTORWAY_WAY_ID = 4009554
 
 
 async def test_fetch_hormuz_land():
-    """Slice overpass-adapter/02 (issue #16) reconciliation note: `fetch()`
+    """Issue #16 note: `fetch()`
     now runs parsed+deduped features through `simplify_and_cap` before
     building the LayerSnapshot (Douglas-Peucker simplify + the <=5000 drop
     cap). That legitimately changes this fixture's real output: way
@@ -185,7 +182,7 @@ async def test_fetch_hormuz_land():
     to survive), and a new `len(features) <= 5000` assertion pins the cap
     itself. Every other assertion (meta shape, the port POINT anchor's
     verbatim attrs/geometry=None, osm_base stamping, dedup/first-wins) is
-    unchanged from step's original intent -- simplification does not
+    unchanged from the original intent -- simplification does not
     touch any of it.
     """
     # --- Given: the committed fixture, inspected for the three concrete
@@ -240,7 +237,7 @@ async def test_fetch_hormuz_land():
     assert len(snapshot.features) > 0
     assert snapshot.meta.feature_count == len(snapshot.features)
 
-    # --- And (step): the cap is enforced through the full fetch() path
+    # --- And: the cap is enforced through the full fetch() path
     # -- the fixture's ~8300 parsed elements are capped to <=5000 ---
     assert len(snapshot.features) <= 5000
 
@@ -307,22 +304,22 @@ async def test_fetch_hormuz_land():
 
 
 # ---------------------------------------------------------------------------
-# overpass-adapter/01 (issue #15) inner units ().
+# overpass adapter (issue #15) unit tests.
 # ---------------------------------------------------------------------------
 
 
 async def _no_op_sleep(*args, **kwargs):
     """Patched over `backend.sources.overpass.asyncio.sleep` in the
-    full-`fetch()` inner tests below to eliminate the real 0.5 s
+    full-`fetch()` tests below to eliminate the real 0.5 s
     per-class delay (5 sleeps = 2.5 s of dead time per test) -- these tests
     exercise only the successful-response parsing/dedup/osm_base paths, not
-    the delay itself (which the outer test already runs through once)."""
+    the delay itself (which the acceptance test already runs through once)."""
     return None
 
 
 def _make_overpass_cfg(**overrides):
-    """Minimal `OverpassCfg` for inner unit tests (author's plumbing
-    choice for placeholder values; `OverpassCfg`'s required field set is
+    """Minimal `OverpassCfg` for unit tests (a plumbing choice for
+    placeholder values; `OverpassCfg`'s required field set is
     spec-fixed, transcribed from `backend/config.toml`'s `[overpass]` +
     `[layers.land]` defaults)."""
     from backend.sources.overpass import OverpassCfg
@@ -343,7 +340,7 @@ def _make_overpass_cfg(**overrides):
 
 
 def test_source_id_attrs_verbatim_and_label_from_name_or_none():
-    """Inner unit (plan item 1): `source_id = f"{type}/{id}"`; `attrs`
+    """Unit test: `source_id = f"{type}/{id}"`; `attrs`
     mirrors `element.tags` verbatim; `label` is `tags["name"]` when present,
     else `None` -- pinned against a tag dict that genuinely lacks the "name"
     key (not merely an empty tags dict), so a naive `tags.get("name", "")`
@@ -385,7 +382,7 @@ def test_source_id_attrs_verbatim_and_label_from_name_or_none():
 
 
 def test_geometry_bare_node_and_out_center_both_yield_point():
-    """Inner unit (plan item 2): a bare node (`out;`, top-level lat/lon) and
+    """Unit test: a bare node (`out;`, top-level lat/lon) and
     an `out center` result (a way carrying a `center` sub-object) both map
     to POINT with `geometry=None` -- two distinct wire shapes collapsing to
     the same Feature shape."""
@@ -418,7 +415,7 @@ def test_geometry_bare_node_and_out_center_both_yield_point():
 
 
 def test_geometry_way_with_geometry_yields_linestring_lonlat_order_and_midpoint():
-    """Inner unit (plan item 2): a way with `geometry` (out geom shape, not
+    """Unit test: a way with `geometry` (out geom shape, not
     closed) maps to LINESTRING, coordinates in `[lon, lat]` order (RFC 7946),
     and the representative lat/lon is the MIDDLE vertex (`vertices[len//2]`),
     not the first or last -- pinned with a 5-vertex way where every vertex is
@@ -457,7 +454,7 @@ def test_geometry_way_with_geometry_yields_linestring_lonlat_order_and_midpoint(
 
 
 def test_geometry_closed_way_yields_polygon_with_centroid():
-    """Inner unit (plan item 2): a CLOSED way (first vertex == last) with
+    """Unit test: a CLOSED way (first vertex == last) with
     inline `geometry` maps to POLYGON, not LINESTRING, with lat/lon set to
     the area-weighted centroid (not a vertex) -- pinned against a unit
     square whose centroid is the exact geometric center (0.5, 0.5), which no
@@ -490,13 +487,13 @@ def test_geometry_closed_way_yields_polygon_with_centroid():
 
 
 async def test_osm_base_parsed_to_utc_and_oldest_wins_across_responses(monkeypatch):
-    """Inner unit (plan item 3): `osm3s.timestamp_osm_base` is parsed to a
+    """Unit test: `osm3s.timestamp_osm_base` is parsed to a
     UTC-aware datetime, and when the six class queries return SIX DISTINCT
     `osm_base` values (as six real, independently-timestamped Overpass
     responses would), the snapshot's `meta.timestamp_source` (and hence every
     feature's `timestamp_source`) is the OLDEST of the six -- the most
     conservative freshness claim (overpass.md "osm_base capture (FR4)"). The
-    outer test's single shared fixture answers every class query with the
+    acceptance test's single shared fixture answers every class query with the
     identical timestamp, so it can never exercise "oldest wins"; this
     constructs six responses with six distinct timestamps, deliberately
     placing the oldest THIRD (neither first nor last), so a 'first-seen' or
@@ -539,7 +536,7 @@ async def test_osm_base_parsed_to_utc_and_oldest_wins_across_responses(monkeypat
 
 
 async def test_dedup_by_source_id_first_wins_across_classes(monkeypatch):
-    """Inner unit (plan item 4): when the SAME `source_id` is returned by two
+    """Unit test: when the SAME `source_id` is returned by two
     different class queries with DIFFERING tags (proving they are genuinely
     two separate wire elements, not one server-side dedup), the adapter
     keeps only the FIRST one seen, in class-query order -- not the last
@@ -603,7 +600,7 @@ async def test_dedup_by_source_id_first_wins_across_classes(monkeypatch):
 
 
 async def test_only_whitelisted_classes_queried_no_secondary_roads(monkeypatch):
-    """Inner unit (plan item 5, §6.3): the six queries actually sent over the
+    """Unit test (§6.3): the six queries actually sent over the
     wire cover the whitelisted highway (`motorway|trunk|primary`) and railway
     (`rail` / `station|yard`) classes and never mention 'secondary' (or
     lower) roads -- inspecting the literal request bodies `fetch()` posts,
@@ -644,7 +641,7 @@ async def test_only_whitelisted_classes_queried_no_secondary_roads(monkeypatch):
 
 
 async def test_429_504_rotates_mirrors_then_exhausts_to_upstream_error():
-    """Inner unit (plan item 6): 429/504 responses rotate through
+    """Unit test: 429/504 responses rotate through
     `cfg.mirrors` with backoff, and once `cfg.max_attempts` is exhausted
     across mirrors, the adapter raises `UpstreamError` -- not a raw
     `httpx.HTTPStatusError`, and not an infinite retry. Two mirrors,
@@ -680,7 +677,7 @@ async def test_429_504_rotates_mirrors_then_exhausts_to_upstream_error():
 
 
 async def test_malformed_json_raises_parse_error_without_retrying():
-    """Inner unit (plan item 6): a 2xx response whose body is not valid JSON
+    """Unit test: a 2xx response whose body is not valid JSON
     raises `ParseError` immediately -- NOT treated as a 429/504-style
     retryable condition (a malformed 2xx body is a parse failure, not a
     rate limit), so exactly one request is made, not `cfg.max_attempts` of
@@ -705,23 +702,22 @@ async def test_malformed_json_raises_parse_error_without_retrying():
 
 
 async def test_timeout_rotates_mirrors_then_exhausts_to_upstream_error():
-    """Inner unit (plan item 6 addendum -- reviewer-flagged coverage gap,
-    issue #15): every attempt across BOTH mirrors raising
+    """Unit test (a gap found in review, issue #15): every attempt across
+    BOTH mirrors raising
     `httpx.TimeoutException` rotates round-robin (mirroring
     `test_429_504_rotates_mirrors_then_exhausts_to_upstream_error` above) and,
     once `cfg.max_attempts` is exhausted across mirrors, raises
     `UpstreamError` -- not an infinite retry, and not a raw
     `httpx.TimeoutException` escaping to the caller.
 
-    NOTE (spec discrepancy, issue #30): `design/specs/overpass.md` is internally
-    inconsistent about timeout handling -- one passage groups timeout with
-    429/504 as a retryable, rotate-and-backoff condition, another lists
-    timeout under "immediate UpstreamError" alongside transport errors. This
-    test pins the adapter's AS-BUILT behavior: timeout is retryable (rotate +
-    backoff), same as 429/504. It is the interim resolution while #30 is open.
-    If the maintainer adjudicates #30 toward immediate-UpstreamError-on-timeout,
-    this test must be updated alongside the adapter in that same
-    drift-resolution pass.
+    NOTE (an inconsistency in the spec, issue #30): `design/specs/overpass.md`
+    is internally inconsistent about timeout handling -- one passage groups
+    timeout with 429/504 as a retryable, rotate-and-backoff condition, another
+    lists timeout under "immediate UpstreamError" alongside transport errors.
+    This test pins the adapter's AS-BUILT behavior: timeout is retryable
+    (rotate + backoff), same as 429/504. It is the interim resolution while
+    #30 is open. If #30 is resolved toward immediate-UpstreamError-on-timeout,
+    this test must be updated alongside the adapter in that same pass.
     """
     from backend.sources.base import UpstreamError
     from backend.sources.overpass import OverpassAdapter
@@ -757,8 +753,8 @@ async def test_timeout_rotates_mirrors_then_exhausts_to_upstream_error():
 
 
 async def test_transport_error_raises_immediate_upstream_error_without_retry():
-    """Inner unit (plan item 6 addendum -- reviewer-flagged coverage gap,
-    issue #15): a connection-level failure (`httpx.ConnectError`, a
+    """Unit test (a gap found in review, issue #15): a connection-level
+    failure (`httpx.ConnectError`, a
     `TransportError` subclass) is NOT treated as retryable the way
     timeout/429/504 are -- it raises `UpstreamError` immediately, with
     exactly one request made (no backoff, no mirror rotation), pinning the
@@ -783,8 +779,8 @@ async def test_transport_error_raises_immediate_upstream_error_without_retry():
 
 
 async def test_other_5xx_raises_immediate_upstream_error_without_retry():
-    """Inner unit (plan item 6 addendum -- reviewer-flagged coverage gap,
-    issue #15): a 5xx status that is NOT 429/504 (e.g. 503) is not one of the
+    """Unit test (a gap found in review, issue #15): a 5xx status that is
+    NOT 429/504 (e.g. 503) is not one of the
     retryable statuses -- it raises `UpstreamError` immediately, with exactly
     one request made (no backoff, no mirror rotation), pinning the
     `status >= 500` (non-429/504) branch in `_fetch_class`."""
@@ -806,11 +802,10 @@ async def test_other_5xx_raises_immediate_upstream_error_without_retry():
 
 
 # ---------------------------------------------------------------------------
-# overpass-adapter/02 (issue #16) outer acceptance test ().
+# overpass adapter (issue #16) acceptance test.
 # ---------------------------------------------------------------------------
 #
-# This is the locked behavioral contract for step, transcribed from
-# plans/overpass-adapter/02-simplify.md ("Acceptance criterion") and
+# This is transcribed from
 # design/specs/overpass.md ("Geometry simplification (Douglas-Peucker)"): the
 # adapter simplifies LineString/Polygon geometry via shapely Douglas-Peucker
 # at `simplify_tolerance_deg` (0.0005 deg) and, if the result still exceeds
@@ -819,25 +814,22 @@ async def test_other_5xx_raises_immediate_upstream_error_without_retry():
 # tier first), NEVER dropping motorway ways or any point anchor. Same input
 # must yield the same output (cacheable).
 #
-# Per the plan's boundary note ("the simplification path inside
-# OverpassAdapter.fetch, exercised via the adapter or a directly-called
-# internal function") and "no real fixture needed", this test targets a
+# This test targets a
 # directly-callable, pure, module-level function rather than reconstructing a
 # 7000-element Overpass HTTP fixture -- there is no behavior here that
-# depends on the network/parsing path step already covers.
+# depends on the network/parsing path already covered elsewhere.
 #
-# Name/signature this test requires the developer to provide (test-
-# author's plumbing choice; overpass.md fixes the ALGORITHM -- shapely
+# Name/signature this test requires from the implementation (a plumbing
+# choice; overpass.md fixes the ALGORITHM -- shapely
 # Douglas-Peucker at a given tolerance, the 5000 cap, the primary/rail/trunk
 # drop priority, shortest-first within a tier, never dropping motorway or
 # points -- but does not fix a function name or signature):
 #   backend.sources.overpass.simplify_and_cap(
 #       features: list[Feature], tolerance: float, max_features: int
 #   ) -> list[Feature]
-# the developer is expected to also call this from inside `fetch()` (per
+# It is expected to also be called from inside `fetch()` (per
 # overpass.md, `fetch` returns simplified output) as a separate wiring change;
-# this outer test exercises the pure function directly with synthetic data,
-# per the plan's boundary note.
+# this test exercises the pure function directly with synthetic data.
 #
 # Scenario construction (all deterministic, no randomness):
 #   - 4 point anchors (border_control, aerodrome, port, station) -- always
@@ -856,8 +848,8 @@ async def test_other_5xx_raises_immediate_upstream_error_without_retry():
 #     entirely within a tier could still pass those two checks by accident;
 #     it cannot pass the trunk-tier check, because that requires excluding
 #     precisely the 500 lowest-length trunk ways and no others.
-#   Total input = 4 + 496 + 800 + 700 + 5000 = 7000 (matches the plan's
-#   Gherkin "7,000 features" and its 5000 cap exactly, so the expected
+#   Total input = 4 + 496 + 800 + 700 + 5000 = 7000 (matches the target
+#   7,000 features and the 5000 cap exactly, so the expected
 #   output size is exactly 5000, not merely "<=5000" -- a stronger,
 #   fully-pinned assertion than the cap alone would require).
 #
@@ -873,11 +865,11 @@ async def test_other_5xx_raises_immediate_upstream_error_without_retry():
 # whether "geometry length" is measured on the pre- or post-simplification
 # geometry.
 #
-# Assumptions about Feature construction (this author's choices, not
+# Assumptions about Feature construction (chosen here, not
 # spec-fixed): `domain=Domain.LAND`, `source="overpass"`; way features use
 # `geometry_type=GeometryType.LINESTRING` with a GeoJSON
 # `{"type": "LineString", "coordinates": [[lon, lat], ...]}` dict (ADR-11
-# order, matching step's parsing); point anchors use
+# order, matching the parsing above); point anchors use
 # `geometry_type=GeometryType.POINT` with `geometry=None` (feature-schema.md
 # "Points ... geometry=None"). The discriminating tags mirror overpass.md's
 # whitelist verbatim: `highway` in {motorway, primary, trunk} for road ways,
@@ -886,19 +878,19 @@ async def test_other_5xx_raises_immediate_upstream_error_without_retry():
 # `barrier="border_control"` / `aeroway="aerodrome"` / `harbour="yes"` for
 # the three non-rail point anchors.
 #
-# Red mechanism (), as originally committed: `backend.sources.
+# Red mechanism, as originally committed: `backend.sources.
 # overpass.simplify_and_cap` did not exist yet, so `from backend.sources.
 # overpass import simplify_and_cap` inside the test body raised
 # `ImportError` (module-level imports elsewhere in this file stayed
-# untouched, so collection itself stayed green -- mirroring step's outer
-# test). `shapely` was also not yet an installed dependency at that point,
-# but this test never imports it directly (vertex counts and lengths are
-# computed by inspecting the plain GeoJSON coordinate lists this test itself
-# constructs and receives back, not via shapely) -- so no separate shapely
-# import guard was needed; the strict-xfail covered the `ImportError`. The
-# developer has since built `simplify_and_cap` and wired it into
+# untouched, so collection itself stayed green -- mirroring the acceptance
+# test above). `shapely` was also not yet an installed dependency at that
+# point, but this test never imports it directly (vertex counts and lengths
+# are computed by inspecting the plain GeoJSON coordinate lists this test
+# itself constructs and receives back, not via shapely) -- so no separate
+# shapely import guard was needed; the xfail covered the `ImportError`.
+# `simplify_and_cap` has since been built and wired into
 # `fetch()`; this test now genuinely passes and the xfail marker has been
-# removed to finalize the contract.
+# removed to finalize the test.
 
 _SIMPLIFY_TOLERANCE_DEG = 0.0005
 _MAX_RENDERED_FEATURES = 5000
@@ -1117,24 +1109,23 @@ def test_simplify_and_cap():
 
 
 # ---------------------------------------------------------------------------
-# overpass-adapter/02 (issue #16) inner units ().
+# overpass adapter (issue #16) unit tests.
 # ---------------------------------------------------------------------------
 #
-# Authored against the now-built `simplify_and_cap` (plans/overpass-adapter/
-# 02-simplify.md, "Inner loop -- initial unit test list"), each isolating a
-# single behaviour the 7,000-feature outer test exercises only at scale --
-# small, fully-named synthetic sets here so every survivor/drop is asserted
+# Written against the now-built `simplify_and_cap`, each isolating a
+# single behaviour the 7,000-feature acceptance test exercises only at scale
+# -- small, fully-named synthetic sets here so every survivor/drop is asserted
 # explicitly rather than via subset checks.
 
 
 def test_simplify_reduces_vertex_count_and_points_pass_through_untouched():
-    """Inner unit (plan item 1): shapely `simplify(tolerance=0.0005,
+    """Unit test: shapely `simplify(tolerance=0.0005,
     preserve_topology=False)` reduces the vertex count of a near-collinear-
     midpoint LineString (the midpoint's 0.0001 deg perpendicular offset is
     well inside the 0.0005 deg tolerance, so Douglas-Peucker drops it), while
     a POINT feature's geometry stays `None` (untouched) -- both under the
     cap, so no drop logic runs at all here, isolating simplification itself
-    from the drop/cap behaviour covered by other inner tests below."""
+    from the drop/cap behaviour covered by other unit tests below."""
     from backend.models import GeometryType
     from backend.sources.overpass import simplify_and_cap
 
@@ -1163,7 +1154,7 @@ def test_simplify_reduces_vertex_count_and_points_pass_through_untouched():
 
 
 def test_under_cap_nothing_dropped_only_simplified():
-    """Inner unit (plan item 2): when the input count does not exceed
+    """Unit test: when the input count does not exceed
     `max_features`, every feature survives -- only geometry simplification
     applies, no drop logic runs -- pinned with `max_features` strictly
     greater than the input count and every input source_id checked present
@@ -1185,7 +1176,7 @@ def test_under_cap_nothing_dropped_only_simplified():
 
 
 def test_over_cap_drops_primary_then_rail_before_trunk_never_motorway_or_point():
-    """Inner unit (plan item 3): over the cap, the primary tier (tier 1) is
+    """Unit test: over the cap, the primary tier (tier 1) is
     fully drained before the rail tier (tier 2) is touched at all, and a
     motorway way / a point anchor are never eligible for drop regardless of
     length -- a small, fully-named six-feature set where every surviving and
@@ -1219,12 +1210,12 @@ def test_over_cap_drops_primary_then_rail_before_trunk_never_motorway_or_point()
 
 
 def test_within_tier_ascending_length_drops_shortest_first():
-    """Inner unit (plan item 4): within a single drop tier, ascending
+    """Unit test: within a single drop tier, ascending
     geometry length is the drop order -- the shortest is dropped first, the
     longest survives -- pinned against a single-tier (trunk-only) set of
     four distinct lengths so no cross-tier priority can mask the ordering
-    (unlike the outer test's 5000-trunk-way scenario, every source_id here
-    is individually named)."""
+    (unlike the acceptance test's 5000-trunk-way scenario, every source_id
+    here is individually named)."""
     from backend.sources.overpass import simplify_and_cap
 
     trunk_short = _synthetic_line_feature(
@@ -1248,11 +1239,11 @@ def test_within_tier_ascending_length_drops_shortest_first():
 
 
 def test_deterministic_two_runs_on_equivalent_input_yield_identical_output():
-    """Inner unit (plan item 5): two independently-constructed but
+    """Unit test: two independently-constructed but
     conceptually equivalent over-cap feature lists (fresh objects each call,
     no shared mutable state between runs) yield byte-for-byte identical
-    output across two calls -- a small-scale, isolated mirror of the outer
-    test's determinism check."""
+    output across two calls -- a small-scale, isolated mirror of the
+    acceptance test's determinism check."""
     from backend.sources.overpass import simplify_and_cap
 
     def build():
@@ -1278,13 +1269,13 @@ def test_deterministic_two_runs_on_equivalent_input_yield_identical_output():
 
 
 # ---------------------------------------------------------------------------
-# overpass-adapter/02 (issue #16) reviewer-flagged coverage gaps.
+# overpass adapter (issue #16) coverage gaps found in review.
 # ---------------------------------------------------------------------------
 #
-# Two cheap gaps left unexercised by the outer test and the inner units
+# Two cheap gaps left unexercised by the acceptance test and the unit tests
 # above: (1) every existing test that builds a POLYGON feature
 # (`test_geometry_closed_way_yields_polygon_with_centroid`) exercises only
-# the parsing path (step), never `simplify_and_cap` -- a POLYGON with a
+# the parsing path, never `simplify_and_cap` -- a POLYGON with a
 # `highway`/`railway` tag that would make it drop-tier-eligible is also
 # unrepresented in practice, but here the polygon is untagged (hence
 # undroppable via `_drop_tier`'s default), which isolates the *simplify*
@@ -1298,7 +1289,7 @@ def _synthetic_polygon_feature(source_id: str, attrs: dict, ring: list[list[floa
     """A closed-ring POLYGON way (`ring[0] == ring[-1]`, `[lon, lat]` pairs,
     Overpass `out geom` -> parsed-Polygon shape, mirroring
     `test_geometry_closed_way_yields_polygon_with_centroid` above) --
-    author's plumbing choice for exercising `_simplify_geometry`'s
+    a plumbing choice for exercising `_simplify_geometry`'s
     Polygon branch directly (no existing helper in this file builds a
     Polygon feature for the `simplify_and_cap` path)."""
     from backend.models import Domain, Feature, FeatureStatus, GeometryType
@@ -1324,7 +1315,7 @@ def _synthetic_polygon_feature(source_id: str, attrs: dict, ring: list[list[floa
 
 
 def test_polygon_geometry_simplified_intact_and_still_closed():
-    """Reviewer-flagged gap 1 (issue #16): a POLYGON feature's geometry runs
+    """First gap found in review (issue #16): a POLYGON feature's geometry runs
     through the SAME Douglas-Peucker `_simplify_geometry` path as LineString
     geometry (`simplify_and_cap`'s `geometry_type in (LINESTRING, POLYGON)`
     branch) -- no existing test drives a Polygon through `simplify_and_cap`
@@ -1404,7 +1395,7 @@ def test_polygon_geometry_simplified_intact_and_still_closed():
 
 
 def test_exact_at_cap_boundary_nothing_dropped():
-    """Reviewer-flagged gap 2 (issue #16): `simplify_and_cap`'s cap check is
+    """Second gap found in review (issue #16): `simplify_and_cap`'s cap check is
     `len(simplified) <= max_features: return simplified` -- every existing
     over-cap test uses an input count strictly GREATER than the cap, leaving
     the `==` boundary itself (count exactly equal to the cap) unexercised.
@@ -1476,7 +1467,7 @@ def test_one_over_cap_boundary_drops_exactly_one_shortest_primary():
 
 
 # ---------------------------------------------------------------------------
-# overpass-user-agent (issue #114) outer acceptance tests ().
+# overpass user-agent (issue #114) acceptance tests.
 # ---------------------------------------------------------------------------
 #
 # Bug (issue #114): `OverpassAdapter.start`/`fetch` build the shared
@@ -1503,9 +1494,9 @@ def test_one_over_cap_boundary_drops_exactly_one_shortest_primary():
 #      the pinned shape, not merely "contains zij") and is NOT httpx's own
 #      default (`user-agent` values matching `^python-httpx/` are rejected
 #      by this assertion). This is deliberately looser than one exact
-#      literal (the developer picks the version/detail suffix) but
-#      precise about the prefix shape, per the dispatch's instruction to
-#      "pin the shape, not one exact literal."
+#      literal (the version/detail suffix is an implementation choice) but
+#      precise about the prefix shape -- pinning the shape, not one exact
+#      literal.
 #   2. A 406 response from one mirror rotates `_fetch_class` to the next
 #      mirror (identically to 429/504) rather than raising `UpstreamError`
 #      immediately; when the next mirror then answers with a normal 200
@@ -1515,7 +1506,7 @@ def test_one_over_cap_boundary_drops_exactly_one_shortest_primary():
 #
 # Both tests exercise the real, un-stubbed `_fetch_class`/`fetch()` code
 # paths against `respx`-mocked mirror URLs (hermetic, no real network) --
-# the same idiom the 429/504-rotation and whitelist-query inner tests above
+# the same idiom the 429/504-rotation and whitelist-query unit tests above
 # use. Why these are not satisfiable by a stub:
 #   - Test 1 inspects the LITERAL `User-Agent` header respx recorded on
 #     every one of the six real outgoing class-query requests `fetch()`
@@ -1538,20 +1529,20 @@ def test_one_over_cap_boundary_drops_exactly_one_shortest_primary():
 #     test genuinely fails against the current, unfixed adapter, not merely
 #     against a hypothetical stub.
 #
-# Red mechanism (), as committed here: `backend.sources.overpass`
-# already exists (slice overpass-adapter/01+02 shipped it), so these tests
+# Red mechanism, as committed here: `backend.sources.overpass`
+# already exists (earlier work shipped it), so these tests
 # import cleanly; xfail's default (no `raises=` narrowing) treats the actual
 # runtime failure -- an `AssertionError` on the User-Agent shape for test 1
 # (the client sends httpx's own default today), and an unhandled
 # `UpstreamError` propagating out of `fetch()` for test 2 (406 is not yet a
 # rotation-triggering status) -- as the expected failure. Both are verified
 # below to fail for exactly those reasons against the current code, not for
-# an unrelated bug (e.g. a typo in the mirror URL or fixture). The
-# developer has since made both genuinely pass; the xfail markers have
-# been removed to finalize the contract.
+# an unrelated bug (e.g. a typo in the mirror URL or fixture). Both have
+# since been made to genuinely pass; the xfail markers have
+# been removed to finalize the tests.
 #
-# Names this test requires the developer to provide (spec-fixed unless
-# noted "author's plumbing choice"): no new names are required. Both
+# Names this test requires from the implementation (spec-fixed unless
+# noted a plumbing choice): no new names are required. Both
 # behaviors are implemented as changes to the EXISTING `OverpassAdapter.
 # start`/`fetch` (passing `headers=` to `httpx.AsyncClient(...)`) and the
 # EXISTING `_fetch_class` retry condition (`if status in (429, 504):` ->
@@ -1566,8 +1557,8 @@ async def test_user_agent_header_is_descriptive_not_httpx_default(monkeypatch):
     reporter), so sending it at all is the root cause of issue #114's cold-
     cache 502s.
 
-    Shape pinned (deliberately looser than one exact literal, per the
-    dispatch's instruction): the header value, lower-cased, STARTS WITH the
+    Shape pinned (deliberately looser than one exact literal): the header
+    value, lower-cased, STARTS WITH the
     literal prefix "zij/" -- a product-token-then-slash-then-detail shape
     (e.g. "zij/0.1", "zij/0.0.0 (+contact)" both satisfy this; a bare "zij"
     with no "/", or "Zij-Monitor/1.0" with a different token before the

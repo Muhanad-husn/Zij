@@ -1,6 +1,6 @@
 /**
- *  locked outer acceptance test — frontend/02-badges (issue #58).
- * Encodes `plans/frontend/02-badges.md`'s Gherkin verbatim:
+ * Acceptance test — badges (issue #58). Encodes the feature's Gherkin
+ * verbatim:
  *
  *   Given the app with a mounted badge per domain (air, marine, land)
  *   When  a layer transitions through each of the seven LayerStatus values
@@ -10,19 +10,20 @@
  *   And   the Caveats button is present and enabled in every status,
  *         including error
  *
- * `test.fail()` was this web slice's analog to a strict pytest xfail (
- * — see `layers-refresh.spec.ts` for the precedent this repo standardized
- * on) from the slice's red commit until the developer greened every clause
- * below. the author confirmed each assertion passes for real (a plain
- * `test()` run: `✓ ... (3.0s)`, `1 passed`) and removed the `test.fail()`
- * marker in this final pass, so this now runs as a normal `test(...)`.
+ * This test was written before the implementation existed. It initially ran
+ * under `test.fail()` (Playwright's expected-to-fail marker, the analog of a
+ * pytest xfail — see `layers-refresh.spec.ts` for the precedent this repo
+ * standardized on) so it stayed red honestly until the behavior below was
+ * built. Once every clause passed for real (a plain `test()` run:
+ * `✓ ... (3.0s)`, `1 passed`) the marker was removed, so this now runs as a
+ * normal `test(...)`.
  *
  * SCOPE NOTE (marine badge, no marine map layer): `design/specs/frontend.md`
- * has no marine map-layer builder yet (deferred to step per the plan's
- * "Out of scope" list). This test mounts/asserts the marine BADGE only (via
- * `snapshot:marine` / `status:marine` store events) — it never touches
+ * has no marine map-layer builder at this point (added later, with the
+ * marine-integrity feature). This test mounts/asserts the marine BADGE only
+ * (via `snapshot:marine` / `status:marine` store events) — it never touches
  * `window.__zijMap.getSource('marine')`. `main.ts` mounts a third
- * (`marine`) badge alongside air/land as of this slice.
+ * (`marine`) badge alongside air/land.
  *
  * WHICH DOMAIN CARRIES WHICH STATUS: the Gherkin says "a layer transitions
  * through each of the seven ... values," not "every layer through every
@@ -47,7 +48,7 @@
  * would push scheduler-driven status changes (spec §3/§4: badges "update
  * imperatively on `status:{domain}` / `snapshot:{domain}` store events").
  *
- * RECONCILIATION (slice frontend/03-region-selector, issue #59): the app now
+ * LATER-FEATURE FALLOUT (region-selector, issue #59): the app now
  * unconditionally fetches `GET /api/regions` and `GET /api/regions/active`
  * on load (region dropdown population + last-region restore). This test has
  * no live FastAPI backend, so those unstubbed calls would leak through
@@ -58,17 +59,17 @@
  * quietly; this test asserts nothing about regions (that's
  * `region-selector.spec.ts`'s job).
  *
- * RECONCILIATION (slice frontend/06-marine-integrity, issue #62): the app
- * now unconditionally fetches `GET /api/config` on load (the client tick
- * reads de-emphasis/drop thresholds from it, spec §9). This test has no live
+ * LATER-FEATURE FALLOUT (marine-integrity, issue #62): the app now
+ * unconditionally fetches `GET /api/config` on load (the client tick reads
+ * de-emphasis/drop thresholds from it, spec §9). This test has no live
  * FastAPI backend, so an unstubbed call would leak through Vite's preview
- * proxy the same way the reconciliation above already documents.
+ * proxy the same way the note above already documents.
  * `tests/e2e/helpers/stubConfigEndpoint.ts` answers it quietly; this test
  * asserts nothing about tick/de-emphasis behavior (that's
  * `marine-integrity.spec.ts`'s job).
  *
- * REQUIRED TEST SEAMS (developer must expose these — not the author's
- * to relax; each is independently asserted below):
+ * REQUIRED TEST SEAMS (the app must expose these; each is independently
+ * asserted below):
  *
  *   1. `[data-testid="badge-air"]`, `[data-testid="badge-marine"]`,
  *      `[data-testid="badge-land"]` — one badge container per domain,
@@ -90,8 +91,8 @@
  *      `"Rate-limited · retry in {n}s"` (with `{n}` a live client-side
  *      countdown seeded from `retry_after_s`), and `"Stale · {age}"` /
  *      `"Cached · {age}"` (this test only asserts the fixed `"Stale · "` /
- *      `"Cached · "` prefix — the exact `{age}` rendering is the
- *      developer's/inner-unit-tests' choice, not locked here).
+ *      `"Cached · "` prefix — the exact `{age}` rendering is covered by the
+ *      unit tests, not asserted here).
  *   5. `[data-testid="status-detail"]` — present on every badge; its
  *      `data-detail` attribute equals `meta.detail` verbatim whenever
  *      `status === "error"` (spec §4: "`detail` shown on hover/expand" —
@@ -106,9 +107,8 @@
  *      (each rendering exactly `HH:MM:SS UTC`, NFR6), and
  *      `[data-testid="feature-count"]`.
  *
- * This test is not the author's to loosen and not the developer's to
- * touch. The `test.fail()` marker was removed only once every assertion
- * below passed for real, in the author's final follow-up pass.
+ * The `test.fail()` marker was removed only once every assertion below
+ * passed for real.
  */
 
 import { test, expect, type Page } from '@playwright/test';
@@ -120,7 +120,7 @@ import { stubConfigEndpoint } from './helpers/stubConfigEndpoint';
 // --- Status -> token color (tokens.css, verbatim) -------------------------
 // Duplicated here (not imported) so this test proves the ACTUAL rendered
 // color, independent of whichever mechanism (CSS selector, inline style)
-// the developer wires up to read these same tokens.
+// the app wires up to read these same tokens.
 
 const STATUS_HEX = {
   live: '#4CAF7D',
@@ -245,10 +245,10 @@ async function stubEvents(page: Page, fixtureUrl: string): Promise<void> {
   });
 }
 
-/** Defensive REST fallback stubs, mirroring the RECONCILIATION precedent in
+/** Defensive REST fallback stubs, mirroring the precedent in
  * `map-init.spec.ts` / `sse-client.spec.ts` — this test does not assert on
  * these endpoints being called, only keeps an incidental REST fetch (air/land
- * on load, or a marine fetch the developer may add) from 404ing noisily. */
+ * on load, or a later marine fetch) from 404ing noisily. */
 async function stubRestFallback(page: Page) {
   const empty = (layer: 'air' | 'marine' | 'land') => ({
     meta: {

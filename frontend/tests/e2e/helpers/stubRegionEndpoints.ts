@@ -1,6 +1,6 @@
 /**
  * Shared e2e helper — stubs the two region endpoints `main.ts` now fires
- * unconditionally on every page load (frontend/03-region-selector, #59):
+ * unconditionally on every page load (region-selector, #59):
  * `GET /api/regions` (populate the region dropdown) and `GET
  * /api/regions/active` (restore the last-active region). Specs that don't
  * exercise the region selector at all (`map-init.spec.ts`,
@@ -8,7 +8,7 @@
  * cleanly — otherwise, with no live FastAPI backend in this e2e run, they leak
  * through Vite's preview proxy to a connection refused, log a browser
  * "Failed to load resource: ... 500" diagnostic, and trip those specs'
- * strict zero-console-error assertions even though the behavior each of them
+ * strict zero-console-error assertions even though the feature each of them
  * actually tests works fine. This mirrors `quietSseStub.ts`'s role for
  * `/api/events`: a harness-only stub for an endpoint the spec doesn't care
  * about, added so an unrelated new on-load call doesn't leak into specs that

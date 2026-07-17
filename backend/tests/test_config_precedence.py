@@ -1,20 +1,17 @@
-"""Inner unit tests for config step (issue #46): precedence chain +
-active-region restore.
+"""Unit tests for the config precedence chain and active-region restore
+(issue #46).
 
-Covers the seeded inner-loop list in plans/config/03-precedence.md that the
-outer acceptance test (test_config_precedence_acceptance.py) does not already
-exercise at this granularity: the individual precedence-layer collaborators
+Covers the parts of the precedence behavior that the acceptance test
+(test_config_precedence_acceptance.py) does not already exercise at this
+granularity: the individual precedence-layer collaborators
 (`_resolve_user_config_path`, `_load_user_toml`, `_load_env_tunables`,
 `_resolve_active_region_id`) in isolation, adjacent-layer precedence pairs
-via `load_config()` (rather than the outer test's single staged saga),
+via `load_config()` (rather than the acceptance test's single staged saga),
 `ZIJ_CONFIG_PATH`'s platformdirs fallback pinned without touching the real
 user config dir, a second (aisstream-focused) NFR5 secret-never-from-TOML
 probe, and `ZIJ_`-prefixed env-tunable type coercion (bool/float) via
-pydantic. The outer test remains the locked contract -- these units may not
-weaken or replace it.
-
-Written by the author (); the developer is separated out of
-backend/tests/ and may not edit this file.
+pydantic. The acceptance test remains the authoritative contract -- these
+units may not weaken or replace it.
 """
 
 from __future__ import annotations
@@ -170,7 +167,7 @@ def test_resolve_active_region_id_empty_regions_list_defaults_to_empty_string():
 def test_active_region_id_excluded_from_model_dump_but_readable_as_an_attribute(
     monkeypatch,
 ):
-    """Regression lock (config step / #46, review fix 5a9907e):
+    """Regression lock (#46, fix 5a9907e):
     `AppConfig.active_region_id` is `Field(exclude=True)` -- it must stay a
     readable attribute internally while never appearing in `model_dump()`
     (the same serialization `/api/config` uses), since it's an internal
@@ -184,7 +181,7 @@ def test_active_region_id_excluded_from_model_dump_but_readable_as_an_attribute(
 
 
 # --- Adjacent-layer precedence pairs via load_config() -----------------------
-# (The outer test drives one single staged saga bundle->user->env->DB; these
+# (The acceptance test drives one single staged saga bundle->user->env->DB; these
 # isolate each *adjacent pair* directly, so a regression in just one hop is
 # pinned by its own test rather than only surfacing inside the longer saga.)
 
@@ -227,7 +224,7 @@ def test_db_override_overrides_user_toml_directly_with_no_env_layer_present(
 
 
 # --- NFR5: secrets never sourced from any TOML layer (second probe) ---------
-# The outer test proves this for [opensky]/OPENSKY_CLIENT_*; this probes the
+# The acceptance test proves this for [opensky]/OPENSKY_CLIENT_*; this probes the
 # same guarantee for the aisstream/marine pair, structurally (by key), so a
 # regression that leaks *any* secret field from a TOML rather than just the
 # opensky-shaped one would still be caught.

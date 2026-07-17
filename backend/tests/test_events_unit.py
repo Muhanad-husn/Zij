@@ -1,7 +1,7 @@
 """Unit tests for the in-process `EventBus` fan-out (backend/events.py).
 
-These cover the parts of the api-core/01 SSE contract that the infinite-stream
-outer acceptance test (test_api.py) can't exercise cheaply: multi-subscriber
+These cover the parts of the SSE contract that the infinite-stream
+acceptance test (test_api.py) can't exercise cheaply: multi-subscriber
 fan-out, slow/stalled-client isolation (a full subscriber queue must never
 block the publisher or starve healthy subscribers), the `region_changed` wire
 shape, and `unsubscribe`. The scheduler write-path test only Mocks the bus, so

@@ -1,6 +1,5 @@
 /**
- * Inner unit tests — plan/frontend/01-sse-client.md "Inner loop" unit #3
- * (idempotent full replace), against `src/state/store.ts` as actually built.
+ * Unit tests for `src/state/store.ts`: idempotent full replace.
  *
  * Pure state container, no DOM/network — exercised directly.
  */
@@ -9,7 +8,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { Store } from '../../src/state/store';
 import type { LayerSnapshot } from '../../src/state/types';
 
-// plan/frontend/04-toggles-refresh.md unit #1/#3 mock the fire-and-forget POST
+// The toggle tests mock the fire-and-forget POST
 // `Store.toggleLayer` makes via `api/client`'s `toggleLayer` wrapper — the
 // mock intercepts by resolved module id, so it applies regardless of the
 // relative specifier `store.ts` itself uses (`../api/client`).
@@ -121,7 +120,7 @@ describe('Store.applySnapshot — plan unit #3: idempotent full replace (full-st
 });
 
 describe(
-  'Store.toggleLayer — plan/frontend/04-toggles-refresh.md unit #1: optimistic flip + ' +
+  'Store.toggleLayer — optimistic flip + ' +
     'fire-and-forget POST, reconciled by next status event',
   () => {
     beforeEach(async () => {
@@ -194,7 +193,7 @@ describe(
 );
 
 describe(
-  'Store.applySnapshot/applyLayerStatus — plan/frontend/04-toggles-refresh.md unit #1: ' +
+  'Store.applySnapshot/applyLayerStatus — ' +
     'a disabled domain drops incoming SSE rather than resurrecting itself',
   () => {
     beforeEach(async () => {

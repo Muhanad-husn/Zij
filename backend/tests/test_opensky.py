@@ -1,5 +1,4 @@
-"""Locked outer acceptance test for opensky-adapter step (issue #13): OAuth2
-token manager.
+"""Acceptance test for the opensky-adapter OAuth2 token manager (issue #13).
 
 Given an OpenSkyAdapter started with client credentials, the token endpoint
       mocked to return a token valid ~1800 s
@@ -10,14 +9,13 @@ And   after advancing the clock to within token_refresh_margin_s of expiry,
       the next acquisition triggers exactly one refresh request
 And   a non-2xx token response raises AuthError (no auto-retry)
 
-This is the behavioral contract (), transcribed from
-plans/opensky-adapter/01-token-manager.md ("Acceptance criterion") and
+This is transcribed from
 design/specs/opensky.md ("Token manager (OAuth2 client-credentials)"), honoring
 the error taxonomy in design/contracts/adapter-interface.md (`AuthError`).
 
-To exercise a genuine cold-cache single-flight race (matching the plan's inner
-unit test list item "N concurrent acquisitions on a cold cache trigger exactly
-one token request"), the three concurrent "fetch-driven token acquisitions"
+To exercise a genuine cold-cache single-flight race ("N concurrent
+acquisitions on a cold cache trigger exactly one token request"), the three
+concurrent "fetch-driven token acquisitions"
 are driven as three concurrent `OpenSkyAdapter.start()` calls on a freshly
 constructed, never-started adapter -- `start()` is documented
 (adapter-interface.md: "Must be idempotent") and (opensky.md "Public
@@ -33,15 +31,14 @@ refresh): a broken (non-single-flight) implementation would issue 3 requests
 during the concurrent `gather` alone and exhaust the list with a hard error,
 not merely a wrong call count -- so this is not satisfiable by a stub.
 
-Names this test requires the developer to provide (spec/plan-fixed unless
-noted "author's plumbing choice"):
+Names this test requires (spec-fixed unless noted as plumbing for the test):
   - backend.sources.base.AuthError (design/contracts/adapter-interface.md).
   - backend.sources.opensky.OpenSkyAdapter(cfg, secrets, credits) with async
     start()/stop() (design/specs/opensky.md "Public interface").
   - OpenSkyAdapter._token_manager: an instance of the spec-named
     `_TokenManager` (opensky.md "Internal design"), exposing
     `_access_token: str | None` (spec-fixed name) -- the attribute NAME
-    `_token_manager` on the adapter is this author's plumbing choice
+    `_token_manager` on the adapter is plumbing for this test
     (not spec-fixed), needed only to observe the cached value from outside.
   - backend.sources.opensky.OpenSkyCfg, constructible from the merged
     `[opensky]` + `[layers.air]` config tables per opensky.md ("`OpenSkyCfg`
@@ -50,20 +47,18 @@ noted "author's plumbing choice"):
     `OpenSkyCfg` must accept that combined key set (and expose
     `daily_credit_budget`/`token_refresh_margin_s`, already in `[opensky]`).
   - backend.sources.opensky.CreditLedger(budget=...) -- a trivially
-    constructible ledger; no credit-spend behavior is exercised in this
-    slice (deferred to step per the plan's "Out of scope").
+    constructible ledger; no credit-spend behavior is exercised here
+    (deferred to later work, out of scope for this test).
 
-It was authored and committed red by the author before any
-implementation existed (strict xfail, ). the developer has since made
-it genuinely pass; the xfail marker has been removed to finalize the
-contract.
+It was written test-first before any implementation existed (xfail), and now
+passes; the xfail marker has been removed.
 
-Below the outer test are inner unit tests () covering gaps the outer
-test deliberately does not exercise: warm-cache *sequential* reuse (the outer
-test only proves the cold-cache *concurrent* race is single-flight), a
-connection-level failure on the token endpoint (the outer test only proves a
-non-2xx HTTP response raises `AuthError`), and `backend/sources/base.py`'s
-structural exposure of the adapter interface contract.
+Below are unit tests covering gaps this acceptance test deliberately does not
+exercise: warm-cache *sequential* reuse (the acceptance test only proves the
+cold-cache *concurrent* race is single-flight), a connection-level failure on
+the token endpoint (the acceptance test only proves a non-2xx HTTP response
+raises `AuthError`), and `backend/sources/base.py`'s structural exposure of
+the adapter interface contract.
 """
 
 from __future__ import annotations
@@ -104,9 +99,9 @@ async def test_token_manager_single_flight(monkeypatch):
     # --- Given: client credentials in env (NFR5: env only) ---
     monkeypatch.setenv("OPENSKY_CLIENT_ID", "test-opensky-client-id")
     monkeypatch.setenv("OPENSKY_CLIENT_SECRET", "test-opensky-client-secret")
-    # Marine is enabled in the bundled config.toml (slice config-02, #42); a
-    # non-empty value keeps its secret gate from firing for an unrelated
-    # reason in this air-adapter-focused test.
+    # Marine is enabled in the bundled config.toml (#42); a non-empty value
+    # keeps its secret gate from firing for an unrelated reason in this
+    # air-adapter-focused test.
     monkeypatch.setenv("AISSTREAM_API_KEY", "test-aisstream-api-key")
     monkeypatch.delenv("ZIJ_CONFIG_PATH", raising=False)
 
@@ -178,10 +173,9 @@ async def test_token_manager_single_flight(monkeypatch):
 
 
 def _make_opensky_cfg(**overrides):
-    """Minimal `OpenSkyCfg` for inner unit tests that only exercise the token
-    manager, not the layer-rendering fields (author's plumbing choice --
-    `OpenSkyCfg`'s required field set is spec-fixed, but the values here are
-    arbitrary placeholders)."""
+    """Minimal `OpenSkyCfg` for unit tests that only exercise the token
+    manager, not the layer-rendering fields -- `OpenSkyCfg`'s required field
+    set is spec-fixed, but the values here are arbitrary placeholders."""
     from backend.sources.opensky import OpenSkyCfg
 
     defaults = dict(
@@ -199,10 +193,10 @@ def _make_opensky_cfg(**overrides):
 
 
 async def test_token_manager_warm_cache_sequential_reuse():
-    """Inner unit (plan item 1): a first acquisition fetches + caches a
+    """Unit test: a first acquisition fetches + caches a
     token; a second acquisition *sequentially after* (not racing) within the
     token's lifetime reuses the cached value with zero new token requests.
-    Distinct from the outer test's cold-cache *concurrent* race: this pins
+    Distinct from the acceptance test's cold-cache *concurrent* race: this pins
     that a warm cache short-circuits before ever touching the lock's fetch
     path, not merely that concurrent fetches collapse into one."""
     from backend.config import Secrets
@@ -233,9 +227,9 @@ async def test_token_manager_warm_cache_sequential_reuse():
 
 
 async def test_token_manager_connection_error_raises_autherror():
-    """Inner unit (plan item 4, connection-error half): a transport-level
+    """Unit test (connection-error half): a transport-level
     failure talking to the token endpoint (not merely a non-2xx HTTP
-    response, which the outer test already covers) raises AuthError with no
+    response, which the acceptance test already covers) raises AuthError with no
     auto-retry (adapter-interface.md: AuthError "surfaces, no auto-retry")."""
     from backend.config import Secrets
     from backend.sources.base import AuthError
@@ -258,7 +252,7 @@ async def test_token_manager_connection_error_raises_autherror():
 
 
 def test_base_module_exposes_adapter_interface_contract():
-    """Inner unit (plan item 5): backend.sources.base exposes SourceAdapter,
+    """Unit test: backend.sources.base exposes SourceAdapter,
     PollAdapter, Region, and the full AdapterError taxonomy with the shapes
     the contract fixes (design/contracts/adapter-interface.md), e.g.
     RateLimitedError(retry_after=...) carries a `.retry_after` attribute."""
@@ -298,7 +292,7 @@ def test_base_module_exposes_adapter_interface_contract():
 
 
 # ---------------------------------------------------------------------------
-# opensky-adapter/02 (issue #14): fetch() parses /states/all into a
+# opensky-adapter (issue #14): fetch() parses /states/all into a
 # LayerSnapshot(AIR).
 # ---------------------------------------------------------------------------
 
@@ -353,7 +347,7 @@ _NULL_TIME_POSITION_STATE = [
 
 
 async def test_fetch_hormuz_states(monkeypatch):
-    """Locked outer acceptance test for opensky-adapter step (issue #14).
+    """Acceptance test for opensky-adapter fetch() (issue #14).
 
     Given the committed fixture opensky_states_all_hormuz.json (plus two
           synthetic state vectors appended in-memory to cover the null-lat/lon
@@ -371,27 +365,25 @@ async def test_fetch_hormuz_states(monkeypatch):
           decreased by exactly 1 after the fetch
     And   model_dump() of the snapshot contains no raw_payload
 
-    Transcribed from plans/opensky-adapter/02-fetch-states.md ("Acceptance
-    criterion") and design/specs/opensky.md ("Response parsing" index table +
+    Transcribed from design/specs/opensky.md ("Response parsing" index table +
     "position_source int->label": 0->ADS-B, 1->ASTERIX, 2->MLAT, 3->FLARM --
-    the spec table is authoritative over the plan's prose ordering).
+    the spec table is authoritative over prose ordering).
 
-    It was authored and committed red by the author before `fetch()`
-    existed (strict xfail, ): at that point `fetch()` unconditionally
+    It was written test-first before `fetch()`
+    existed (xfail): at that point `fetch()` unconditionally
     raised `NotImplementedError`, so this test failed for that reason and
-    xfailed cleanly under the tests-green gate. Not satisfiable by a stub
+    xfailed cleanly. Not satisfiable by a stub
     that merely returns an empty LayerSnapshot: the feature_count, the
     known-vector field mapping, the drop/null-timestamp handling, and the
     credit decrement are all asserted against concrete values pinned to this
-    fixture. the developer has since made it genuinely pass; the xfail
-    marker has been removed to finalize the contract.
+    fixture. It now passes genuinely; the xfail marker has been removed.
     """
     # --- Given: client credentials in env (NFR5: env only) ---
     monkeypatch.setenv("OPENSKY_CLIENT_ID", "test-opensky-client-id")
     monkeypatch.setenv("OPENSKY_CLIENT_SECRET", "test-opensky-client-secret")
-    # Marine is enabled in the bundled config.toml (slice config-02, #42); a
-    # non-empty value keeps its secret gate from firing for an unrelated
-    # reason in this air-adapter-focused test.
+    # Marine is enabled in the bundled config.toml (#42); a non-empty value
+    # keeps its secret gate from firing for an unrelated reason in this
+    # air-adapter-focused test.
     monkeypatch.setenv("AISSTREAM_API_KEY", "test-aisstream-api-key")
     monkeypatch.delenv("ZIJ_CONFIG_PATH", raising=False)
 
@@ -492,20 +484,19 @@ async def test_fetch_hormuz_states(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# opensky-adapter/02 (issue #14) inner units (), authored against the
-# now-built `fetch()`/`_parse_states()`/`CreditLedger` from the plan's
-# ("Inner loop — initial unit test list", plans/opensky-adapter/02-fetch-
-# states.md): each covers a gap the outer test above deliberately leaves
-# unexercised (full field coverage, the unknown position_source code, the
-# STALE/LIVE threshold, credit warn/rollover/server-truth override, and the
-# full error taxonomy) rather than duplicating the outer test's happy path.
+# opensky-adapter (issue #14) unit tests, written against the
+# now-built `fetch()`/`_parse_states()`/`CreditLedger`: each covers a gap the
+# acceptance test above deliberately leaves unexercised (full field coverage,
+# the unknown position_source code, the STALE/LIVE threshold, credit
+# warn/rollover/server-truth override, and the full error taxonomy) rather
+# than duplicating the acceptance test's happy path.
 # ---------------------------------------------------------------------------
 
 
 def _make_full_opensky_cfg(**overrides):
     """`OpenSkyCfg` with `deemphasize_after_s` set (unlike the token-manager
     tests' `_make_opensky_cfg`, which leaves layer-rendering fields at their
-    token-only defaults) -- these parsing/fetch inner units need it to
+    token-only defaults) -- these parsing/fetch unit tests need it to
     exercise the STALE/LIVE threshold."""
     return _make_opensky_cfg(deemphasize_after_s=60, **overrides)
 
@@ -556,7 +547,7 @@ def _make_state_vector(
 
 
 def _make_bare_adapter(cfg):
-    """An `OpenSkyAdapter` for inner units that only exercise the pure
+    """An `OpenSkyAdapter` for unit tests that only exercise the pure
     `_parse_states` parsing path (no I/O, no token) -- credentials are
     placeholders never actually used against a live endpoint."""
     from backend.config import Secrets
@@ -570,9 +561,9 @@ def _make_bare_adapter(cfg):
 
 
 def test_parse_states_full_index_map_and_raw_payload_wrapping():
-    """Inner unit (plan item 1): every one of the 17 indices maps to the
+    """Unit test: every one of the 17 indices maps to the
     documented field (opensky.md "Response parsing" table), including fields
-    the outer test's known-vector assertion doesn't touch (origin_country,
+    the acceptance test's known-vector assertion doesn't touch (origin_country,
     on_ground, vertical_rate_ms, geo_altitude_m, squawk), plus
     geometry_type/geometry and the raw_payload wrapping (idx 12 `sensors`
     and idx 15 `spi` are documented "ignored" and must NOT leak into attrs)."""
@@ -618,7 +609,7 @@ def test_parse_states_full_index_map_and_raw_payload_wrapping():
 
 
 def test_parse_states_blank_and_none_callsign_yield_none_label():
-    """Inner unit: a blank (whitespace-only) or wholly absent callsign both
+    """Unit test: a blank (whitespace-only) or wholly absent callsign both
     yield `label=None` (opensky.md: "strip; None if blank"), not an empty
     string."""
     now = datetime(2026, 7, 5, 12, 0, 0, tzinfo=timezone.utc)
@@ -636,7 +627,7 @@ def test_parse_states_blank_and_none_callsign_yield_none_label():
 
 
 def test_parse_states_unknown_position_source_code_stringified():
-    """Inner unit (plan item 2): an undocumented `position_source` code
+    """Unit test: an undocumented `position_source` code
     (opensky.md only documents 0-3) falls back to `str(int(code))`, not a
     KeyError or a swallowed None."""
     now = datetime(2026, 7, 5, 12, 0, 0, tzinfo=timezone.utc)
@@ -658,7 +649,7 @@ def test_parse_states_unknown_position_source_code_stringified():
     ],
 )
 def test_parse_states_stale_status_threshold(age_s, expected_status):
-    """Inner unit (plan item 4): `FeatureStatus.STALE` is stamped only when
+    """Unit test: `FeatureStatus.STALE` is stamped only when
     `position_age_s > deemphasize_after_s` (60s, config); at or below the
     threshold the feature stays LIVE. Pinning both sides of the boundary,
     plus the exact threshold value itself (60.0s == deemphasize_after_s),
@@ -679,10 +670,10 @@ def test_parse_states_stale_status_threshold(age_s, expected_status):
 
 @pytest.mark.parametrize("order", ["ascending", "chronological_mixed", "descending"])
 def test_parse_states_newest_timestamp_source_across_multiple_vectors(order):
-    """Inner unit: `_parse_states`'s second return value (`newest_source_ts`,
+    """Unit test: `_parse_states`'s second return value (`newest_source_ts`,
     the snapshot's `meta.timestamp_source`) is the MAXIMUM of every feature's
     non-null `time_position` across the WHOLE batch, not merely the first
-    vector seen. The existing outer/inner tests only ever pass a single
+    vector seen. The existing tests only ever pass a single
     vector, so a 'keep first' (or 'keep last-seen unconditionally') bug in
     place of an actual max-reduction would slip through uncaught. Parametrized
     over three input orderings of the same three timestamps (already
@@ -718,7 +709,7 @@ def test_parse_states_newest_timestamp_source_across_multiple_vectors(order):
 
 
 def test_credit_ledger_spend_decrements_and_warn_ratio():
-    """Inner unit (plan item 5): a successful spend decrements `remaining`;
+    """Unit test: a successful spend decrements `remaining`;
     `warn` flips true once `spent/budget` exceeds `warn_ratio` (0.5 default,
     opensky.md "Credit accounting"), and stays false at/just-under it."""
     from backend.sources.opensky import CreditLedger
@@ -741,7 +732,7 @@ def test_credit_ledger_spend_decrements_and_warn_ratio():
 
 
 def test_credit_ledger_rolls_over_at_utc_midnight():
-    """Inner unit (plan item 5, rollover half): spend on day 1 persists
+    """Unit test (rollover half): spend on day 1 persists
     until a `spend`/`override_remaining` call observes UTC midnight has
     passed, at which point `remaining` resets to the full `budget` before
     the new amount is applied (opensky.md: "roll over at UTC midnight")."""
@@ -759,7 +750,7 @@ def test_credit_ledger_rolls_over_at_utc_midnight():
 
 
 def test_credit_ledger_override_remaining_is_server_truth():
-    """Inner unit (plan item 5, server-truth half): `override_remaining`
+    """Unit test (server-truth half): `override_remaining`
     (an upstream `X-Rate-Limit-Remaining` header) supersedes the local
     estimate outright, regardless of prior spend."""
     from backend.sources.opensky import CreditLedger
@@ -774,7 +765,7 @@ def test_credit_ledger_override_remaining_is_server_truth():
 
 
 async def test_fetch_429_with_retry_after_header():
-    """Inner unit (plan item 6): a 429 with a `Retry-After` header raises
+    """Unit test: a 429 with a `Retry-After` header raises
     `RateLimitedError` carrying it as a float (opensky.md failure table)."""
     from backend.config import Secrets
     from backend.sources.base import RateLimitedError, Region
@@ -801,7 +792,7 @@ async def test_fetch_429_with_retry_after_header():
 
 
 async def test_fetch_429_without_retry_after_header_leaves_retry_after_none():
-    """Inner unit (plan item 6): absent `Retry-After`, `retry_after=None`
+    """Unit test: absent `Retry-After`, `retry_after=None`
     (scheduler falls back to config backoff, opensky.md failure table)."""
     from backend.config import Secrets
     from backend.sources.base import RateLimitedError, Region
@@ -826,7 +817,7 @@ async def test_fetch_429_without_retry_after_header_leaves_retry_after_none():
 
 
 async def test_fetch_429_with_malformed_retry_after_header_yields_typed_error():
-    """Regression (review must-fix, commit 005e11c): a 429 whose `Retry-After`
+    """Regression (flagged in review, commit 005e11c): a 429 whose `Retry-After`
     header is present but not a bare-float form (RFC 7231 also allows an
     HTTP-date, which `float()` cannot parse) must still raise the typed
     `RateLimitedError` with `retry_after=None` -- not let a bare `ValueError`
@@ -862,7 +853,7 @@ async def test_fetch_429_with_malformed_retry_after_header_yields_typed_error():
 
 @pytest.mark.parametrize("status", [500, 503])
 async def test_fetch_5xx_raises_upstream_error(status):
-    """Inner unit (plan item 6): any 5xx raises `UpstreamError`."""
+    """Unit test: any 5xx raises `UpstreamError`."""
     from backend.config import Secrets
     from backend.sources.base import Region, UpstreamError
     from backend.sources.opensky import CreditLedger, OpenSkyAdapter
@@ -885,7 +876,7 @@ async def test_fetch_5xx_raises_upstream_error(status):
 
 
 async def test_fetch_timeout_raises_upstream_error():
-    """Inner unit (plan item 6): a request timeout raises `UpstreamError`,
+    """Unit test: a request timeout raises `UpstreamError`,
     not left as a raw `httpx.TimeoutException`."""
     from backend.config import Secrets
     from backend.sources.base import Region, UpstreamError
@@ -909,7 +900,7 @@ async def test_fetch_timeout_raises_upstream_error():
 
 
 async def test_fetch_transport_error_raises_upstream_error():
-    """Inner unit (plan item 6): a connection-level transport failure (not
+    """Unit test: a connection-level transport failure (not
     merely a timeout) also raises `UpstreamError`."""
     from backend.config import Secrets
     from backend.sources.base import Region, UpstreamError
@@ -933,7 +924,7 @@ async def test_fetch_transport_error_raises_upstream_error():
 
 
 async def test_fetch_malformed_json_raises_parse_error():
-    """Inner unit (plan item 6): a 2xx response whose body isn't valid JSON
+    """Unit test: a 2xx response whose body isn't valid JSON
     raises `ParseError` (opensky.md failure table: "2xx but JSON/schema
     invalid")."""
     from backend.config import Secrets
@@ -960,7 +951,7 @@ async def test_fetch_malformed_json_raises_parse_error():
 
 
 async def test_fetch_missing_states_key_raises_parse_error():
-    """Inner unit (plan item 6): valid JSON that lacks the documented
+    """Unit test: valid JSON that lacks the documented
     `states` array is a schema-invalid 2xx body -> `ParseError`, not a
     silent empty snapshot or a raw KeyError."""
     from backend.config import Secrets
@@ -986,7 +977,7 @@ async def test_fetch_missing_states_key_raises_parse_error():
 
 @pytest.mark.parametrize("status", [401, 403])
 async def test_fetch_401_403_raises_autherror_and_invalidates_token(status):
-    """Inner unit (plan item 6, auth half): a 401/403 on `/states/all`
+    """Unit test (auth half): a 401/403 on `/states/all`
     (token rejected) raises `AuthError` and invalidates the cached token so
     the next attempt re-fetches (opensky.md failure table)."""
     from backend.config import Secrets
@@ -1012,7 +1003,7 @@ async def test_fetch_401_403_raises_autherror_and_invalidates_token(status):
 
 
 async def test_fetch_rate_limit_remaining_header_overrides_ledger_estimate():
-    """Inner unit (plan item 5, out-of-scope note lifted in): when the
+    """Unit test: when the
     states response carries `X-Rate-Limit-Remaining`, it is authoritative
     over the local decrement (opensky.md: "server truth > estimate"),
     overwriting whatever the estimate-based `spend()` computed."""
@@ -1048,7 +1039,7 @@ async def test_fetch_rate_limit_remaining_header_overrides_ledger_estimate():
 
 
 async def test_fetch_credentials_never_appear_in_raw_payload_or_model_dump():
-    """Inner unit (plan item 7, NFR5): the client secret used to obtain the
+    """Unit test (NFR5): the client secret used to obtain the
     bearer token never surfaces anywhere in a fetched snapshot's
     `raw_payload` or its `model_dump()` wire body."""
     import json as json_module

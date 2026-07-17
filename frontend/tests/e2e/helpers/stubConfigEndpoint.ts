@@ -1,18 +1,18 @@
 /**
  * Shared e2e helper — stubs `GET /api/config`, which `main.ts` now fires
- * unconditionally on every page load (frontend/06-marine-integrity, #62):
+ * unconditionally on every page load (marine-integrity, #62):
  * the store's client tick (spec §9) reads per-layer de-emphasis/drop
  * thresholds from this endpoint once at bootstrap, the same way toggle/
  * refresh reads region config from `GET /api/regions` (#59). Specs that
- * don't exercise tick/de-emphasis behavior at all still need this to
+ * don't exercise tick/de-emphasis at all still need this to
  * resolve cleanly — otherwise, with no live FastAPI backend in this e2e run,
  * it leaks through Vite's preview proxy to a connection refused, logs a
  * browser `console.error`, and trips those specs' strict zero-console-error
- * assertions even though the behavior each of them actually tests works
+ * assertions even though the feature each of them actually tests works
  * fine. This mirrors `stubRegionEndpoints.ts`'s role for the #59 ripple and
  * `quietSseStub.ts`'s role for `/api/events`.
  *
- * `marine-integrity.spec.ts` (#62's own outer test) does not use the
+ * `marine-integrity.spec.ts` (#62's own acceptance test) does not use the
  * default fixture below unmodified — it overrides `layers.marine`'s
  * `deemphasize_after_s`/`drop_after_s` to small values so the client-tick
  * de-emphasis/drop clauses are observable within a bounded real-time wait,

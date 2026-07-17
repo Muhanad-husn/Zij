@@ -1,6 +1,5 @@
 // Land source + line/point layers (spec §2 "Land"). Land is rebuilt once per
-// snapshot only (no client tick, per spec) — this slice: initial add +
-// `setData` refresh.
+// snapshot only (no client tick, per spec): initial add + `setData` refresh.
 
 import type { GeoJSONSource, Map as MapLibreMap } from 'maplibre-gl';
 import type { LayerSnapshot } from '../../state/types';
@@ -83,8 +82,8 @@ export function initLandLayer(map: MapLibreMap, snapshot: LayerSnapshot): void {
   });
 }
 
-/** Re-renders the land source from a fresh snapshot (poll-once refresh, no
- * SSE this slice — spec §7 "Refresh all"). */
+/** Re-renders the land source from a fresh snapshot (poll-once refresh —
+ * spec §7 "Refresh all"). */
 export function updateLandLayer(map: MapLibreMap, snapshot: LayerSnapshot): void {
   const source = map.getSource(LAND_SOURCE_ID) as GeoJSONSource | undefined;
   source?.setData(wireToGeoJson(snapshot.features));

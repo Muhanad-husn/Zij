@@ -1,5 +1,4 @@
-"""Locked outer acceptance test for store step (issue #40):
-fallback_snapshots round-trip.
+"""Acceptance test for the fallback_snapshots round-trip (issue #40).
 
 Given a fresh SQLite database initialised from backend/schema.sql
 When  put_fallback(<LayerSnapshot air>) is called then get_fallback("air")
@@ -10,26 +9,24 @@ And   a second put_fallback for air replaces the row (still exactly one
 And   get_fallback("marine") returns None when no marine row exists
 And   inserting layer='land' is rejected by the CHECK constraint
 
-This is the behavioral contract (), transcribed verbatim from
-plans/store/02-fallback-snapshots.md ("Acceptance criterion" + inner unit
-list: round-trip identity, raw_payload exclusion, UTC-aware
-region_id/fetched_at re-hydration, upsert-replace to exactly one row per
-layer, CHECK(layer IN ('air','marine')) rejects 'land'). It was authored and
-committed red by the author before any implementation existed, guarded
-by a strict xfail (): `Store.put_fallback`/`Store.get_fallback` did not
-exist, so the call below raised `AttributeError`, xfail caught it, the suite
-reported `xfailed`, and the red commit was allowed to land under the
-tests-green gate. the developer has since made it genuinely pass; the
-xfail marker has been removed to finalize the contract.
+This acceptance test covers the fallback_snapshots round-trip: round-trip
+identity, raw_payload exclusion, UTC-aware region_id/fetched_at re-hydration,
+upsert-replace to exactly one row per layer, and CHECK(layer IN
+('air','marine')) rejecting 'land'. It was written test-first and committed
+red, as an xfail, before any implementation existed:
+`Store.put_fallback`/`Store.get_fallback` did not exist, so the call below
+raised `AttributeError`, xfail caught it, the suite reported `xfailed`, and
+the red commit was allowed to land. The xfail
+marker was removed once the suite went green.
 
 Scope is held strictly to the fallback_snapshots round-trip for the "air"
 layer plus the "marine" None-path and the "land" CHECK-constraint rejection
--- config_presets (step) and the cold-start repopulation policy
-(scheduler step) are explicitly out of scope here, per the plan.
+-- config_presets and the cold-start repopulation policy (handled by the
+scheduler) are out of scope here.
 
 `ZIJ_DB_PATH` points at a `tmp_path` file (never the real platformdirs
 location), following the hermetic-DB convention set by
-`test_store_acceptance.py` (step, land_cache).
+`test_store_acceptance.py`.
 
 **Equality-assertion choice.** The round-tripped `LayerSnapshot` is compared
 to the original via `model_dump()` on each side, but with the *expected*

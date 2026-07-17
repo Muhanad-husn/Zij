@@ -1,6 +1,6 @@
 /**
- *  locked outer acceptance test — frontend/03-region-selector (issue
- * #59). Encodes `plans/frontend/03-region-selector.md`'s Gherkin verbatim:
+ * Acceptance test — region selector (issue #59). Encodes the feature's
+ * Gherkin verbatim:
  *
  *   Given the app with the region endpoints served
  *   When  a predefined region is selected from the dropdown
@@ -13,30 +13,29 @@
  *   Then  POST /api/regions/activate {bbox,label} is issued and the map
  *         clears on region_changed
  *
- * `test.fail()` was this web slice's analog to a strict pytest xfail (
- * — see `layers-refresh.spec.ts`/`badges.spec.ts`/`sse-client.spec.ts` for
- * the precedent this repo standardized on): with no `ui/regionSelector.ts`
- * yet, every clause below failed, `test.fail()` made that an EXPECTED
- * failure so the suite reported green and the red commit landed under the
- * no-commit-on-red gate. the developer has since greened every clause; the
- * author confirmed each assertion passes for real and removed the
- * `test.fail()` marker in this final pass (mirroring every prior frontend
- * slice's follow-up commit) — this is now a normal `test()` and the
- * locked contract stands finalized.
+ * This test was written before the implementation existed. It initially ran
+ * under `test.fail()` (Playwright's expected-to-fail marker, the analog of a
+ * strict pytest xfail — see `layers-refresh.spec.ts`/`badges.spec.ts`/
+ * `sse-client.spec.ts` for the precedent this repo standardized on): with no
+ * `ui/regionSelector.ts` yet, every clause below failed, and `test.fail()`
+ * made that an EXPECTED failure so the suite reported green and the red commit
+ * landed under the no-commit-on-red gate. Once every clause was built and
+ * confirmed passing for real, the `test.fail()` marker was removed — this is
+ * now a normal `test()`.
  *
  * SCOPE NOTE (no marine map layer): `design/specs/frontend.md` §2 has no
- * marine map-layer builder yet (deferred to step per the plan's "Out of
- * scope" list). The `region_changed` clause therefore asserts only the air
- * and land GeoJSON source clear (mirroring `sse-client.spec.ts`'s own scope
- * note), never a marine map source.
+ * marine map-layer builder at this point (added later, with the
+ * marine-integrity feature). The `region_changed` clause therefore asserts
+ * only the air and land GeoJSON source clear (mirroring `sse-client.spec.ts`'s
+ * own scope note), never a marine map source.
  *
  * SCOPE NOTE (draw-on-map vs coordinate entry): spec §6 offers two custom
  * bbox input modes — draw-on-map (mouse drag over the canvas) and enter-
- * coordinates (four number inputs). The plan calls the coordinate path "the
- * keyboard-drivable one to drive in Playwright" — a mouse-drag-over-WebGL-
+ * coordinates (four number inputs). The coordinate path is the
+ * keyboard-drivable one in Playwright — a mouse-drag-over-WebGL-
  * canvas interaction is unreliable at this e2e boundary, so this test drives
  * ONLY the coordinate-input mode. The draw-on-map handler is not exercised
- * or locked by this test.
+ * here.
  *
  * STUB MECHANISM: no live FastAPI backend in this e2e run
  * (`playwright.config.ts` serves the built `vite preview` bundle on :4173).
@@ -59,8 +58,8 @@
  * proving "the map clears on region_changed" against a real push, not a
  * page reload or a REST re-fetch.
  *
- * REQUIRED TEST SEAMS (developer must expose these — not the author's
- * to relax; each is independently asserted below):
+ * REQUIRED TEST SEAMS (the app must expose these; each is independently
+ * asserted below):
  *
  *   1. `[data-testid="region-select"]` — a native `<select>` in the top bar
  *      (spec §7 "[Region: ... ▾]"), populated from `GET /api/regions` once
@@ -68,8 +67,8 @@
  *      `data-credit-cost="{aviation_credit_cost}"` attribute AND visible
  *      option text that contains that same numeral — both are asserted, so
  *      "each option showing its aviation_credit_cost inline" (plan Goal) is
- *      locked at the DOM-text level, not just a data attribute an
- *      developer could add without ever rendering it.
+ *      asserted at the DOM-text level, not just a data attribute that could
+ *      be added without ever rendering it.
  *   2. `[data-testid="region-cost"]` — an element that, after a predefined
  *      region is selected, displays that SPECIFIC region's
  *      `aviation_credit_cost` (this test asserts its text contains the
@@ -115,16 +114,13 @@
  *      `.serialize().data.features` must be empty immediately after the SSE
  *      `region_changed` push.
  *
- * This test is not the author's to loosen and not the developer's to
- * touch.
- *
- * RECONCILIATION (slice frontend/06-marine-integrity, issue #62): the app
- * now unconditionally fetches `GET /api/config` on load (the client tick
- * reads de-emphasis/drop thresholds from it, spec §9). This test has no live
+ * LATER-FEATURE FALLOUT (marine-integrity, issue #62): the app now
+ * unconditionally fetches `GET /api/config` on load (the client tick reads
+ * de-emphasis/drop thresholds from it, spec §9). This test has no live
  * FastAPI backend, so an unstubbed call would leak through Vite's preview
- * proxy the same way the region/SSE reconciliations this slice's own
- * predecessors document. `tests/e2e/helpers/stubConfigEndpoint.ts` answers
- * it quietly (folded into `stubRest` below); this test asserts nothing about
+ * proxy the same way the region/SSE notes this test's own predecessors
+ * document. `tests/e2e/helpers/stubConfigEndpoint.ts` answers it quietly
+ * (folded into `stubRest` below); this test asserts nothing about
  * tick/de-emphasis behavior (that's `marine-integrity.spec.ts`'s job).
  */
 
@@ -505,7 +501,7 @@ test(
       // === When: a custom bbox exceeding a layer's cap is entered ============
       // All four fields filled back-to-back, no artificial delay between
       // them — this is what exercises the ~300ms debounce for real: if the
-      // developer fired one estimate call per field change instead of
+      // app fired one estimate call per field change instead of
       // debouncing, the "exactly one estimate request" assertion below fails.
       await west.fill(String(OVER_CAP_BBOX[0]));
       await south.fill(String(OVER_CAP_BBOX[1]));
@@ -583,9 +579,8 @@ test(
       await expect.poll(() => readSourceFeatureCount('land'), { timeout: 5_000 }).toBe(0);
 
       // --- Clause: no uncaught console error / page error at any point -------
-      // maintainer-adjudicated narrowing (spec discrepancy discussion,  "not the
-      // author's to loosen" — this IS the author, and this is a
-      // deliberate, approved revision, not a silent weakening): Chromium
+      // Deliberate, considered narrowing of the console-error check (not a
+      // silent weakening): Chromium
       // itself emits a "Failed to load resource: the server responded with a
       // status of ___" console entry for ANY fetch()/XHR that completes with
       // a non-2xx status, regardless of whether page JS handles the response

@@ -121,7 +121,7 @@ export function mountBadge(parent: HTMLElement, domain: BadgeDomain, options: Mo
 
   // Controls row — spec §4/§7 layout: `[ Toggle ] [ Refresh ↻ ] [ Caveats ⓘ ]`.
   // Caveats must always be present and enabled, in every status (REQUIRED TEST
-  // SEAM #6); Toggle/Refresh delegate to the caller via `options` (step) —
+  // SEAM #6); Toggle/Refresh delegate to the caller via `options` —
   // this component only builds DOM + wires the click, never calls the store
   // or the API client directly (keeps badges.ts a pure builder, ADR-3).
   const controlsRow = document.createElement('div');

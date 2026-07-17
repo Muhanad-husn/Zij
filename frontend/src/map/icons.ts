@@ -1,9 +1,9 @@
 // Minimal SDF icon atlas (spec §2 "Performance budget": `map.addImage(id,
 // data, {sdf:true})`). v0 registers two procedurally-built glyphs — a
 // triangle for aircraft, a dot for land point anchors — rather than the
-// polished SVG atlas under `public/icons/` (later refinement per the slice
-// plan). Registering *some* image keeps `icon-image` populated so symbol
-// layers never warn/error about a missing sprite image (the outer test
+// polished SVG atlas under `public/icons/` (a later refinement).
+// Registering *some* image keeps `icon-image` populated so symbol
+// layers never warn/error about a missing sprite image (the e2e test
 // asserts zero console errors during load/refresh).
 
 import type { Map as MapLibreMap } from 'maplibre-gl';
@@ -58,7 +58,7 @@ function buildDiamond(size = 14): RasterIcon {
   return buildIcon(size, (x, y, center) => Math.abs(x - center) + Math.abs(y - center) <= center);
 }
 
-/** Registers this slice's minimal SDF glyphs. Idempotent — safe to call from
+/** Registers the minimal SDF glyphs. Idempotent — safe to call from
  * more than one layer initializer. */
 export function registerIcons(map: MapLibreMap): void {
   if (!map.hasImage(AIRCRAFT_ICON_ID)) {

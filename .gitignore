@@ -18,14 +18,9 @@ frontend/dist/
 *.sqlite*
 data/
 
-# Local agent-org overrides and maintainer-toggled flag files (Phase 3 / )
-.claude/settings.local.json
-.claude/spec-mode
+# Local tooling
+.claude/
 
-# TDD harness (Phase 4): regenerable PR body + raw local test artifacts.
-# NOTE: keep committed evidence under docs/tdd-evidence/** — do NOT ignore that.
-PR_BODY.md
-PR_BODY.generated.md
+# Playwright local artifacts
 /playwright-report/
 /test-results/
-.tdd-branch-cleanup.log

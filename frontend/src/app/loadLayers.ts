@@ -1,5 +1,5 @@
-// Failure-isolation orchestration seam (spec FR10; reviewer stage-2 finding
-// #1, issue #20). Previously `main.ts` used `Promise.all([...])` to fetch the
+// Failure-isolation orchestration seam (spec FR10; issue #20).
+// Previously `main.ts` used `Promise.all([...])` to fetch the
 // air + land snapshots, so one domain's rejected fetch made `Promise.all`
 // reject and blocked BOTH layers from rendering. `loadLayers` runs each
 // task's `load()` concurrently via `Promise.allSettled`, renders only the

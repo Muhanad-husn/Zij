@@ -1,8 +1,7 @@
 /**
- * Inner unit tests — plan/frontend/02-badges.md "Inner loop" (implicit unit:
- * the `{age}` renderer `Stale · {age}` / `Cached · {age}` depend on), against
- * `src/util/formatAge.ts` as actually built. Mirrors `formatUtc.test.ts`'s
- * shape: a pure function, no DOM.
+ * Unit tests for `src/util/formatAge.ts` — the `{age}` renderer that
+ * `Stale · {age}` / `Cached · {age}` badge labels depend on. Mirrors
+ * `formatUtc.test.ts`'s shape: a pure function, no DOM.
  *
  * `Date.now()` is pinned via `vi.useFakeTimers()` + `vi.setSystemTime(...)`
  * so every boundary (s/m/h/d) is deterministic rather than depending on the

@@ -1,7 +1,7 @@
 """Health-status helper: a pure, dependency-free status contract.
 
-step of the health-status feature (issue #6). No side effects, no
-runtime dependencies beyond the standard library.
+The health-status feature (issue #6). No side effects, no runtime
+dependencies beyond the standard library.
 """
 
 

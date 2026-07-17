@@ -21,8 +21,8 @@ export interface LayerState {
   enabled: boolean;
   meta: LayerSnapshotMeta | null;
   features: LayerSnapshot['features'];
-  /** `Date.now()` when this layer's state was last written — tick basis for
-   * later slices' de-emphasis/drop computation (§9); unused by this slice. */
+  /** `Date.now()` when this layer's state was last written — a recorded tick
+   * basis for de-emphasis/drop computation (§9); not currently read. */
   receivedAt: number;
 }
 

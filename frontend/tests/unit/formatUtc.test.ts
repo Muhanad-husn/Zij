@@ -1,6 +1,5 @@
 /**
- * Inner unit tests — plan/frontend-map/02-layers-refresh.md "Inner loop" unit
- * #4 (UTC formatting), against `src/util/formatUtc.ts` as actually built.
+ * Unit tests for UTC formatting in `src/util/formatUtc.ts`.
  *
  * NFR6: every displayed timestamp is UTC, explicitly labeled, never a local
  * conversion. The test picks an ISO instant whose UTC hour differs from any

@@ -1,5 +1,5 @@
-"""Locked outer acceptance test for config step (issue #42): v1 config
-sections -- marine, aisstream, integrity, server.
+"""Acceptance test for the v1 config sections (issue #42): marine, aisstream,
+integrity, server.
 
 Given the bundled config.toml extended with the v1 sections (marine/
       aisstream/integrity/server), values verbatim from
@@ -15,19 +15,17 @@ Then  startup fails fast with a named error (MissingSecretError, env_var ==
 When  the marine layer is disabled and AISSTREAM_API_KEY is unset
 Then  startup succeeds (FR5: disabled layers need no secret)
 
-This is the behavioral contract (), transcribed from
-plans/config/02-sections.md ("Acceptance criterion") and
+This is the acceptance contract, transcribed from
 design/contracts/config.md ("[layers.marine]", "aisstream", "Integrity",
 "SSE / server", "Loading design") and design/contracts/api.md ("GET
-/api/config"). Committed RED before implementation (strict xfail, ):
+/api/config"). Committed red before implementation (xfail):
 the bundled config.toml carried no [layers.marine]/[aisstream]/[integrity]/
 [server] sections yet, so the very first assertion below (`"marine" in
 cfg.layers`) failed, and `_check_required_secrets` did not yet gate the
 marine layer's secret either -- the test genuinely xfailed rather than
-passing vacuously. the developer has since built the sections + the secret
-gate to satisfy this exact contract -- every assertion in this single
-scenario now holds and the marker has been removed by the author to
-finalize the contract (never loosened, never removed early).
+passing vacuously. The sections and the secret gate were then built to
+satisfy this exact contract -- every assertion in this single scenario now
+holds and the marker was removed to finalize it.
 
 Note on import hermeticity: `from backend.main import create_app` is
 deliberately NOT at module scope here. `backend/main.py` builds its
@@ -40,18 +38,16 @@ CI environment carrying zero ambient secrets. The import is therefore
 deferred into the test function body below, matching the lazy-import
 convention already used throughout `backend/tests/test_api.py`.
 
-Scope note (spec discrepancy candidate, NOT asserted here): api.md's `/api/config`
-example additionally shows top-level `stale_multiplier` and
-`custom_bbox_caps` fields alongside `regions`/`layers`. Neither
-plans/config/02-sections.md's acceptance criterion nor
-design/contracts/config.md's `AppConfig` model (`Loading design`) defines
+Scope note (a possible spec discrepancy, NOT asserted here): api.md's
+`/api/config` example additionally shows top-level `stale_multiplier` and
+`custom_bbox_caps` fields alongside `regions`/`layers`. The
+design/contracts/config.md `AppConfig` model (`Loading design`) defines no
 such top-level fields -- `AppConfig` has no `stale_multiplier`/
 `custom_bbox_caps` attributes for `GET /api/config` to derive them from, and
 the existing (already-green) `test_api.py::test_health_and_config` doesn't
-assert them either. This test intentionally scopes to
-plans/config/02-sections.md's stated acceptance ("the full air/marine/land
-layers shape ... leaks no secrets") and does not assert those two extra
-top-level keys.
+assert them either. This test intentionally scopes to the stated acceptance
+("the full air/marine/land layers shape ... leaks no secrets") and does not
+assert those two extra top-level keys.
 """
 
 import pytest

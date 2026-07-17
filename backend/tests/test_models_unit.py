@@ -1,14 +1,11 @@
-"""Inner unit tests for models step (issue #9): Feature/LayerSnapshot schema.
+"""Unit tests for the Feature/LayerSnapshot schema (issue #9).
 
-Covers the seeded inner-loop list in plans/models/01-feature-schema.md that the
-outer acceptance test (test_models_acceptance.py) does not already exercise:
-enum exhaustiveness and air nullability (timestamp_source/position_age_s both
-None). A few of the other seeded behaviours are duplicated here in focused
-form for fast, isolated failure signal, but the outer test remains the locked
-contract -- these units may not weaken or replace it.
-
-Written by the author (); the developer is separated out of
-backend/tests/ and may not edit this file.
+Covers the behaviours the acceptance test (test_models_acceptance.py) does
+not already exercise: enum exhaustiveness and air nullability
+(timestamp_source/position_age_s both None). A few of the other behaviours are
+duplicated here in focused form for fast, isolated failure signal, but the
+acceptance test remains authoritative -- these units may not weaken or replace
+it.
 """
 
 from datetime import datetime, timedelta, timezone
@@ -170,7 +167,7 @@ def test_raw_payload_excluded_from_dump_but_kept_in_memory():
 
 
 def test_feature_normalizes_aware_non_utc_timestamp_to_utc():
-    # Reviewer-identified gap (fixed in fa38395): an aware but non-UTC
+    # A gap found in review (fixed in fa38395): an aware but non-UTC
     # datetime must be *normalized* to UTC, not merely accepted with its
     # original offset. +05:00 09:12:03 == +00:00 04:12:03 (same instant).
     plus_five = timezone(timedelta(hours=5))

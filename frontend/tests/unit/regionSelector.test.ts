@@ -1,13 +1,12 @@
 /**
- * Inner unit tests — plan/frontend/03-region-selector.md "Inner loop" unit
- * list, against `src/ui/regionSelector.ts` (`mountRegionSelector`) as
- * actually built. `src/api/client.ts` is `vi.mock`'d wholesale (no real
+ * Unit tests for `src/ui/regionSelector.ts` (`mountRegionSelector`).
+ * `src/api/client.ts` is `vi.mock`'d wholesale (no real
  * network); pure DOM via jsdom, mirroring `tests/unit/controls.test.ts`'s
  * pattern. Fake timers exercise the ~300ms debounce for real (a burst of
  * field edits must collapse into exactly one `estimateRegion` call, not one
  * per keystroke).
  *
- * Plan unit list covered here:
+ * Covered here:
  *   - Dropdown options built from GET /api/regions with aviation_credit_cost
  *     shown per option.
  *   - A bbox change triggers a debounced (~300ms) single estimate call.

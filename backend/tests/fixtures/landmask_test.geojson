@@ -4,7 +4,7 @@
     {
       "type": "Feature",
       "properties": {
-        "note": "Trivial in-repo land square for backend/tests/test_integrity.py -- NOT the real Natural Earth 10m asset (design/specs/integrity.md). A small square around lon [56.0, 56.5], lat [26.0, 26.5] (inside the hormuz region bbox, config.md), chosen only so on-land vs at-sea coordinates are deterministic for the outer acceptance test and its inner units."
+        "note": "Trivial in-repo land square for backend/tests/test_integrity.py -- NOT the real Natural Earth 10m asset (design/specs/integrity.md). A small square around lon [56.0, 56.5], lat [26.0, 26.5] (inside the hormuz region bbox, config.md), chosen only so on-land vs at-sea coordinates are deterministic for the acceptance test and its unit tests."
       },
       "geometry": {
         "type": "Polygon",

@@ -116,29 +116,14 @@ backend/          FastAPI app, per-layer scheduler, SQLite store, source adapter
   sources/        opensky · aisstream · overpass adapters (design/contracts/adapter-interface.md)
   tests/
 frontend/         MapLibre + vanilla-TS client, Vite build, vitest + playwright
-design/           the spec area — the system of record for what Zij should do
+design/           the design docs — the system of record for what Zij should do
   docs/           PRD, ARCHITECTURE, DECISIONS (ADRs), PRODUCT, STRUCTURE, TESTING
   contracts/      api · adapter-interface · storage · config · feature-schema
   specs/          per-module specs (incl. the unbuilt v2-packaging)
-docs/             build-notes.md — the build log for the workflow that built this
 ```
 
 Start with the [PRD](design/docs/zij_prd.md) for the *what* and
 [`design/docs/DECISIONS.md`](design/docs/DECISIONS.md) for the *why*.
-
-## How this was built
-
-Zij was built by a solo operator driving a small **AI software enterprise**
-inside Claude Code: tool-locked role helpers (triage, spec, test, implement,
-review, fix) that build and check but can never merge, with two deterministic
-git hooks holding the boundary — helpers never merge to `main`, and no commit
-lands on a red suite. the maintainer specifies and approves; the roles do the work.
-
-That workflow is the [`-project`](CLAUDE.md) setup, and its entire
-supervised build — every decision, gate, and checkpoint — is logged in
-[`docs/build-notes.md`](docs/build-notes.md). If you came here for the
-engineering process rather than the maritime monitor, that log is the more
-interesting read.
 
 ## License & data terms
 

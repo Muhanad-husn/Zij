@@ -2,7 +2,7 @@
 
 ADR-style. All dated **2026-07-05**. These record the **open technology choices** the PRD left to implementation. Product/strategy decisions **D1–D7 are locked in the PRD** ([`zij_prd.md` §2](zij_prd.md)) and are **not** restated here — this log references them.
 
-Governing principles ([CLAUDE.md](../../CLAUDE.md)): 80/20 practicality, don't reinvent the wheel, measure don't speculate.
+Governing principles: 80/20 practicality, don't reinvent the wheel, measure don't speculate.
 
 Index:
 - [ADR-1 — Pydantic v2 for models & validation](#adr-1--pydantic-v2)
@@ -126,7 +126,7 @@ Index:
 **Context:** [PRD §11](zij_prd.md) scopes v2 as "installables" and names both Tauri desktop and Capacitor mobile. But [FR12](zij_prd.md) marks mobile "hosted or on-device service (open question OQ3)," and [OQ3](zij_prd.md) is genuinely unresolved: bundling the Python service on-device (heavier, offline-capable) versus a personally hosted backend the mobile app consumes (thin client, needs a host). Resolving OQ3 well requires measurement and a hosting decision that desktop does not. Shipping desktop does not depend on it.
 **Decision:** **v2 targets desktop only** — Windows, macOS, Linux via Tauri. Mobile (Capacitor), on-device mobile Python, and the OQ3 hosting question are **out of scope for v2** and slip to a later phase (the roadmap does not yet name it; call it v3 or a v2.1 point release). OQ3 is thereby **resolved-by-deferral for v2**: it remains open, but it no longer blocks v2. The governing spec is [`design/specs/v2-packaging.md`](../specs/v2-packaging.md).
 **Consequences:** v2 has one shell to build, not two, and no unresolved architecture question in its critical path. The [D1 shell-boundary promise](ARCHITECTURE.md#6-the-shell-boundary-d1-no-rewrite-promise) is unaffected — deferring mobile changes no backend code, and the same `sources/`/`models.py`/`store.py`/`scheduler.py`/`config.py` still power a future mobile shell whenever OQ3 is settled. The Rust toolchain ([PRD §7.2](zij_prd.md)) is the only added dev prerequisite for v2; the Android/iOS SDKs are not needed until the deferred phase.
-**Rejected:** Building both shells in v2 as the PRD sketch implied (couples v2 delivery to an unresolved hosting decision and doubles the packaging surface for no v2 user — the primary user is a laptop analyst, [PRD §3](zij_prd.md)). Resolving OQ3 now by fiat (measurement-first per CLAUDE.md; on-device vs. hosted is a real trade to test, not to guess).
+**Rejected:** Building both shells in v2 as the PRD sketch implied (couples v2 delivery to an unresolved hosting decision and doubles the packaging surface for no v2 user — the primary user is a laptop analyst, [PRD §3](zij_prd.md)). Resolving OQ3 now by fiat (measurement-first; on-device vs. hosted is a real trade to test, not to guess).
 
 ## ADR-14 — Auto-update
 

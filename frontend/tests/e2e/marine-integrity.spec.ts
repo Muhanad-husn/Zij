@@ -1,7 +1,6 @@
 /**
- *  locked outer acceptance test — frontend/06-marine-integrity (issue
- * #62), the last v1 frontend feature slice. Encodes
- * `plans/frontend/06-marine-integrity.md`'s Gherkin verbatim:
+ * Acceptance test — marine integrity (issue #62), the last v1 frontend
+ * feature. Encodes the feature's Gherkin verbatim:
  *
  *   Given the app receiving a marine snapshot over SSE
  *   When  the layer renders
@@ -15,30 +14,26 @@
  *   Then  its hollow warning ring renders (never hidden) and the popup
  *         names the flag
  *
- * `test.fail()` is this repo's web-slice analog to a strict pytest xfail
- * ( — precedent: `layers-refresh.spec.ts`, `badges.spec.ts`,
+ * This test was written before the implementation existed. It initially ran
+ * under `test.fail()` (Playwright's expected-to-fail marker, the analog of a
+ * strict pytest xfail — precedent: `layers-refresh.spec.ts`, `badges.spec.ts`,
  * `sse-client.spec.ts`, `region-selector.spec.ts`, `toggles-refresh.spec.ts`,
- * `caveat-panel.spec.ts`). `frontend/src/map/layers/marine.ts` and
- * `frontend/src/map/popup.ts` do not exist yet, and `main.ts` mounts a
+ * `caveat-panel.spec.ts`). At that point `frontend/src/map/layers/marine.ts`
+ * and `frontend/src/map/popup.ts` did not exist, and `main.ts` mounted a
  * marine BADGE only (no marine map source/layer, no client tick, no popup
- * infrastructure at all — see `main.ts`'s own comment: "Marine badge only
- * this slice — no marine map source/layer yet"). Every clause below
- * therefore fails for real today; `test.fail()` marks that an EXPECTED
- * failure so the suite reports green and this red commit lands under the
- * no-commit-on-red gate. the developer greens every clause; the
- * author then confirms each assertion passes for real and removes the
- * `test.fail()` marker in a final pass — this test is not the author's
- * to loosen after that and not the developer's to touch at any point.
+ * infrastructure at all). Every clause below therefore failed for real, so
+ * `test.fail()` marked that an EXPECTED failure and the red commit could land
+ * under the no-commit-on-red gate. Once every clause was built and confirmed
+ * passing for real, the `test.fail()` marker was removed.
  *
  * SCOPE: `design/specs/frontend.md` §2 "Marine" + §9 "State handling" (the
- * client tick) + FR3/FR9/NFR3. Air's own tick-driven de-emphasis (also
- * mentioned in the plan's Goal paragraph, "Client-tick de-emphasis/drop for
- * air + marine") is NOT exercised here — the plan's own Gherkin only names
- * "a vessel," never an aircraft, so this test stays inside that boundary;
- * any air-side de-emphasis wiring the developer adds alongside the shared
- * tick mechanism is incidental, not locked by this file. Land is untouched
- * by tick (spec §2 "Land is the one domain exempt from §9's ticking
- * recompute") and already covered elsewhere — not re-asserted here.
+ * client tick) + FR3/FR9/NFR3. Air's own tick-driven de-emphasis is NOT
+ * exercised here — the Gherkin only names "a vessel," never an aircraft, so
+ * this test stays inside that boundary; any air-side de-emphasis wiring added
+ * alongside the shared tick mechanism is incidental, not asserted by this
+ * file. Land is untouched by tick (spec §2 "Land is the one domain exempt
+ * from §9's ticking recompute") and already covered elsewhere — not
+ * re-asserted here.
  *
  * WHY REAL WALL-CLOCK TIME, NOT MOCKED: the client tick is a plain
  * `setInterval` in `main.ts`/`config.ts` (spec §9: "~5–10 s"), not sourced
@@ -49,8 +44,8 @@
  * `drop_after_s` down to small values (4 s / 16 s) via
  * `stubConfigEndpoint`'s override param — a legitimate use of the
  * documented config-sourcing seam (spec §9) — chosen with a wide enough gap
- * (12 s) to stay correct regardless of whether the developer's tick
- * interval lands anywhere in the spec's own "~5–10 s" band, worst case
+ * (12 s) to stay correct regardless of whether the tick interval lands
+ * anywhere in the spec's own "~5–10 s" band, worst case
  * included. This keeps the wait real, bounded, and deterministic without
  * touching browser-internal timer plumbing this repo has never exercised
  * before. `test.setTimeout(...)` below is raised accordingly.
@@ -67,8 +62,8 @@
  * defensive per-domain snapshot/refresh fallbacks are ordinary
  * request/response GETs, stubbed with plain `page.route().fulfill()`.
  *
- * author follow-up FIX NOTE ( second pass, both corrections
- * to test plumbing only — no locked assertion was loosened):
+ * TEST-PLUMBING FIX NOTE (both corrections to test plumbing only — no
+ * assertion was loosened):
  *   1. `icon-rotate` is read via `getLayoutProperty` only, not
  *      `getPaintProperty` — it is a symbol LAYOUT property in maplibre-gl's
  *      style spec (`getPaintProperty` on it throws inside MapLibre's own
@@ -84,10 +79,10 @@
  *      fixture. See the inline comments at the two `fixture.push('snapshot',
  *      ...)` call sites for the exact timing/margin reasoning.
  *
- * REQUIRED TEST SEAMS (developer must expose these — not the author's
- * to relax; each is independently asserted below). Naming mirrors the
- * existing `air`/`air-aircraft` and `land`/`land-roads`/`land-points`
- * convention (`map/layers/aviation.ts`, `map/layers/land.ts`):
+ * REQUIRED TEST SEAMS (the app must expose these; each is independently
+ * asserted below). Naming mirrors the existing `air`/`air-aircraft` and
+ * `land`/`land-roads`/`land-points` convention (`map/layers/aviation.ts`,
+ * `map/layers/land.ts`):
  *
  *   1. GeoJSON source id `"marine"` (`map.getSource('marine')`), populated
  *      via `wireToGeoJson` (or equivalent) from `snapshot:marine` events —
@@ -99,8 +94,8 @@
  *      source. `icon-rotate` data-driven off `cog_deg` (this test checks
  *      the raw expression references the key, mirroring
  *      `layers-refresh.spec.ts`'s `icon-rotate`/`true_track_deg` check —
- *      the `heading_deg`/upright fallback is this slice's own INNER Vitest
- *      concern, not locked at this e2e boundary). `icon-color` reads the
+ *      the `heading_deg`/upright fallback is a unit-test concern, not
+ *      asserted at this e2e boundary). `icon-color` reads the
  *      `--zij-teal` token (`#4E9DB4`). `icon-opacity` is a data-driven
  *      expression referencing a client-computed `deemphasized` boolean
  *      GeoJSON property (spec §2/§9, verbatim property name) — checked both
@@ -143,13 +138,11 @@
  *      conditionally hidden"). A vessel carrying BOTH flags has both flag
  *      values present in its rendered `integrity_flags` GeoJSON property,
  *      so both filters independently match the same feature (concentric
- *      rendering) — the exact filter-DSL evaluation semantics are this
- *      slice's own INNER Vitest concern per the plan's unit list, not
- *      re-derived here.
+ *      rendering) — the exact filter-DSL evaluation semantics are a
+ *      unit-test concern, not re-derived here.
  *
- * This test is not the author's to loosen and not the developer's to
- * touch. The `test.fail()` marker is removed only once every assertion
- * below passes for real, in the author's final follow-up pass.
+ * The `test.fail()` marker was removed only once every assertion below passed
+ * for real.
  */
 
 import { test, expect, type Page } from '@playwright/test';
@@ -729,7 +722,7 @@ test(
 
       // V4 carries BOTH flags — both filters independently match the same
       // rendered feature (concentric rendering's underlying data proof; the
-      // filter-DSL evaluation itself is this slice's inner Vitest concern).
+      // filter-DSL evaluation itself is a unit-test concern).
       const v4Props = await marineFeatureProps(page, v4);
       expect(v4Props, 'V4 must still be present in the marine source').not.toBeNull();
       const v4Flags = (v4Props?.integrity_flags ?? []) as string[];

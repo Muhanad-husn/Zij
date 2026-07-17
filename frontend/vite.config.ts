@@ -1,8 +1,8 @@
 import { defineConfig } from 'vite';
 
 // ADR-7 / spec §2 "Build": dev proxies /api (incl. /api/events SSE) to the
-// FastAPI process. step makes no API calls, but the proxy is wired now so
-// later slices need no config churn. ws:false — SSE is a streaming HTTP GET,
+// FastAPI process. The app makes no API calls yet, but the proxy is wired now
+// so later work needs no config churn. ws:false — SSE is a streaming HTTP GET,
 // not a websocket (ADR-2).
 export default defineConfig({
   server: {

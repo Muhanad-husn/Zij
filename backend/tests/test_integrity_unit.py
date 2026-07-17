@@ -1,5 +1,4 @@
-"""Inner unit tests for integrity step (issue #43), transcribed from the
-plan's "Inner loop — initial unit test list" (plans/integrity/01-flags.md):
+"""Unit tests for integrity (issue #43), covering:
 
   - STRtree query + `contains` flags a known on-land marine coordinate; an
     at-sea one is clean.
@@ -17,12 +16,12 @@ plan's "Inner loop — initial unit test list" (plans/integrity/01-flags.md):
   - Missing/corrupt landmask asset at construction raises `LandmaskError`
     (missing path, invalid JSON, and wrong-shape JSON).
 
-The outer acceptance test (test_integrity.py) already proves the headline
+The acceptance test (test_integrity.py) already proves the headline
 behaviour end-to-end through `Integrity.apply` (spoof-suspect + implausible
 kinematics + the dt<=0 guard + air-on-land is not spoof-flagged). These
-tests go one level down: each plan bullet gets its own narrow, deterministic
+tests go one level down: each behaviour gets its own narrow, deterministic
 proof, isolated from the others (mirrors test_scheduler_unit.py /
-test_store_fallback_unit.py's split from their outer tests).
+test_store_fallback_unit.py's split from their acceptance tests).
 
 Fixture coordinates for the threshold-boundary tests are not picked
 arbitrarily: each pair's implied speed is hand-derived from elementary
@@ -31,9 +30,6 @@ radius x delta-latitude in radians -- no dependency on the general haversine
 trig identity agreeing with itself) to land at a precise, independently
 computed kn value just above/below each threshold. See the module-level
 `_lat2_for_nm_at_1h` helper and its docstring.
-
-Written by the author (); the developer is separated
-out of `backend/tests/` and may not edit this file.
 """
 
 from __future__ import annotations

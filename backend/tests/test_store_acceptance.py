@@ -1,5 +1,4 @@
-"""Locked outer acceptance test for store step (issue #11): land_cache
-round-trip.
+"""Acceptance test for the land_cache round-trip (issue #11).
 
 Given a fresh SQLite database initialised from backend/schema.sql
 When  a LandCacheRow for "hormuz" is written via Store.put_land_cache()
@@ -15,29 +14,26 @@ And   calling Store.init() a second time is idempotent (no error, no dup)
 And   a second put_land_cache() for the same region_id REPLACES the row
       (upsert: exactly one land_cache row for "hormuz", not two)
 
-This is the behavioral contract (), transcribed from
-plans/store/01-land-cache.md ("Acceptance criterion" + inner unit list:
-schema idempotency, round-trip, UTC-aware re-hydration, upsert-replace,
-unknown-region -> None). It was authored and committed red by the
-author before any implementation existed, guarded by a strict xfail
-(). the developer has since made it genuinely pass; the xfail
-marker has been removed to finalize the contract.
+This acceptance test covers the land_cache round-trip: schema idempotency,
+round-trip, UTC-aware re-hydration, upsert-replace, and unknown-region ->
+None. It was written test-first and committed red, as an xfail, before any
+implementation existed; the xfail marker was removed once the suite went
+green.
 
-**Reconciliation note (API surface locked here).** The slice plan illustrates
-free functions (`init_schema`/`put_land_cache(region_id, geojson, ...)`/
-`get_land_cache(region_id)`). The frozen spec (design/specs/store.md) and
-contract (design/contracts/storage.md) instead mandate an async `class Store`
-with `init()`/`close()`/`get_land_cache(region_id)`/`put_land_cache(row)`
+**API surface note.** An earlier illustration used free functions
+(`init_schema`/`put_land_cache(region_id, geojson, ...)`/
+`get_land_cache(region_id)`). The spec (design/specs/store.md) and contract
+(design/contracts/storage.md) instead mandate an async `class Store` with
+`init()`/`close()`/`get_land_cache(region_id)`/`put_land_cache(row)`
 taking/returning a `LandCacheRow`, backed by stdlib `sqlite3` via
 `asyncio.to_thread` (ADR-10), WAL mode, and a path resolved via platformdirs
-overridable by `ZIJ_DB_PATH`. This test adopts the frozen-spec shape --
-`Store`/`LandCacheRow` -- since slice #18 (api-wiring) consumes this module
-unchanged and the spec is what's frozen, not the plan's illustration. This is
-a naming/shape reconciliation, not a contradiction: both describe the same
-land_cache round-trip; the spec is more specific and this test locks that
-specificity as the contract. Scope is held to the land_cache round-trip only
--- fallback_snapshots/config_presets are explicitly out of scope for this
-slice.
+overridable by `ZIJ_DB_PATH`. This test adopts the spec shape --
+`Store`/`LandCacheRow` -- since the api-wiring code (issue #18) consumes this
+module unchanged and the spec is authoritative. This is a naming/shape
+reconciliation, not a contradiction: both describe the same land_cache
+round-trip; the spec is more specific and this test follows it. Scope is held
+to the land_cache round-trip only -- fallback_snapshots/config_presets are
+out of scope here.
 
 `ZIJ_DB_PATH` points at a `tmp_path` file so the test is hermetic and never
 touches the real platformdirs location. `geojson` is carried as a plain dict
@@ -51,7 +47,7 @@ from pathlib import Path
 
 HORMUZ_BBOX = (55.0, 25.0, 57.5, 27.5)
 
-# First snapshot written for "hormuz" (plan's literal osm_base/feature_count).
+# First snapshot written for "hormuz".
 LAND_GEOJSON_V1 = {
     "type": "FeatureCollection",
     "features": [

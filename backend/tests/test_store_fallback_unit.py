@@ -1,23 +1,18 @@
-"""Inner unit test for store step (issue #40): fallback_snapshots
-nullable source_ts round-trip.
+"""Unit test for the fallback_snapshots nullable source_ts round-trip
+(issue #40).
 
-The outer acceptance test (test_store_fallback_acceptance.py) already
-exercises every item in the plan's inner unit list
-(plans/store/02-fallback-snapshots.md): schema round-trip, raw_payload
-exclusion, UTC-aware region_id/fetched_at re-hydration, upsert-replace to
-one row per layer, and the CHECK(layer IN ('air','marine')) rejection of
-'land'. The one real behaviour branch it never touches is
-`LayerSnapshotMeta.timestamp_source` being nullable (`datetime | None` on
-the model; `source_ts TEXT` carries no `NOT NULL` in schema.sql, unlike
-`fetched_at`) -- `Store._put_fallback_sync` has an explicit `is not None`
-branch for it (writing `NULL` into `source_ts`) that the outer test's
-always-non-None `timestamp_source` snapshots never run. This mirrors why
-v0's test_store_unit.py added a matching test for the nullable
-`LandCacheRow.osm_base` branch. This test targets exactly the analogous
-`source_ts` branch.
-
-Written by the author (); the developer is separated out of
-backend/tests/ and may not edit this file.
+The acceptance test (test_store_fallback_acceptance.py) already exercises
+schema round-trip, raw_payload exclusion, UTC-aware region_id/fetched_at
+re-hydration, upsert-replace to one row per layer, and the CHECK(layer IN
+('air','marine')) rejection of 'land'. The one real behaviour branch it never
+touches is `LayerSnapshotMeta.timestamp_source` being nullable
+(`datetime | None` on the model; `source_ts TEXT` carries no `NOT NULL` in
+schema.sql, unlike `fetched_at`) -- `Store._put_fallback_sync` has an explicit
+`is not None` branch for it (writing `NULL` into `source_ts`) that the
+acceptance test's always-non-None `timestamp_source` snapshots never run. This
+mirrors the matching test for the nullable `LandCacheRow.osm_base` branch in
+test_store_unit.py. This test targets exactly the analogous `source_ts`
+branch.
 """
 
 from datetime import datetime, timezone

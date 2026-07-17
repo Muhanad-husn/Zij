@@ -1,11 +1,10 @@
-"""Inner unit tests for two small adjudicated scheduler enhancements (issues
-#87, #88).
+"""Unit tests for two small scheduler enhancements (issues #87, #88).
 
-Authored red-first per : the red contract (all three gap
-tests below `xfail(strict=True)`, the rest of this file already green)
-landed at `a84f6b9`, before either behavior was implemented. the developer
-then greened both in `backend/scheduler.py`; this pass removes the now-
-satisfied `xfail` markers, closing the contract (never loosening it).
+Authored test-first: the red contract (all three gap tests below
+`xfail(strict=True)`, the rest of this file already green) landed at
+`a84f6b9`, before either behavior was implemented. Both were then greened in
+`backend/scheduler.py`; this follow-up removes the now-satisfied `xfail`
+markers, closing the contract (never loosening it).
 
 Issue #87 (design/specs/scheduler.md "Status transitions" table, row
 `rate-limited | still failing, warm cache | cached-fallback`):
@@ -50,9 +49,6 @@ stated convention.
 
 `backend.scheduler` is imported inside test bodies (repo convention -- avoids
 module-scope imports of app-wiring modules at collection time).
-
-Written by the author (); the developer is separated
-out of `backend/tests/` and may not edit this file.
 """
 
 from __future__ import annotations

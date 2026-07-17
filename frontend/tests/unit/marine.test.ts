@@ -1,8 +1,7 @@
 /**
- * Inner unit tests — plan/frontend/06-marine-integrity.md "Inner loop" units
- * #1 (rotation fallback order), #3 (drop is removed-before-setData), and #4
- * (integrity ring filters + concentric both-flags rendering), against
- * `src/map/layers/marine.ts` + `src/map/wireToGeoJson.ts` as actually built.
+ * Unit tests for `src/map/layers/marine.ts` + `src/map/wireToGeoJson.ts`:
+ * rotation fallback order, drop being removed-before-setData, and the
+ * integrity ring filters plus concentric both-flags rendering.
  *
  * Same FakeMap pattern as tests/unit/aviation.test.ts — records
  * addSource/addLayer calls without WebGL; `maplibre-gl` is only

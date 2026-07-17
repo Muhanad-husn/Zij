@@ -1,30 +1,25 @@
-"""Inner unit tests for store step (issue #41): config_presets branches
-the outer acceptance test (test_store_config_presets_acceptance.py) never
-reaches.
+"""Unit tests for config_presets branches the acceptance test
+(test_store_config_presets_acceptance.py) never reaches (issue #41).
 
-The outer test already exercises every column in `config_presets`, and
-unlike `land_cache`/`fallback_snapshots` (slices 01/02) there is no nullable
-column here to target -- every column in the DDL is `NOT NULL`
-(schema.sql). Two real behaviour branches remain untested by the outer test:
+The acceptance test already exercises every column in `config_presets`, and
+unlike `land_cache`/`fallback_snapshots` there is no nullable column here to
+target -- every column in the DDL is `NOT NULL` (schema.sql). Two real
+behaviour branches remain untested by the acceptance test:
 
-1. `delete_preset` on a missing id is a defined no-op (plan's inner-unit
-   list, plans/store/03-config-presets.md: "deleting a missing id is a
-   defined no-op/error"). The outer test only ever deletes an id it just
-   inserted -- it never calls `delete_preset` with an id that was never
-   assigned, so the "no-op, doesn't raise, doesn't disturb other rows"
-   behaviour of `Store._delete_preset_sync` is never actually asserted.
+1. `delete_preset` on a missing id is a defined no-op. The acceptance test
+   only ever deletes an id it just inserted -- it never calls `delete_preset`
+   with an id that was never assigned, so the "no-op, doesn't raise, doesn't
+   disturb other rows" behaviour of `Store._delete_preset_sync` is never
+   actually asserted.
 
 2. `kind` discrimination between `region_preset` and `config_override` rows
-   sharing the same `config_presets` table. In the outer test, the single
-   `region_preset` row is deleted *before* the `config_override` row is
-   ever inserted, so `list_presets()`/`get_config_overrides()` are never
+   sharing the same `config_presets` table. In the acceptance test, the
+   single `region_preset` row is deleted *before* the `config_override` row
+   is ever inserted, so `list_presets()`/`get_config_overrides()` are never
    called while both kinds of row coexist -- a regression that dropped the
-   `WHERE kind = ...` filter from either query would still pass the outer
-   test. This test puts both kinds in the same database and asserts each
-   listing method only ever sees its own kind.
-
-Written by the author (); the developer is separated out of
-backend/tests/ and may not edit this file.
+   `WHERE kind = ...` filter from either query would still pass it. This test
+   puts both kinds in the same database and asserts each listing method only
+   ever sees its own kind.
 """
 
 from backend.store import Store

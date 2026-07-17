@@ -1,28 +1,26 @@
-"""Inner unit tests, api-core step (issue #54): region endpoints.
+"""Unit tests for the region endpoints (issue #54).
 
-: these target collaborators/branches of `backend/main.py` that the
-locked outer test (`test_api.py::test_region_list_estimate_and_activate`)
+These target collaborators/branches of `backend/main.py` that the
+acceptance test (`test_api.py::test_region_list_estimate_and_activate`)
 does not isolate:
 
   1. `backend.config.estimate_credits`' tier boundaries in isolation (the
-     outer test only cross-checks two bboxes, both mid-tier).
+     acceptance test only cross-checks two bboxes, both mid-tier).
   2. `_estimate_bbox`'s per-layer `message`/`ok` bookkeeping directly (the
-     outer test only observes it through the HTTP envelope for one
+     acceptance test only observes it through the HTTP envelope for one
      differential bbox).
   3. `POST /api/regions/activate` with a **custom bbox** (predefined-id-only
-     in the outer test): the in-cap delegation path, the 422 re-validation
-     path, and `save_as_preset` persistence via the real `Store`.
-  4. `GET /api/regions/active` (never called by the outer test at all).
+     in the acceptance test): the in-cap delegation path, the 422
+     re-validation path, and `save_as_preset` persistence via the real
+     `Store`.
+  4. `GET /api/regions/active` (never called by the acceptance test at all).
   5. The consolidated `GET /api/layers/{domain}/snapshot` route's
-     registry-backed branch for `marine` (the outer test for #37/air/land
+     registry-backed branch for `marine` (the air/land coverage for #37
      lives in `test_snapshots_and_refresh`; marine's registry branch is new
-     this slice and untouched by either existing outer test).
+     here and untouched by either existing acceptance test).
 
-Authored during the follow-up pass, against the now-built
-`backend/main.py` (the developer's uncommitted work at the time of
-authoring), per : the developer cannot write tests, so the
-author writes a slice's inner units from the plan's list once the
-behavior exists to test against.
+Authored as a follow-up, against the now-built `backend/main.py`, once the
+behavior existed to test against.
 """
 
 from datetime import datetime, timezone
@@ -38,7 +36,7 @@ from fastapi.testclient import TestClient
 def test_estimate_credits_tier_boundaries():
     """config.md tier table: area sq deg `<=25 -> 1, <=100 -> 2, <=400 -> 3,
     else -> 4`. Pin every boundary directly (not just the two mid-tier bboxes
-    the outer test happens to use) so a future off-by-one in the tier
+    the acceptance test happens to use) so a future off-by-one in the tier
     thresholds is caught here rather than only in an HTTP-level assertion.
     """
     from backend.config import estimate_credits
@@ -96,7 +94,7 @@ def _load_config():
 def test_estimate_bbox_message_present_only_when_failing_names_the_cap():
     """api.md: "message is present only when ok:false" and it names the
     exceeded cap. Directly exercise `_estimate_bbox` (rather than only via
-    the HTTP envelope, which the outer test already covers for this exact
+    the HTTP envelope, which the acceptance test already covers for this exact
     differential bbox) so a future refactor of the estimate math keeps this
     invariant even if the HTTP wiring around it changes.
     """
@@ -169,7 +167,7 @@ def test_activate_custom_bbox_in_cap_delegates_scheduler_with_matching_region(
     response's `active_region.kind` for this ephemeral (not saved-as-preset)
     case is asserted as the implementation's actual value, `"custom"` -- a
     third `kind` beyond `predefined`/`preset` that api.md does not name
-    explicitly; flagged for the reviewer rather than treated as self-evidently
+    explicitly; flagged in review rather than treated as self-evidently
     correct.
     """
     from backend.sources.base import Region
@@ -289,8 +287,8 @@ def test_regions_active_returns_the_config_resolved_default_before_activation(
     `cfg.active_region_id` read independently in this test, and against the
     matching `RegionCfg` entry's own label/bbox.
 
-    Gap for the reviewer: plans/api-core/02-region-endpoints.md's inner-loop
-    item says "returns the active region, else null", but in the current
+    Gap flagged in review: the intended behavior is "returns the active
+    region, else null", but in the current
     implementation `active_region_state["info"]` is unconditionally
     initialized from `config.regions` (falling back to the bundled `hormuz`
     entry, never to `None`) -- and `create_app` itself would already raise
@@ -341,7 +339,7 @@ def test_regions_active_reflects_the_most_recently_activated_region(tmp_path):
     `POST /api/regions/activate` call, not just the pre-activation default --
     a handler that updates the response of `/activate` but forgets to update
     the state `/active` reads would fail this test even though
-    `test_region_list_estimate_and_activate` (the outer test, which never
+    `test_region_list_estimate_and_activate` (the acceptance test, which never
     calls `GET /api/regions/active` at all) would still pass.
     """
     app, cfg, _store, scheduler = _build_app_for_activate(
@@ -374,9 +372,10 @@ def test_layers_marine_snapshot_served_from_registry(tmp_path):
     `marine` from the `Registry` (the scheduler's sole writer) rather than
     direct-fetching like air/land -- pin that branch here, independent of
     `test_snapshots_and_refresh` (which only exercises air/land) and of the
-    outer test for this slice (which never touches `/api/layers/*` at all).
+    acceptance test here (which never touches `/api/layers/*` at all).
     A real `Feature`/`LayerSnapshot` is constructed (mirroring the marine
-    caveats outer test's pattern) so this is not a tautology against a stub.
+    caveats acceptance test's pattern) so this is not a tautology against a
+    stub.
     """
     from backend.main import create_app
     from backend.models import (

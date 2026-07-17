@@ -1,6 +1,5 @@
 /**
- * Inner unit tests — plan/frontend-map/02-layers-refresh.md "Inner loop" unit
- * #5 (refresh action), against `src/api/client.ts` as actually built.
+ * Unit tests for the refresh action in `src/api/client.ts`.
  *
  * `fetch` is replaced with a `vi.fn()` stand-in — hermetic, no real network,
  * no real map. Verifies the exact request (method + URL) and response
@@ -88,9 +87,8 @@ describe('fetchSnapshot — plan unit #5: GETs /api/layers/{domain}/snapshot', (
 });
 
 /**
- * Inner unit tests — plan/frontend/03-region-selector.md "Inner loop" (region
- * endpoints), against `src/api/client.ts` as actually built. The subtle
- * correctness point (per the author's follow-up-pass brief) is
+ * Unit tests for the region endpoints in `src/api/client.ts`. The subtle
+ * correctness point is
  * `estimateRegion`'s split handling: a `200` resolves with the body verbatim,
  * a `422` is NOT a transport error — api.md models an over-cap bbox as a
  * `422` whose body carries the same `EstimateResult` shape under
@@ -266,9 +264,7 @@ describe('estimateRegion — POST /api/regions/estimate: 200 vs 422 branch', () 
 });
 
 /**
- * Inner unit tests — plan/frontend/04-toggles-refresh.md "Inner loop" units
- * #1/#2/#4, against `src/api/client.ts`'s `toggleLayer`/`refreshLayer` as
- * actually built.
+ * Unit tests for `src/api/client.ts`'s `toggleLayer`/`refreshLayer`.
  */
 describe('toggleLayer — plan unit #1: POSTs /api/layers/{domain}/toggle {enabled}', () => {
   beforeEach(() => {

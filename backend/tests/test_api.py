@@ -1,5 +1,5 @@
-"""Locked outer acceptance test for backend-api step (issue #17): the
-FastAPI app serving health, config, and the static frontend.
+"""Acceptance test for the FastAPI app (issue #17): serving health, config,
+and the static frontend.
 
 Given the FastAPI app built with loaded config and secrets
 When  GET /api/health is requested
@@ -17,13 +17,13 @@ And   / serves the static frontend's index.html (200, HTML body), proving
       /api/* is matched before the static fallback (assertions 1-4 above all
       hit real /api/* routes and are not swallowed by the static mount)
 
-This is the behavioral contract (), transcribed from
-plans/backend-api/01-app-health-config.md and design/contracts/api.md ("GET
+This is the acceptance contract, transcribed from
+design/contracts/api.md ("GET
 /api/health", "GET /api/config", "Error envelope") and
 design/contracts/config.md / backend/config.py (`load_config()` ->
 `(AppConfig, Secrets)`, `Secrets` never folded into `AppConfig`).
 
-Design seam this test locks in for the developer (backend/main.py):
+Design seam this test locks in (backend/main.py):
 
     def create_app(*, static_dir: Path | str, config: AppConfig,
                     secrets: Secrets) -> FastAPI: ...
@@ -38,13 +38,11 @@ entrypoint referenced by api.md) but this test drives its assertions through
 the factory instance, not the module-level singleton, so it stays hermetic
 even though a real frontend build does not exist yet.
 
-It was authored and committed red by the author before any
-implementation existed, guarded by a strict xfail (): `backend.main`
-had no `create_app`/`app`, so the import raised `ImportError` and the test
-xfailed rather than errored. the developer has since built `backend/main.py`
-to satisfy this exact seam -- the test now genuinely passes and the marker is
-removed below to finalize the contract. This assertion itself is never
-weakened.
+It was authored and committed red before any implementation existed, guarded
+by an xfail: `backend.main` had no `create_app`/`app`, so the import raised
+`ImportError` and the test xfailed rather than errored. `backend/main.py`
+was then built to satisfy this exact seam -- the test now genuinely passes
+and the marker was removed to finalize the contract.
 """
 
 import asyncio
@@ -108,7 +106,7 @@ def test_health_and_config(tmp_path, monkeypatch):
     client_secret = "outer-test-opensky-client-secret-9b7d"
     monkeypatch.setenv("OPENSKY_CLIENT_ID", client_id)
     monkeypatch.setenv("OPENSKY_CLIENT_SECRET", client_secret)
-    # Marine is enabled in the bundled config.toml (slice config-02, #42), so
+    # Marine is enabled in the bundled config.toml (#42), so
     # its own secret gate needs a non-empty value too, or load_config() below
     # raises MissingSecretError for an unrelated reason.
     monkeypatch.setenv("AISSTREAM_API_KEY", "outer-test-aisstream-api-key-4f2a")
@@ -187,7 +185,7 @@ def test_health_and_config(tmp_path, monkeypatch):
     assert land_layer["max_rendered_features"] == 5000
 
     # --- And: the /api/config body does NOT include active_region_id
-    # (regression lock, config step / #46): AppConfig.active_region_id is
+    # (regression lock, #46): AppConfig.active_region_id is
     # an internal resolved value (config-module.md "active_region_id") that
     # api.md's "GET /api/config" shape pins without it -- the active region
     # is meant to surface via a separate future endpoint, not folded into
@@ -229,11 +227,11 @@ def test_health_and_config(tmp_path, monkeypatch):
     assert "Zij" in root_resp.text
 
 
-# --- Inner unit tests () --------------------------------------------
+# --- Unit tests --------------------------------------------
 #
-# These target internal collaborators of backend/main.py that the outer test
-# above does not isolate: the full status->code envelope mapping (api.md
-# defines eight codes; the outer test only exercises 404), the routing
+# These target internal collaborators of backend/main.py that the acceptance
+# test above does not isolate: the full status->code envelope mapping (api.md
+# defines eight codes; the acceptance test only exercises 404), the routing
 # scope of the /api/* catch-all against the static mount's own 404 handling,
 # and the defensive module-level `app` construction used by the real uvicorn
 # entrypoint.
@@ -241,7 +239,7 @@ def test_health_and_config(tmp_path, monkeypatch):
 
 def test_status_to_code_mapping_matches_error_envelope_contract():
     """api.md ("Error envelope") pins eight codes to eight HTTP statuses.
-    The outer test only ever exercises the 404/not_found pair (via the
+    The acceptance test only ever exercises the 404/not_found pair (via the
     /api/* catch-all); this locks in the full reverse-lookup table the
     exception handler uses for any HTTPException raised elsewhere in the
     app without an explicit envelope body, so a future route that raises
@@ -266,7 +264,7 @@ def test_error_envelope_helper_builds_api_md_shape():
     """`_error_envelope` is the single place the `{"error": {...}}` body is
     assembled; pin its shape directly (code/message plus arbitrary extras
     such as `retry_after_s`) rather than relying only on the one HTTPException
-    path the outer test drives.
+    path the acceptance test drives.
     """
     from backend.main import _error_envelope
 
@@ -281,7 +279,7 @@ def test_error_envelope_helper_builds_api_md_shape():
 
 
 def test_unmatched_non_api_path_does_not_get_the_api_error_envelope(tmp_path):
-    """Precedence pin, the other direction from the outer test's `/` check:
+    """Precedence pin, the other direction from the acceptance test's `/` check:
     an unmatched path *outside* `/api/*` must fall through to the static
     mount's own 404 handling, not be swallowed by the `/api/{rest:path}`
     catch-all or by the global HTTPException handler producing the api.md
@@ -320,7 +318,7 @@ def test_module_level_app_imports_and_builds_without_a_frontend_build(monkeypatc
     the real `frontend/dist` directory does not exist yet (falling back to a
     directory that does exist) as long as the enabled air layer's required
     secrets are present. This is exactly the "bare `import backend.main`"
-    scenario the module docstring calls out, and the outer test above never
+    scenario the module docstring calls out, and the acceptance test above never
     imports the module this way -- it only calls the `create_app` factory
     directly.
 
@@ -400,13 +398,12 @@ def test_module_level_app_fails_fast_when_required_secret_missing(monkeypatch):
 
 
 # ===========================================================================
-# backend-api step (issue #18): REST snapshot + manual refresh endpoints.
+# REST snapshot + manual refresh endpoints (issue #18).
 #
-# Locked outer acceptance test (), transcribed from
-# plans/backend-api/02-data-endpoints.md ("Acceptance criterion") and
+# Acceptance test, transcribed from
 # design/contracts/api.md ("GET /api/layers/{domain}/snapshot", "POST
 # /api/refresh", "Error envelope") + design/contracts/storage.md
-# ("land_cache" 24h freshness). Committed RED first (strict xfail, ).
+# ("land_cache" 24h freshness). Committed red first (xfail).
 # ===========================================================================
 
 
@@ -428,10 +425,10 @@ def test_snapshots_and_refresh(tmp_path, monkeypatch):
       while GET /api/layers/land/snapshot still succeeds -- FR10 failure
       isolation: one layer failing never blocks the other.
 
-    Design seam this test locks in for the developer (backend/main.py). The
+    Design seam this test locks in (backend/main.py). The
     three new endpoints need three collaborators -- the OpenSky adapter, the
     Overpass adapter, and the Store -- injected into `create_app` by dependency
-    injection. The locked signature EXTENDS step's factory with three new
+    injection. The locked signature EXTENDS the app factory with three new
     keyword-only params, each OPTIONAL with a config/secrets-derived default so
     every existing `create_app(static_dir=, config=, secrets=)` call keeps
     working unchanged:
@@ -452,7 +449,7 @@ def test_snapshots_and_refresh(tmp_path, monkeypatch):
     isolated). The app is responsible for initializing its Store at startup
     (the app is driven through `with TestClient(app)` so that startup runs on
     the same event loop the async handlers use); the region is hardcoded to
-    Hormuz for this slice (no activation endpoint yet), so the test never needs
+    Hormuz here (no activation endpoint yet), so the test never needs
     to construct a Region -- it only mocks the token/states/mirror URLs, which
     respx matches on URL (ignoring the region-derived query string).
 
@@ -475,18 +472,17 @@ def test_snapshots_and_refresh(tmp_path, monkeypatch):
         the same app -- failure isolation is not satisfiable by an
         all-or-nothing handler.
 
-    Committed RED before implementation (strict xfail, ): the three
+    Committed red before implementation (xfail): the three
     endpoints did not exist and `create_app` did not yet accept the injection
     keywords, so the assertions/`create_app` call failed inside this test body
-    and it xfailed cleanly under the tests-green gate. the developer has since
-    built `backend/main.py` to satisfy this exact seam -- the test now genuinely
-    passes and the marker has been removed to finalize the contract. The
-    assertions themselves are never weakened.
+    and it xfailed cleanly. `backend/main.py` was
+    then built to satisfy this exact seam -- the test now genuinely passes and
+    the marker was removed to finalize the contract.
     """
     # --- Given: known OpenSky secrets in env (NFR5: env only) ---
     monkeypatch.setenv("OPENSKY_CLIENT_ID", "outer-test-opensky-client-id-18")
     monkeypatch.setenv("OPENSKY_CLIENT_SECRET", "outer-test-opensky-client-secret-18")
-    # Marine is enabled in the bundled config.toml (slice config-02, #42); a
+    # Marine is enabled in the bundled config.toml (#42); a
     # non-empty value keeps its secret gate from firing for an unrelated
     # reason in this air/land-focused test.
     monkeypatch.setenv("AISSTREAM_API_KEY", "outer-test-aisstream-api-key-18")
@@ -648,12 +644,12 @@ def test_snapshots_and_refresh(tmp_path, monkeypatch):
             assert land_ok_body["meta"]["feature_count"] > 0
 
 
-# --- Inner unit tests, step () -----------------------------------
+# --- Unit tests -----------------------------------
 #
-# These target collaborators of backend/main.py that the outer
-# `test_snapshots_and_refresh` above does NOT isolate:
-#   1. the full AdapterError -> HTTP status/envelope table (the outer test
-#      only drives the 429 branch end-to-end);
+# These target collaborators of backend/main.py that the
+# `test_snapshots_and_refresh` acceptance test above does NOT isolate:
+#   1. the full AdapterError -> HTTP status/envelope table (the acceptance
+#      test only drives the 429 branch end-to-end);
 #   2. the lossless Feature <-> GeoJSON-Feature round-trip that backs the
 #      land_cache serialization (the load-bearing new logic);
 #   3. the stale-cache (>=24h) refetch + write-through branch the outer
@@ -665,7 +661,7 @@ def test_snapshots_and_refresh(tmp_path, monkeypatch):
 def test_adapter_error_to_http_maps_the_full_taxonomy():
     """api.md ("Error envelope") + adapter-interface.md error taxonomy: every
     `AdapterError` subtype maps to a specific status + envelope `code`. The
-    outer test only exercises the 429/`rate_limited` branch end-to-end; pin
+    acceptance test only exercises the 429/`rate_limited` branch end-to-end; pin
     the whole table here so the 401/502/500 branches (and the 429 header) are
     each locked, not just the one the happy path happens to hit.
     """
@@ -823,7 +819,7 @@ def test_feature_geojson_round_trip_is_lossless():
 def test_stale_land_cache_triggers_refetch_and_write_through(tmp_path, monkeypatch):
     """storage.md land_cache freshness gate: serve from cache only while
     `now - fetched_at < 24h`, else refetch and write the fresh result through.
-    The outer test only ever exercises the WARM (<24h) branch; this drives the
+    The acceptance test only ever exercises the WARM (<24h) branch; this drives the
     STALE (>=86400s) branch it never reaches. A stale row is seeded with a
     deliberately-wrong feature_count (1) so a served-from-stale response is
     distinguishable from a genuine refetch: after the GET the response must
@@ -835,7 +831,7 @@ def test_stale_land_cache_triggers_refetch_and_write_through(tmp_path, monkeypat
 
     monkeypatch.setenv("OPENSKY_CLIENT_ID", "stale-test-opensky-client-id")
     monkeypatch.setenv("OPENSKY_CLIENT_SECRET", "stale-test-opensky-client-secret")
-    # Marine is enabled in the bundled config.toml (slice config-02, #42); a
+    # Marine is enabled in the bundled config.toml (#42); a
     # non-empty value keeps its secret gate from firing for an unrelated
     # reason in this land-cache-focused test.
     monkeypatch.setenv("AISSTREAM_API_KEY", "stale-test-aisstream-api-key")
@@ -1044,15 +1040,14 @@ def test_land_snapshot_from_cache_row_meta_uses_config_not_row(monkeypatch):
     assert snapshot.features == features
 
 
-# --- Inner unit tests, step hardening (issue #18 two-stage review) ------
+# --- Unit tests, hardening (issue #18 review) ------
 #
-# Two non-blocking review findings the maintainer chose to fix before the PR. Both
-# were committed RED under a strict xfail (): the assertion inside each
+# Two non-blocking findings from review that we chose to fix before the PR.
+# Both were committed red under an xfail: the assertion inside each
 # body failed, pytest reported it `xfailed`, and the suite stayed green so the
-# red commit could land before the developer greened it. the developer has
-# since hardened `backend/main.py` to satisfy both -- the tests now genuinely
-# pass and the markers have been removed to finalize the contract. Neither
-# assertion was ever weakened.
+# red commit could land before it was greened. `backend/main.py` was then
+# hardened to satisfy both -- the tests now genuinely pass and the markers
+# were removed to finalize the contract.
 
 
 def test_unexpected_handler_failure_still_returns_api_md_envelope(
@@ -1084,7 +1079,7 @@ def test_unexpected_handler_failure_still_returns_api_md_envelope(
     """
     monkeypatch.setenv("OPENSKY_CLIENT_ID", "boom-test-opensky-client-id")
     monkeypatch.setenv("OPENSKY_CLIENT_SECRET", "boom-test-opensky-client-secret")
-    # Marine is enabled in the bundled config.toml (slice config-02, #42); a
+    # Marine is enabled in the bundled config.toml (#42); a
     # non-empty value keeps its secret gate from firing for an unrelated
     # reason in this error-envelope-focused test.
     monkeypatch.setenv("AISSTREAM_API_KEY", "boom-test-aisstream-api-key")
@@ -1160,17 +1155,16 @@ def test_retry_after_header_is_integer_delta_seconds():
 
 
 # ===========================================================================
-# api-core step (issue #53): GET /api/events -- SSE full-state-on-connect.
+# GET /api/events -- SSE full-state-on-connect (issue #53).
 #
-# Locked outer acceptance test (), transcribed from
-# plans/api-core/01-sse-endpoint.md ("Acceptance criterion") and
-# design/contracts/api.md ("## SSE", ADR-2/ADR-12). Committed RED first
-# (strict xfail, ): `create_app` does not yet accept `registry=`/
+# Acceptance test, transcribed from
+# design/contracts/api.md ("## SSE", ADR-2/ADR-12). Committed red first
+# (xfail): `create_app` does not yet accept `registry=`/
 # `events=`, `backend.events.EventBus` has no `publish_layer_status`, and
 # there is no `/api/events` route at all, so the body below fails today and
-# xfails cleanly under the tests-green gate.
+# xfails cleanly.
 #
-# Design seam this test locks in for the developer (backend/main.py +
+# Design seam this test locks in (backend/main.py +
 # backend/events.py):
 #
 #   def create_app(*, static_dir, config, secrets,
@@ -1180,18 +1174,18 @@ def test_retry_after_header_is_integer_delta_seconds():
 #
 #   class EventBus:
 #       def publish_snapshot(self, snap: LayerSnapshot) -> None: ...       # already exists
-#       def publish_layer_status(self, meta: LayerSnapshotMeta) -> None: ...  # NEW this slice
+#       def publish_layer_status(self, meta: LayerSnapshotMeta) -> None: ...  # NEW
 #
 # `registry`/`events` are optional keyword-only params (same "extend without
-# a rewrite" shape as step's `air_adapter`/`land_adapter`/`store`), so
+# a rewrite" shape as the earlier `air_adapter`/`land_adapter`/`store`), so
 # every existing `create_app(...)` call in this file keeps working
 # unmodified. `GET /api/events` reads `registry` directly for the
 # on-connect replay and subscribes to `events` for incrementals -- it does
 # NOT go through a `Scheduler` in this test; the scheduler's own write path
 # (registry set -> `events.publish_snapshot`) is already locked by
 # backend/tests/test_scheduler_write_path.py, so this test drives the
-# EventBus/registry boundary directly, exactly as the plan's Gherkin does
-# ("When the scheduler subsequently publishes a layer_status change").
+# EventBus/registry boundary directly, covering the case where the scheduler
+# subsequently publishes a layer_status change.
 # ===========================================================================
 
 
@@ -1207,7 +1201,7 @@ async def _connect_sse(app):
     ASGI app to completion (accumulating the whole body) before yielding any
     Response -- so `client.stream(...)` would deadlock on it. Every wait is
     bounded by `asyncio.wait_for` so a regression fails cleanly instead of
-    hanging the suite (and the tests-green commit hook)."""
+    hanging the suite (and the pre-commit test run)."""
     server = uvicorn.Server(
         uvicorn.Config(app, host="127.0.0.1", port=0, log_level="warning")
     )
@@ -1537,10 +1531,10 @@ async def test_events_on_connect_replays_only_enabled_layers(tmp_path, monkeypat
 
 
 def test_caveats_raw_and_presets(tmp_path, monkeypatch):
-    """Locked outer acceptance test for api-core step (issue #56):
+    """Acceptance test (issue #56):
     `GET /api/layers/{domain}/caveats`, `GET /api/features/{domain}/{source_id}/raw`,
     and the `/api/presets` CRUD trio, transcribed from
-    plans/api-core/04-caveats-raw-presets.md and design/contracts/api.md
+    design/contracts/api.md
     ("GET /api/layers/{domain}/caveats", "GET /api/features/{domain}/{source_id}/raw",
     "Presets (FR11, P1 -- designed now)").
 
@@ -1556,7 +1550,7 @@ def test_caveats_raw_and_presets(tmp_path, monkeypatch):
           `active_flags` == `integrity.active_flag_counts(marine_snapshot)`,
           in particular `spoof_suspect_on_land: 3` and
           `implausible_kinematics: 1`; the response body never contains
-          `raw_payload` anywhere on the wire (pins inner-unit item 4 -- the
+          `raw_payload` anywhere on the wire (the
           `air` feature's `raw_payload` is a distinctive literal precisely so
           this absence check is meaningful, not vacuous against a stub that
           never carries the field at all).
@@ -1582,9 +1576,9 @@ def test_caveats_raw_and_presets(tmp_path, monkeypatch):
     When  DELETE /api/presets/{id} is called
     Then  it returns 204 and the preset no longer appears via GET /api/presets.
 
-    Design seam this test locks in for the developer (backend/main.py):
+    Design seam this test locks in (backend/main.py):
     three new routes over the collaborators `create_app` already accepts
-    (`registry=`, `store=`, both optional keywords since slices 01/02/03) --
+    (`registry=`, `store=`, both optional keywords added earlier) --
     no new `create_app` parameter is required, only new routes reading
     `backend.integrity.CAVEATS`/`active_flag_counts` and calling
     `store.list_presets()`/`add_preset()`/`delete_preset()`
@@ -1617,16 +1611,15 @@ def test_caveats_raw_and_presets(tmp_path, monkeypatch):
         cross-request `GET /api/presets` re-reads after POST and DELETE mean
         a fake in-request-only response body cannot fool this test.
 
-    Committed RED before implementation (strict xfail, ): none of the
+    Committed red before implementation (xfail): none of the
     three routes existed yet in `backend/main.py` (`create_app` itself already
-    accepted `registry=`/`store=` from slices #53/#18, so the injection calls
+    accepted `registry=`/`store=` from #53/#18, so the injection calls
     below did not raise -- the test failed on the first `caveats_resp.status_code
     == 200` assertion, a 404 from the unmatched catch-all, not an import
-    error), so it xfailed cleanly under the tests-green gate. the developer
-    has since built these three routes in `backend/main.py` to satisfy this
-    exact seam -- the test now genuinely passes and the marker has been
-    removed to finalize the contract. The assertions above are never
-    weakened.
+    error), so it xfailed cleanly. These three
+    routes were then built in `backend/main.py` to satisfy this exact seam --
+    the test now genuinely passes and the marker was removed to finalize the
+    contract.
     """
     # --- Given: known secrets (NFR5 env-only; marine + air both enabled in
     # the bundled config.toml) ---
@@ -1838,23 +1831,21 @@ def test_caveats_raw_and_presets(tmp_path, monkeypatch):
 
 
 # ===========================================================================
-# api-core step (issue #54): region endpoints -- list, estimate, activate.
+# Region endpoints -- list, estimate, activate (issue #54).
 #
-# Locked outer acceptance test (), transcribed from
-# plans/api-core/02-region-endpoints.md ("Acceptance criterion") and
+# Acceptance test, transcribed from
 # design/contracts/api.md ("GET /api/regions", "POST /api/regions/estimate",
-# "POST /api/regions/activate", "Error envelope"). Committed RED first
-# (strict xfail, , commit d5c305c): none of `/api/regions`,
+# "POST /api/regions/activate", "Error envelope"). Committed red first
+# (xfail, commit d5c305c): none of `/api/regions`,
 # `/api/regions/estimate`, `/api/regions/activate` existed yet in
 # backend/main.py (they fell through to the `/api/{rest:path}` catch-all ->
 # 404), and `create_app` did not yet accept a `scheduler=` keyword at all (an
 # unexpected-kwarg `TypeError`), so the assertions below failed and this test
-# xfailed cleanly under the tests-green gate. the developer has since built
-# `backend/main.py` to satisfy this exact seam -- the test now genuinely
-# passes and the marker has been removed to finalize the contract. The
-# assertions above are never weakened.
+# xfailed cleanly. `backend/main.py` was then built
+# to satisfy this exact seam -- the test now genuinely passes and the marker
+# was removed to finalize the contract.
 #
-# Design seam this test locks in for the developer (backend/main.py):
+# Design seam this test locks in (backend/main.py):
 #
 #   def create_app(*, static_dir, config, secrets,
 #                   air_adapter=None, land_adapter=None, store=None,
@@ -1866,7 +1857,7 @@ def test_caveats_raw_and_presets(tmp_path, monkeypatch):
 # store/registry/events) -- every existing `create_app(...)` call in this
 # file keeps working unmodified. `POST /api/regions/activate` calls
 # `await scheduler.activate_region(region)` (backend/scheduler.py, already
-# built in the scheduler/04 slice, issue #52/PR #85) with a real
+# built under issue #52/PR #85) with a real
 # `backend.sources.base.Region` resolved from the requested predefined id
 # (or a re-validated custom bbox, out of scope for this test). This test
 # injects an `AsyncMock`-spy scheduler -- mirroring the established pattern
@@ -2094,12 +2085,11 @@ def test_region_list_estimate_and_activate(tmp_path, monkeypatch):
 
 
 # ===========================================================================
-# api-core step (issue #55): layer controls -- toggle + per-layer/global
-# manual refresh, absorbing #38 (a failed manual refresh must surface via
-# SSE, never as a silent success).
+# Layer controls -- toggle + per-layer/global manual refresh (issue #55),
+# absorbing #38 (a failed manual refresh must surface via SSE, never as a
+# silent success).
 #
-# Locked outer acceptance test (), transcribed from
-# plans/api-core/03-controls-refresh.md ("Acceptance criterion") and
+# Acceptance test, transcribed from
 # design/contracts/api.md ("POST /api/layers/{domain}/toggle", "POST
 # /api/layers/{domain}/refresh", "POST /api/refresh", "Error envelope"):
 #
@@ -2139,10 +2129,10 @@ def test_region_list_estimate_and_activate(tmp_path, monkeypatch):
 #   never calls `self._publish_status_event(...)` -- no SSE event is
 #   published for a plain fetch failure at all. Closing that gap (plus
 #   building the three new routes and `Scheduler.refresh_all`) is exactly
-#   what this slice is scoped to do (plan: "Absorbs #38").
+#   what this work is scoped to do (absorbing #38).
 #
 # Both parts drive real httpx requests against `create_app(...)`; the
-# "mocked/spied" language in the plan's Boundary line covers both flavors
+# "mocked/spied" boundary covers both flavors
 # used here (a full `AsyncMock` in Part A, a real bus a subscriber "spies"
 # on via `events.subscribe()` in Part B).
 #
@@ -2153,17 +2143,17 @@ def test_region_list_estimate_and_activate(tmp_path, monkeypatch):
 # `land_adapter.fetch` directly -- can never attempt a real network call to
 # OpenSky/Overpass while this test is red.
 #
-# Originally committed RED before implementation (strict xfail, ):
+# Originally committed red before implementation (xfail):
 # none of `POST /api/layers/{domain}/toggle`, `POST
 # /api/layers/{domain}/refresh` existed yet as POST routes, `POST
 # /api/refresh` still ran the v0 direct-fetch stub and never touched
 # `scheduler` at all, and (Part B) `Scheduler._handle_fetch_failure`'s
-# non-rate-limited branch never published a `layer_status` event. The slice
-# has since been implemented and this test now runs green (marker removed);
-# the assertions below are unchanged from the locked red contract.
+# non-rate-limited branch never published a `layer_status` event. This has
+# since been implemented and the test now runs green (marker removed);
+# the assertions below are unchanged from the red contract.
 #
 # Design note (flagged, not silently "corrected" past the contract): the
-# dispatching plan's inner-unit list phrases the unknown-{domain} case as
+# unknown-{domain} case was originally phrased as
 # "404/validation_error". This test instead locks the SAME `_coerce_domain`
 # convention already established and locked for every other `{domain}`
 # route in this file (`/api/layers/{domain}/snapshot`, `/caveats`, and
@@ -2179,7 +2169,7 @@ def test_layer_toggle_and_refresh_controls_delegate_and_surface_failures_via_sse
     tmp_path, monkeypatch
 ):
     """See the module-level comment block directly above for the full
-    Gherkin transcription and the non-tautology rationale for Part A vs.
+    scenario transcription and the non-tautology rationale for Part A vs.
     Part B.
 
     Why this is not satisfiable by a stub:
@@ -2195,7 +2185,7 @@ def test_layer_toggle_and_refresh_controls_delegate_and_surface_failures_via_sse
         route, backed by an adapter double that genuinely raises, and polls
         the real subscriber queue for a genuine `layer_status` event. A
         route/scheduler pair that swallows the failure with no event at all
-        (the "silent success" the plan explicitly forbids) times out and
+        (the "silent success" the contract explicitly forbids) times out and
         fails this assertion; only an implementation that truly emits SSE
         on failure passes.
     """
@@ -2377,8 +2367,8 @@ def test_layer_toggle_and_refresh_controls_delegate_and_surface_failures_via_sse
         failing_refresh_resp = real_client.post("/api/layers/air/refresh")
 
         # --- Then: the HTTP response is STILL 202 {"layer":"air",
-        # "queued":true} -- the failure never turns into a 5xx; per the
-        # plan, "results ride SSE, not the HTTP response" ---
+        # "queued":true} -- the failure never turns into a 5xx; results ride
+        # SSE, not the HTTP response ---
         assert failing_refresh_resp.status_code == 202
         assert failing_refresh_resp.json() == {"layer": "air", "queued": True}
 

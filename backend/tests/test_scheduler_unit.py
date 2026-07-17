@@ -1,6 +1,4 @@
-"""Inner unit tests for scheduler step (issue #45), transcribed from the
-plan's "Inner loop — initial unit test list"
-(plans/scheduler/01-core-runtime.md):
+"""Unit tests for the scheduler concurrency spine (issue #45):
 
   - Effective cadence = max(cadence_s, cadence_floor_s).
   - `_wake` set -> immediate wake; cleared after each wake; timeout ->
@@ -12,21 +10,18 @@ plan's "Inner loop — initial unit test list"
   - `TaskGroup` starts one task per enabled poll layer; shutdown cancels
     cleanly.
 
-The outer acceptance test (test_scheduler.py) already proves single-flight
+The acceptance test (test_scheduler.py) already proves single-flight
 coalescing and cadence independence end-to-end through the public surface
 (`run`/`refresh`/`set_enabled`). These tests go one level down, exercising
 `Scheduler`'s real internals directly (`_cadence_s`, `_wake`, `_do_fetch`,
-`_poll_loop`) so each item in the plan's unit list has its own narrow,
-deterministic proof, isolated from the others -- e.g. the wake/timeout tests
-here never touch `_do_fetch` coalescing, and the coalescing test here never
-goes through `_poll_loop` at all.
+`_poll_loop`) so each item above has its own narrow, deterministic proof,
+isolated from the others -- e.g. the wake/timeout tests here never touch
+`_do_fetch` coalescing, and the coalescing test here never goes through
+`_poll_loop` at all.
 
-Out of scope, same as the outer test (later scheduler slices 02-04):
+Out of scope, same as the acceptance test (later scheduler work):
 `LayerStatus` ownership/transitions, the write path, backoff, the stale
 timer, region-switch, marine stream supervision.
-
-Written by the author (); the developer is separated
-out of `backend/tests/` and may not edit this file.
 """
 
 from __future__ import annotations
@@ -53,7 +48,7 @@ HORMUZ_REGION = Region(
 
 
 def _make_snapshot(domain: Domain, region: Region) -> LayerSnapshot:
-    """A minimal, valid LayerSnapshot -- content is irrelevant to this slice
+    """A minimal, valid LayerSnapshot -- content is irrelevant here
     (no write path, no status mapping); only object identity and the
     upstream call count matter here (mirrors test_scheduler.py)."""
     now = datetime.now(timezone.utc)
@@ -103,7 +98,7 @@ def _make_cfg(
     land_cadence_floor_s: int = 0,
     land_enabled: bool = True,
 ) -> AppConfig:
-    """A minimal AppConfig carrying the two poll layers this slice knows
+    """A minimal AppConfig carrying the two poll layers these tests know
     about. `Scheduler.__init__` only iterates over the domains present in
     the `adapters` dict it is constructed with, so tests that only pass an
     `air` adapter never touch the `land` entry here."""
@@ -395,14 +390,14 @@ async def test_one_layers_raising_adapter_does_not_crash_run_or_the_other_layer(
     """FR10: with two poll layers (air, land) running under one `run()`, air's
     adapter raising on its first tick must NOT crash the `TaskGroup`/`run()`,
     must NOT stop land's independent cadence, and air itself must recover --
-    a later tick issues a fresh fetch. step implements no
+    a later tick issues a fresh fetch. The concurrency spine implements no
     status/LayerStatus/backoff, so this asserts survival + continuation only,
     never any status mapping.
 
     `_poll_loop` now wraps `_do_fetch` in its own try/except (scheduler.py),
     so air's raised exception is caught and logged in place -- it never
     propagates out of air's task, `asyncio.TaskGroup`/`run()` stays alive, and
-    land's independent cadence is unaffected (: was xfail, now green)."""
+    land's independent cadence is unaffected (was xfail, now green)."""
     air_adapter = _FailOnceThenSucceedAdapter(Domain.AIR, fail_on_calls={1})
     land_adapter = _CountingAdapter(Domain.LAND)
     cfg = _make_cfg(air_cadence_s=1, land_cadence_s=1)

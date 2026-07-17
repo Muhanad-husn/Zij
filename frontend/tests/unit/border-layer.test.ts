@@ -1,13 +1,13 @@
 /**
- * OUTER acceptance test () — issue #115: the hand-authored MapLibre style
+ * Acceptance test — issue #115: the hand-authored MapLibre style
  * (`buildStyle()`, src/map/map.ts) declares only `background`/`water`/`roads`,
  * so the OpenMapTiles-schema `boundary` source-layer (admin borders) is never
  * added and the map shows no country borders.
  *
- * Locked contract, pinned against `buildStyle()` directly (unit-first per the
- * standing frontend rule — no MapLibre/WebGL/network involved, so a Playwright
- * e2e spec would add nothing a unit spec against the pure style object doesn't
- * already prove):
+ * Pinned against `buildStyle()` directly (unit-first per the standing frontend
+ * rule — no MapLibre/WebGL/network involved, so a Playwright e2e spec would
+ * add nothing a unit spec against the pure style object doesn't already
+ * prove):
  *
  *   1. `buildStyle()` includes a `type: 'line'` layer sourced from the
  *      `openfreemap` vector source's `boundary` source-layer.
@@ -27,13 +27,13 @@
  *      style, not a replacement, and must not reorder the layers telemetry
  *      renders on top of at runtime.
  *
- * Committed red (xfail-equivalent): `buildStyle()` does not yet add a
- * `boundary` layer, so every assertion below fails. Vitest has no `xfail`;
- * `test.fails` is the strict expected-failure idiom here — it inverts the
- * pass/fail result and, symmetrically to pytest's `strict=True`, itself FAILS
- * the run once the body starts passing (i.e. once the real behavior lands),
- * which is exactly the signal to remove `.fails` and land the final green
- * commit.
+ * This test was written before the implementation existed, so it started red:
+ * `buildStyle()` did not yet add a `boundary` layer, so every assertion below
+ * failed. Vitest has no `xfail`; `test.fails` is the strict expected-failure
+ * idiom here — it inverts the pass/fail result and, like pytest's
+ * `strict=True`, itself FAILS the run once the body starts passing (i.e. once
+ * the real behavior lands), which is exactly the signal to remove `.fails` and
+ * land the final green commit.
  */
 import { describe, expect, it, vi } from 'vitest';
 import { featureFilter } from '@maplibre/maplibre-gl-style-spec';
@@ -58,7 +58,7 @@ interface LineLayer {
   paint?: Record<string, unknown>;
 }
 
-describe('buildStyle — outer acceptance (#115): country borders in the base-map style', () => {
+describe('buildStyle — country borders in the base-map style (#115)', () => {
   it(
     'adds a line layer over the boundary source-layer, filtered to admin_level 2, in a muted context color distinct from telemetry, without disturbing background/water/roads',
     async () => {

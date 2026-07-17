@@ -1,5 +1,5 @@
 /**
- * Inner unit tests — plan/frontend-map/01-map-init.md "Inner loop" units #2 and #3.
+ * Unit tests for the `buildStyle`/`readInkColor` map-init helpers.
  *
  * `maplibre-gl` is mocked out entirely here (a minimal stand-in for the value
  * import in src/map/map.ts) because these tests only exercise the pure

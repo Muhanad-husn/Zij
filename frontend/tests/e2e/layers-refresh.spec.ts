@@ -1,7 +1,6 @@
 /**
- *  locked outer acceptance test — frontend-map/02-layers-refresh (issue
- * #20), the last v0 slice. Encodes `plans/frontend-map/02-layers-refresh.md`'s
- * Gherkin verbatim:
+ * Acceptance test — layers refresh (issue #20), the last v0 feature. Encodes
+ * the feature's Gherkin verbatim:
  *
  *   Given the backend serving air and land snapshots for Hormuz
  *   When  the page loads
@@ -14,30 +13,30 @@
  *   Then  POST /api/refresh is issued and the layers re-render from the new
  *         snapshots
  *
- * `test.fail()` was this web slice's analog to a strict pytest xfail ():
- * it marked the scenario "expected to fail," so an unexpected *pass* failed
- * the run — mirroring "xfail(strict=True) turned XPASS, blocking commits
- * until the marker is removed." the developer greened every clause below
- * (commit `defb2c0`); the author confirmed each assertion passes (see
- * the slice's evidence trace) and removed the `test.fail()` marker in this
- * final pass, so the scenario now runs as a normal `test(...)` and is
+ * This test was written before the implementation existed. It initially ran
+ * under `test.fail()` (Playwright's expected-to-fail marker, the analog of a
+ * strict pytest xfail): it marked the scenario "expected to fail," so an
+ * unexpected *pass* failed the run — mirroring "xfail(strict=True) turned
+ * XPASS, blocking commits until the marker is removed." Once every clause
+ * below was built and confirmed passing (commit `defb2c0`) the `test.fail()`
+ * marker was removed, so the scenario now runs as a normal `test(...)` and is
  * expected to pass for real.
  *
- * This slice has no live backend in the e2e run (`playwright.config.ts`
+ * There is no live backend in the e2e run (`playwright.config.ts`
  * serves the production `vite build` + `vite preview` bundle on :4173, no
  * FastAPI process). All `/api/**` calls are intercepted with `page.route()`
  * and fulfilled from the fixtures below, modeled verbatim on the wire shapes
  * in `design/contracts/feature-schema.md` ("Wire examples → Air" / "→ Land").
  * SSE, region selection, layer toggles, caveats, and integrity markers are
- * explicitly out of scope for this slice (see the plan) — only the two REST
- * snapshot endpoints and the manual refresh endpoint are exercised.
+ * out of scope here — only the two REST snapshot endpoints and the manual
+ * refresh endpoint are exercised.
  *
- * RECONCILIATION (slice frontend/01-sse-client, issue #57): the app now
+ * LATER-FEATURE FALLOUT (sse-client, issue #57): the app now
  * unconditionally opens `EventSource('/api/events')` on load (spec §3). This
  * test has no live FastAPI backend, so an unstubbed `/api/events` would
  * error through Vite's preview proxy, logging a `console.error` this test
  * doesn't check for directly but which is still a genuine regression to the
- * app's boot post-condition — the same class of reconciliation
+ * app's boot post-condition — the same class of fallout
  * `map-init.spec.ts` already documents for the snapshot endpoints.
  * `tests/e2e/helpers/quietSseStub.ts` (a real, held-open streaming stub — see
  * its own comment for why a `page.route().fulfill()` stub can't safely stand
@@ -47,45 +46,44 @@
  * connection-lost state from swallowing the Refresh button's clicks, should
  * the stream ever error mid-test.
  *
- * RECONCILIATION (slice frontend/03-region-selector, issue #59): the app now
+ * LATER-FEATURE FALLOUT (region-selector, issue #59): the app now
  * unconditionally fetches `GET /api/regions` and `GET /api/regions/active`
  * on load (region dropdown population + last-region restore). This test has
  * no live FastAPI backend, so those unstubbed calls would leak through
  * Vite's preview proxy to a connection refused, logging a browser
  * `console.error` that would trip this test's "zero console errors" clause
  * even though the layer rendering/refresh behavior this test actually
- * exercises works fine — the same class of reconciliation the SSE note above
+ * exercises works fine — the same class of fallout the SSE note above
  * already documents. `tests/e2e/helpers/stubRegionEndpoints.ts` is used
  * below to answer both quietly; this test asserts nothing about regions
  * (that's `region-selector.spec.ts`'s job).
  *
- * RECONCILIATION (slice frontend/06-marine-integrity, issue #62): the app
- * now unconditionally fetches `GET /api/config` on load (the client tick
- * reads de-emphasis/drop thresholds from it, spec §9). This test has no live
+ * LATER-FEATURE FALLOUT (marine-integrity, issue #62): the app now
+ * unconditionally fetches `GET /api/config` on load (the client tick reads
+ * de-emphasis/drop thresholds from it, spec §9). This test has no live
  * FastAPI backend, so an unstubbed call would leak through Vite's preview
- * proxy the same way the reconciliations above already document.
+ * proxy the same way the notes above already document.
  * `tests/e2e/helpers/stubConfigEndpoint.ts` answers it quietly; this test
  * asserts nothing about tick/de-emphasis behavior (that's
  * `marine-integrity.spec.ts`'s job).
  *
- * RECONCILIATION (slice frontend/06-marine-integrity, issue #62 — CI fix
- * #107): that same slice also made the app fetch `GET
- * /api/layers/marine/snapshot` on load, alongside the air/land snapshot
- * fetches this test already stubs below. That third call was missed when
- * step landed, so it leaked through Vite's preview proxy
- * (`ECONNREFUSED` against the backend-less preview server), logged a
- * `console.error`, and tripped this test's "zero console errors" clause even
- * though the layer rendering/refresh behavior this test actually exercises
- * works fine — the same class of issue every reconciliation above already
- * documents. `tests/e2e/helpers/stubMarineSnapshot.ts` answers it quietly;
- * this test asserts nothing about marine rendering (that's
+ * LATER-FEATURE FALLOUT (marine-integrity, issue #62 — CI fix #107): that
+ * same feature also made the app fetch `GET /api/layers/marine/snapshot` on
+ * load, alongside the air/land snapshot fetches this test already stubs
+ * below. That third call was missed when the marine work landed, so it leaked
+ * through Vite's preview proxy (`ECONNREFUSED` against the backend-less
+ * preview server), logged a `console.error`, and tripped this test's "zero
+ * console errors" clause even though the layer rendering/refresh behavior this
+ * test actually exercises works fine — the same class of issue every note
+ * above already documents. `tests/e2e/helpers/stubMarineSnapshot.ts` answers
+ * it quietly; this test asserts nothing about marine rendering (that's
  * `marine-integrity.spec.ts`'s job).
  *
- * REQUIRED TEST SEAMS (developer must expose these — not the author's
- * to relax; each is independently asserted below):
+ * REQUIRED TEST SEAMS (the app must expose these; each is independently
+ * asserted below):
  *
  *   1. `window.__zijMap` — the live MapLibre `Map`, assigned on `load` (the
- *      step seam, reused verbatim; see `map-init.spec.ts`).
+ *      map-init seam, reused verbatim; see `map-init.spec.ts`).
  *   2. GeoJSON source ids: exactly `"air"` and `"land"` (`map.getSource(id)`).
  *      Each source's data (readable via the public `GeoJSONSource#serialize()`
  *      → `.data`, no need to wait for a render pass) must carry one GeoJSON
@@ -123,13 +121,12 @@
  *          snapshot's `meta.feature_count`.
  *   5. `[data-testid="refresh-all"]` — the global "Refresh all" button
  *      (spec §7). Clicking it must issue `POST /api/refresh`, then re-fetch
- *      both `GET /api/layers/{air,land}/snapshot` (this slice has no SSE —
+ *      both `GET /api/layers/{air,land}/snapshot` (no SSE here —
  *      re-render is a poll-once, not a push) so the badges and both GeoJSON
  *      sources reflect the NEW snapshot fixtures below.
  *
- * This test is not the author's to loosen and not the developer's to
- * touch. The `test.fail()` marker was removed only once every assertion
- * below passed for real, in the author's final follow-up pass.
+ * The `test.fail()` marker was removed only once every assertion below passed
+ * for real.
  */
 
 import { test, expect, type Page } from '@playwright/test';
@@ -375,7 +372,7 @@ function normalizeToRgb(value: unknown): [number, number, number] {
 /** Flattens a nested MapLibre style-expression array into a single list of
  * its scalar leaves, in order — used to find "literal immediately followed
  * by its numeric value" pairs without depending on which expression operator
- * (match/step/case/...) the developer chose. */
+ * (match/step/case/...) the app chose. */
 function flattenExpression(value: unknown): unknown[] {
   const out: unknown[] = [];
   const walk = (v: unknown) => {
@@ -403,7 +400,7 @@ function numericValueFollowingLiteral(expr: unknown, literal: string): number {
 /** Registers page.route() interception for /api/refresh + both snapshot
  * endpoints BEFORE navigation. Snapshot routes serve the INITIAL fixtures
  * until /api/refresh is POSTed, then serve the REFRESHED fixtures — modeling
- * this slice's poll-once (no SSE) re-render contract. */
+ * the poll-once (no SSE) re-render contract. */
 async function stubApi(page: Page) {
   let refreshed = false;
 
@@ -440,7 +437,7 @@ test(
     const consoleErrors: string[] = [];
     const pageErrors: string[] = [];
 
-    // RECONCILIATION (frontend/01-sse-client, #57) — see file-header comment.
+    // LATER-FEATURE FALLOUT (sse-client, #57) — see file-header comment.
     const sseStub = await startQuietSseStub();
 
     try {
@@ -575,7 +572,7 @@ test(
     const refreshRequest = await refreshRequestPromise;
     expect(refreshRequest.method()).toBe('POST');
 
-    // New snapshot reflected in the badges (poll-once re-fetch, no SSE this slice).
+    // New snapshot reflected in the badges (poll-once re-fetch, no SSE here).
     await expect(airBadge.locator('[data-testid="freshness-fetched"]')).toHaveText('09:22:03 UTC', {
       timeout: 10_000,
     });

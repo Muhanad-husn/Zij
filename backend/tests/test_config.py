@@ -1,16 +1,13 @@
-"""Inner unit tests for config step (issue #10): config loader.
+"""Unit tests for the config loader (issue #10).
 
-Covers the seeded inner-loop list in plans/config/01-config-loader.md that the
-outer acceptance test (test_config_acceptance.py) does not already exercise:
+Covers the parts of the loader that the acceptance test
+(test_config_acceptance.py) does not already exercise:
 missing-secret fail-fast, effective_cadence_s/stale_after_s math, deep-merge
 sibling preservation, bundled-TOML-over-code-default precedence, secrets never
 serializing (checked structurally, by key, not just by value), and full
-region bbox/label coverage for the six regions the outer test only checks by
-id. The outer test remains the locked contract -- these units may not weaken
-or replace it.
-
-Written by the author (); the developer is separated out of
-backend/tests/ and may not edit this file.
+region bbox/label coverage for the six regions the acceptance test only checks
+by id. The acceptance test remains the authoritative contract -- these units
+may not weaken or replace it.
 """
 
 import pytest
@@ -31,7 +28,7 @@ from backend.config import (
 
 # The config.md "Predefined regions" table (design/contracts/config.md lines
 # 43-49), mirrored by backend/config.toml -- used to check every region's
-# bbox and label, not just hormuz (which the outer test already covers).
+# bbox and label, not just hormuz (which the acceptance test already covers).
 PREDEFINED_REGIONS = {
     "hormuz": ("Strait of Hormuz", (55.0, 25.0, 57.5, 27.5)),
     "persian-gulf": ("Persian Gulf", (47.5, 23.5, 57.0, 30.5)),
@@ -48,7 +45,7 @@ def _set_valid_opensky_secrets(
 ):
     monkeypatch.setenv("OPENSKY_CLIENT_ID", client_id)
     monkeypatch.setenv("OPENSKY_CLIENT_SECRET", client_secret)
-    # Marine is enabled in the bundled config.toml (slice config-02, #42); a
+    # Marine is enabled in the bundled config.toml (#42); a
     # non-empty value keeps its own secret gate from firing for an unrelated
     # reason in these air/opensky-focused unit tests.
     monkeypatch.setenv("AISSTREAM_API_KEY", "unit-aisstream-api-key")
@@ -68,7 +65,7 @@ def test_missing_opensky_client_id_raises_named_error_when_air_enabled(monkeypat
     # missing.
     monkeypatch.setenv("OPENSKY_CLIENT_ID", "")
     monkeypatch.setenv("OPENSKY_CLIENT_SECRET", "unit-secret")
-    # Marine is enabled in the bundled config.toml (slice config-02, #42); a
+    # Marine is enabled in the bundled config.toml (#42); a
     # non-empty value here isolates this test to the air/OPENSKY_CLIENT_ID
     # failure it targets, independent of _check_required_secrets's internal
     # check ordering.
@@ -87,7 +84,7 @@ def test_missing_opensky_client_id_raises_named_error_when_air_enabled(monkeypat
 def test_missing_opensky_client_secret_raises_named_error_when_air_enabled(monkeypatch):
     monkeypatch.setenv("OPENSKY_CLIENT_ID", "unit-id")
     monkeypatch.setenv("OPENSKY_CLIENT_SECRET", "")
-    # Marine is enabled in the bundled config.toml (slice config-02, #42); a
+    # Marine is enabled in the bundled config.toml (#42); a
     # non-empty value here isolates this test to the air/
     # OPENSKY_CLIENT_SECRET failure it targets, independent of
     # _check_required_secrets's internal check ordering.
@@ -259,7 +256,7 @@ def test_bundled_toml_value_overrides_code_default_for_same_key(tmp_path):
 
 def test_secrets_field_names_never_appear_as_keys_in_appconfig(monkeypatch):
     _set_valid_opensky_secrets(monkeypatch, "unit-id-abcd", "unit-secret-wxyz")
-    # Slice config-02 (#42): aisstream_api_key is also a Secrets field now
+    # As of #42, aisstream_api_key is also a Secrets field now
     # that marine is enabled -- extend this structural guard to cover it too,
     # not just the OpenSky pair.
     monkeypatch.setenv("AISSTREAM_API_KEY", "unit-aisstream-api-key-mnop")
@@ -287,7 +284,7 @@ def test_secrets_field_names_never_appear_as_keys_in_appconfig(monkeypatch):
 
     all_keys = flatten_keys(dumped)
     # No secret-named field anywhere in the dumped structure -- a structural
-    # check distinct from the outer test's "value not in JSON string" check.
+    # check distinct from the acceptance test's "value not in JSON string" check.
     assert "opensky_client_id" not in all_keys
     assert "opensky_client_secret" not in all_keys
     assert "aisstream_api_key" not in all_keys
@@ -297,7 +294,7 @@ def test_secrets_field_names_never_appear_as_keys_in_appconfig(monkeypatch):
 
 
 # --- All 7 predefined regions: bbox + label (config.md) ----------------------
-# (The outer test checks all 7 ids are present and hormuz's bbox; this fills
+# (The acceptance test checks all 7 ids are present and hormuz's bbox; this fills
 # in bbox + label for the remaining six so a wrong bbox/label on any region
 # fails a test, not just a spot check.)
 
@@ -317,8 +314,8 @@ def test_all_predefined_regions_have_config_md_bboxes_and_labels(monkeypatch):
 
 
 # --- Credit-tier coverage: all 7 predefined regions (config.md) -------------
-# The plan (plans/config/01-config-loader.md) calls for all 7 predefined
-# regions to match the config.md tier table, not just a spot check. Expected
+# All 7 predefined regions should match the config.md tier table, not just a
+# spot check. Expected
 # credits are hand-copied from config.md's "computed cost" table (not
 # recomputed with estimate_credits itself), so this is a genuine independent
 # check against the contract, not a tautology against the function under
@@ -372,14 +369,14 @@ def test_estimate_credits_tier_boundaries(area, expected_credits):
 
 
 # ===========================================================================
-# Inner unit tests for config step (issue #42): v1 config sections --
-# marine, aisstream, integrity, server. The outer acceptance test
+# Unit tests for the v1 config sections (issue #42) --
+# marine, aisstream, integrity, server. The acceptance test
 # (test_config_sections_acceptance.py) drives the full load_config() ->
 # GET /api/config -> secret-gate scenario end to end; these target the
 # lower-level collaborators (the bare _load_bundled_toml/_deep_merge/
 # AppConfig.model_validate pipeline, independent of Secrets/create_app) and
 # mirror the existing air missing-secret/disabled-layer units above for the
-# new marine gate, per plans/config/02-sections.md's inner-loop list.
+# new marine gate.
 # ===========================================================================
 
 
@@ -387,7 +384,7 @@ def test_v1_sections_parse_from_bundled_toml_via_deep_merge_pipeline():
     """The four new sections parse with their config.md default values
     through the bare parsing pipeline (_load_bundled_toml + _deep_merge +
     AppConfig.model_validate) -- no Secrets, no HTTP, no env at all. This is
-    a lower-level check than the outer test's `load_config()` (which also
+    a lower-level check than the acceptance test's `load_config()` (which also
     threads Secrets and drives `_check_required_secrets`): it isolates
     "does the bundled TOML parse into the right model shape" from "does the
     secret gate behave correctly".

@@ -1,6 +1,5 @@
 /**
- * Inner unit tests — plan/frontend/01-sse-client.md "Inner loop" units #1,
- * #2, #4, #5, against `src/sse/client.ts` as actually built.
+ * Unit tests for `src/sse/client.ts`.
  *
  * jsdom (this repo's Vitest environment, vitest.config.ts) has no native
  * `EventSource`. A small `FakeEventSource` test double stands in for it —

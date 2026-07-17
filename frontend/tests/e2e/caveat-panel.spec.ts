@@ -1,6 +1,6 @@
 /**
- *  locked outer acceptance test — frontend/05-caveat-panel (issue #61).
- * Encodes `plans/frontend/05-caveat-panel.md`'s Gherkin verbatim:
+ * Acceptance test — caveat panel (issue #61). Encodes the feature's Gherkin
+ * verbatim:
  *
  *   Given the app with the caveats endpoint served
  *   When  the Caveats button is opened from a domain's badge
@@ -11,34 +11,34 @@
  *   When  the panel is closed and reopened from the badge
  *   Then  it opens again from the badge in every status, including error
  *
- * `test.fail()` was this web slice's analog to a strict pytest xfail (
- * — precedent: `badges.spec.ts`, `layers-refresh.spec.ts`,
- * `region-selector.spec.ts`, `toggles-refresh.spec.ts`) from the slice's red
- * commit — when `caveatPanel.ts` did not exist and the badges' Caveats
- * button was a no-op (`frontend/src/ui/badges.ts`'s click handler was just a
- * `console.debug`), so every clause below failed for real — until the
- * developer greened every clause. the author confirmed the assertions
- * pass for real via Playwright's own unexpected-pass artifact: under
- * `test.fail()`, an all-clauses-passing run is *reported* as a failure
- * (`✘ … expected to fail but passed`) and Playwright writes an on-failure
- * screenshot but — critically — no `error-context.md` (no assertion ever
- * threw). That screenshot showed the panel OPEN from the AIR badge while AIR
- * was in `error` status, with the AIR domain header, a Close button, both
- * verbatim `AIR-ONLY-CAVEAT` bullets, and the footer's `air_unique_flag_x: 7`
- * count — i.e. the run walked every clause below, including the final
- * "reopen in error status" step, and every assertion held. That is an XPASS,
- * so the `test.fail()` marker is removed in this final pass; this now runs
- * as a normal `test(...)`.
+ * This test was written before the implementation existed. It initially ran
+ * under `test.fail()` (Playwright's expected-to-fail marker, the analog of a
+ * pytest xfail — precedent: `badges.spec.ts`, `layers-refresh.spec.ts`,
+ * `region-selector.spec.ts`, `toggles-refresh.spec.ts`) from when
+ * `caveatPanel.ts` did not exist and the badges' Caveats button was a no-op
+ * (`frontend/src/ui/badges.ts`'s click handler was just a `console.debug`),
+ * so every clause below failed for real, until the behavior was built. The
+ * assertions were confirmed to pass for real via Playwright's own
+ * unexpected-pass artifact: under `test.fail()`, an all-clauses-passing run
+ * is *reported* as a failure (`✘ … expected to fail but passed`) and
+ * Playwright writes an on-failure screenshot but — critically — no
+ * `error-context.md` (no assertion ever threw). That screenshot showed the
+ * panel OPEN from the AIR badge while AIR was in `error` status, with the AIR
+ * domain header, a Close button, both verbatim `AIR-ONLY-CAVEAT` bullets, and
+ * the footer's `air_unique_flag_x: 7` count — i.e. the run walked every clause
+ * below, including the final "reopen in error status" step, and every
+ * assertion held. That is an XPASS, so the `test.fail()` marker was removed;
+ * this now runs as a normal `test(...)`.
  *
- * CHROMIUM TEARDOWN CAVEAT (this box): per this repo's DURABLE
- * Playwright-in-sandbox lesson (see `badges.spec.ts` merge notes), the
- * chromium worker's teardown can hang for minutes *after* the test itself
- * has already passed/failed and printed its result line — a slow or
- * seemingly-hanging run is not evidence this test is broken; read the
- * per-test result line / artifacts, not wall-clock time or exit code alone.
+ * CHROMIUM TEARDOWN CAVEAT (this box): per this repo's durable
+ * Playwright-in-sandbox lesson (see `badges.spec.ts` notes), the chromium
+ * worker's teardown can hang for minutes *after* the test itself has already
+ * passed/failed and printed its result line — a slow or seemingly-hanging run
+ * is not evidence this test is broken; read the per-test result line /
+ * artifacts, not wall-clock time or exit code alone.
  *
- * REQUIRED TEST SEAMS (developer must expose these — locked here, not the
- * developer's to relax; each is independently asserted below):
+ * REQUIRED TEST SEAMS (the app must expose these; each is independently
+ * asserted below):
  *
  *   1. `[data-testid="caveat-panel"]` — ONE panel container, reused across
  *      domains (content swapped, never re-mounted — spec §5). Hidden/absent
@@ -57,8 +57,8 @@
  *      content that includes, for each key in the response's `active_flags`
  *      object, both the flag's name and its numeric count (e.g. the string
  *      "spoof_suspect_on_land" together with "3" appearing somewhere in the
- *      footer). Exact formatting/layout is the developer's choice; only
- *      the presence of name+count is locked here.
+ *      footer). Exact formatting/layout is unconstrained; only the presence
+ *      of name+count is asserted here.
  *   5. `[data-testid="caveat-panel-close"]` (inside the panel) — a close
  *      control; clicking it hides the panel (session-only — see seam 6).
  *   6. **No persistent-dismiss affordance anywhere in the panel.** This test
@@ -69,7 +69,7 @@
  *      is session-only — the badge's Caveats button is the only way back, in
  *      every status.
  *   7. The badge's existing `[data-testid="badge-{domain}"]
- *      [data-testid="caveats-button"]` (shipped in step, `badges.ts`)
+ *      [data-testid="caveats-button"]` (from `badges.ts`)
  *      opens/re-opens this panel and stays enabled in every `LayerStatus`,
  *      including `error` (already independently locked by `badges.spec.ts`;
  *      this test additionally proves it actually opens the panel, not just
@@ -87,20 +87,20 @@
  * `{domain, caveats, active_flags}` shape), so a domain swap is provably not
  * a coincidence of shared fixture text.
  *
- * RECONCILIATION (slice frontend/03-region-selector, #59): `main.ts`
- * unconditionally fetches `GET /api/regions` / `GET /api/regions/active` on
- * load; `stubRegionEndpoints` answers both quietly, as in every sibling spec
- * since #59. `stubRestFallback` (mirroring `badges.spec.ts` /
+ * LATER-FEATURE FALLOUT (region-selector, #59): `main.ts` unconditionally
+ * fetches `GET /api/regions` / `GET /api/regions/active` on load;
+ * `stubRegionEndpoints` answers both quietly, as in every sibling spec since
+ * #59. `stubRestFallback` (mirroring `badges.spec.ts` /
  * `toggles-refresh.spec.ts`) answers the per-domain
  * `GET /api/layers/{domain}/snapshot` cold-start/refresh fallback quietly —
  * this test's assertions are driven entirely by the SSE fixture pushes and
  * the caveats stubs below, never by these fallback bodies.
  *
- * RECONCILIATION (slice frontend/06-marine-integrity, issue #62): the app
- * now unconditionally fetches `GET /api/config` on load (the client tick
- * reads de-emphasis/drop thresholds from it, spec §9). This test has no live
+ * LATER-FEATURE FALLOUT (marine-integrity, issue #62): the app now
+ * unconditionally fetches `GET /api/config` on load (the client tick reads
+ * de-emphasis/drop thresholds from it, spec §9). This test has no live
  * FastAPI backend, so an unstubbed call would leak through Vite's preview
- * proxy the same way the region reconciliation above already documents.
+ * proxy the same way the region note above already documents.
  * `tests/e2e/helpers/stubConfigEndpoint.ts` answers it quietly; this test
  * asserts nothing about tick/de-emphasis behavior (that's
  * `marine-integrity.spec.ts`'s job).

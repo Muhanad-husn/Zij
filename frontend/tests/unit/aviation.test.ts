@@ -1,13 +1,11 @@
 /**
- * Inner unit tests — plan/frontend-map/02-layers-refresh.md "Inner loop" unit
- * #2 (Aviation symbol config), against `src/map/layers/aviation.ts` as
- * actually built.
+ * Unit tests for the Aviation symbol config in `src/map/layers/aviation.ts`.
  *
  * `initAviationLayer`/`updateAviationLayer` take a real MapLibre `Map`, but
  * only ever call the small subset of its API (`addSource`/`addLayer`/
  * `getSource`/`hasImage`/`addImage`) — a fake stand-in records those calls
- * without needing WebGL (same pattern as tests/unit/map-factory.test.ts from
- * step). `maplibre-gl` itself is only `import type`-ed here, so it is
+ * without needing WebGL (same pattern as tests/unit/map-factory.test.ts).
+ * `maplibre-gl` itself is only `import type`-ed here, so it is
  * never actually loaded at runtime and needs no vi.mock.
  */
 import { beforeEach, describe, expect, it } from 'vitest';

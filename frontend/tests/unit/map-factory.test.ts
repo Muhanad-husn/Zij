@@ -1,5 +1,5 @@
 /**
- * Inner unit tests — plan/frontend-map/01-map-init.md "Inner loop" units #1 and #4.
+ * Unit tests for the map-init factory (`initMap`, `src/map/map.ts`).
  *
  * MapLibre GL JS requires a real WebGL context to construct a `Map` (jsdom has no
  * WebGL — deliberately out of scope, design/docs/TESTING.md §6: "MapLibre rendering
